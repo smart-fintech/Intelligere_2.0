@@ -1,0 +1,4 @@
+The Services directory manages API calls and external interactions, keeping code organized and maintainable.
+
+Encapsulates logic for interacting with APIs and external resources.
+Ensures separation of concerns and cleaner code structure.

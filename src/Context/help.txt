@@ -1,0 +1,4 @@
+The Context directory manages global state in React, allowing components to share data without prop drilling.
+
+Uses React Context API to provide state across multiple components.
+Eliminates the need to pass props manually through component layers.

@@ -1,0 +1,4 @@
+The Config folder holds configuration files like config.js for managing environment settings and build tools.
+
+Stores environment-specific variables and settings.
+Can include configurations for Webpack, Babel, and other tools.

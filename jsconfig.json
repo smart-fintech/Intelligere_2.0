@@ -1,0 +1,28 @@
+{
+  // Tells VS Code how to resolve imports in this project.
+  "compilerOptions": {
+    // Lets you write `import { Button } from "@/Components/ui/button"`
+    // instead of "../../Components/ui/button".
+    // Paths are relative to this file, so "@/x" -> "<project root>/src/x".
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+
+    // Modern React: no need to `import React` just to write JSX.
+    "jsx": "react-jsx",
+
+    // Match how Vite bundles: ES modules, bundler-style resolution.
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+
+    // This is a plain JavaScript project - read .js/.jsx, don't type-check them.
+    "allowJs": true,
+    "checkJs": false,
+    "noEmit": true
+  },
+
+  // Only apply the above to our own source code.
+  "include": ["src"],
+  "exclude": ["node_modules", "dist"]
+}

@@ -1,0 +1,4 @@
+The Utils directory stores reusable utility functions used across components to centralize common logic.
+
+Includes functions like date formatting, string manipulation, etc.
+Promotes code reuse and consistency throughout the project.

@@ -1,0 +1,4 @@
+The Styles directory contains CSS or styling files that define the visual appearance of the application.
+
+Stores component-specific and global styles.
+Helps maintain a consistent look and feel across the app.

@@ -1,0 +1,4 @@
+Hooks enable functional components to use state and React features without classes, promoting reusable logic.
+
+Central directory allows easy access and reuse.
+Simplifies state and effect management across components.

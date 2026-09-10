@@ -1,0 +1,4 @@
+The Assets folder stores static files like images, icons, and fonts, keeping the project organized.
+
+Centralizes all media and static resources in one place.
+Makes it easy to locate, manage, and update assets.

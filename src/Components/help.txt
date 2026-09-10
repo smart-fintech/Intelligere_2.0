@@ -1,0 +1,6 @@
+A Component is a core building block of React, similar to a JavaScript function, that returns HTML and helps break the UI into manageable pieces.
+
+Components simplify building and managing UI.
+Each component represents an individual piece of the interface.
+Components can be developed and tested independently.
+Multiple components are combined into a parent component for the final UI.
