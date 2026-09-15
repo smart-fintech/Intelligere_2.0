@@ -2,8 +2,9 @@
  * The Redux store - the app's shared data.
  *
  * WHY THIS EXISTS
- * localStorage keeps the session (tokens, email, role) because that has to
- * survive a page reload. The store keeps data that many screens need while
+ * localStorage keeps the session (tokens, email, the selected company_id)
+ * because that has to survive a page reload - see STORAGE_KEYS in
+ * Library/secureStorage for the full, deliberately short list. The store keeps data that many screens need while
  * the app is open - the profile today, more later - so it is fetched once
  * instead of by every screen that shows it.
  *
@@ -20,12 +21,18 @@
 
 import { configureStore } from '@reduxjs/toolkit'
 
+import bankReducer from '@/Store/Slices/bankSlice'
+import companyReducer from '@/Store/Slices/companySlice'
+import ledgerReducer from '@/Store/Slices/ledgerSlice'
 import profileReducer from '@/Store/Slices/profileSlice'
 import referralReducer from '@/Store/Slices/referralSlice'
 
 export const store = configureStore({
   // One key per slice. `state.profile` is what profileSlice owns.
   reducer: {
+    bank: bankReducer,
+    company: companyReducer,
+    ledger: ledgerReducer,
     profile: profileReducer,
     referral: referralReducer,
   },

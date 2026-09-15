@@ -30,25 +30,17 @@
  */
 
 import { useState } from 'react'
+import { Search } from 'lucide-react'
 
+import { Field, FormGrid, SelectField, SwitchField } from '@/Components/Common/FormFields'
 import { Modal } from '@/Components/Common/Modal'
-import { Spinner } from '@/Components/Common/Loader'
 import { Button } from '@/Components/ui/button'
-import { Input } from '@/Components/ui/input'
-import { Label } from '@/Components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/Components/ui/select'
-import { Switch } from '@/Components/ui/switch'
 import { INDIAN_STATES, findStateByGstNumber } from '@/Constants/indianStates'
 import { toast } from '@/Library/toast'
 import { cn } from '@/Library/utils'
 import { createIntelligereCompany } from '@/Services/companyService'
-import { fetchGstDetails, isValidGstNumber } from '@/Services/gstService'
+import { useGstLookup } from '@/Hooks/useGstLookup'
+import { isValidGstNumber } from '@/Services/gstService'
 
 /* ------------------------------------------------------------------ */
 /* The form                                                           */
@@ -65,26 +57,6 @@ const EMPTY_FORM = {
   comp_state: '',
 }
 
-/** A labelled text box, with its error message underneath. */
-function Field({ id, label, error, className, ...props }) {
-  return (
-    <div className={cn('space-y-1.5', className)}>
-      <Label htmlFor={id} className="text-sm text-muted-foreground">
-        {label}
-      </Label>
-
-      <Input
-        id={id}
-        className={cn('h-10', error && 'border-destructive')}
-        aria-invalid={Boolean(error)}
-        {...props}
-      />
-
-      {error ? <p className="text-xs text-destructive">{error}</p> : null}
-    </div>
-  )
-}
-
 export default function AddCompanyModal({ open, onOpenChange, onCreated }) {
   const [form, setForm] = useState(EMPTY_FORM)
   const [errors, setErrors] = useState({})
@@ -92,8 +64,10 @@ export default function AddCompanyModal({ open, onOpenChange, onCreated }) {
 
   // Whether the form is in "look it up" mode rather than "type it in" mode.
   const [lookupMode, setLookupMode] = useState(false)
-  // True only while the GST service is being asked.
-  const [fetching, setFetching] = useState(false)
+  // The GST lookup, shared with the Ledger form so both behave the same -
+  // see Hooks/useGstLookup. `fetching` is true while it is asking.
+  const gst = useGstLookup()
+  const fetching = gst.looking
 
   const busy = submitting || fetching
 
@@ -162,53 +136,36 @@ export default function AddCompanyModal({ open, onOpenChange, onCreated }) {
   /* ---------------------------------------------------------------- */
 
   const runLookup = async () => {
-    const gst = form.gst_no.trim().toUpperCase()
+    const result = await gst.lookup(form.gst_no, {
+      successMessage: 'Details filled in. Add a mobile number to finish.',
+    })
 
-    // Checked here so an obviously wrong number never costs a request.
-    if (!gst) {
-      setErrors({ gst_no: 'GST number is required' })
-      return
-    }
-    if (!isValidGstNumber(gst)) {
-      setErrors({ gst_no: 'Enter a valid 15-character GST number' })
+    if (result.fieldError) {
+      setErrors({ gst_no: result.fieldError })
       return
     }
 
-    setFetching(true)
+    // Failed: the message has been shown and the form is left as it was.
+    if (!result.details) return
 
-    try {
-      const details = await fetchGstDetails(gst)
+    const details = result.details
 
-      // Only what came back is written; anything the record does not carry
-      // keeps whatever was already typed. A GST record has no mobile
-      // number at all, which is why the form reopens after this.
-      setForm((previous) => ({
-        ...previous,
-        gst_no: details.gstNumber || gst,
-        comp_name: details.name || previous.comp_name,
-        comp_address: details.address || previous.comp_address,
-        pincode: details.pincode || previous.pincode,
-        comp_state: details.state || previous.comp_state,
-      }))
-      setErrors({})
+    // Only what came back is written; anything the record does not carry
+    // keeps whatever was already typed. A GST record has no mobile number at
+    // all, which is why the form reopens after this.
+    setForm((previous) => ({
+      ...previous,
+      gst_no: details.gstNumber || previous.gst_no.trim().toUpperCase(),
+      comp_name: details.name || previous.comp_name,
+      comp_address: details.address || previous.comp_address,
+      pincode: details.pincode || previous.pincode,
+      comp_state: details.state || previous.comp_state,
+    }))
+    setErrors({})
 
-      // Back to the full form, so the user can see what arrived, add the
-      // mobile number, and save.
-      setLookupMode(false)
-
-      toast.success('Details filled in. Add a mobile number to finish.')
-
-      // A cancelled or suspended registration is a valid GST number but not
-      // a company anyone should be invoicing, so it is said out loud rather
-      // than left for the user to spot.
-      if (details.status && details.status.toLowerCase() !== 'active') {
-        toast.warning(`This GST registration is ${details.status.toLowerCase()}.`)
-      }
-    } catch (error) {
-      toast.error(error.message)
-    } finally {
-      setFetching(false)
-    }
+    // Back to the full form, so the user can see what arrived, add the
+    // mobile number, and save.
+    setLookupMode(false)
   }
 
   /* ---------------------------------------------------------------- */
@@ -261,7 +218,7 @@ export default function AddCompanyModal({ open, onOpenChange, onCreated }) {
       // Closing by Escape or by the X goes through the same tidy-up as
       // Cancel, so there is one way out and it always clears the form.
       onOpenChange={(next) => (next ? onOpenChange(true) : close())}
-      title="Add company"
+      title="Add Company"
       size="lg"
       // While a request is in flight the modal cannot be dismissed by
       // accident - it would carry on regardless and the user would never
@@ -277,43 +234,44 @@ export default function AddCompanyModal({ open, onOpenChange, onCreated }) {
 
           {/* `form="add-company-form"` links this button to the form below,
               which is what makes the Enter key work as well as the click. */}
-          <Button type="submit" form="add-company-form" disabled={busy}>
-            {busy ? <Spinner size="xs" className="text-current" /> : null}
+          <Button
+            type="submit"
+            form="add-company-form"
+            loading={busy}
+            icon={lookupMode ? Search : undefined}
+          >
             {fetching
               ? 'Fetching...'
               : submitting
                 ? 'Adding...'
                 : lookupMode
-                  ? 'Fetch details'
-                  : 'Add company'}
+                  ? 'Fetch Details'
+                  : 'Add Company'}
           </Button>
         </>
       }
     >
       <form id="add-company-form" onSubmit={handleSubmit} noValidate className="space-y-4">
         {/* ---------------- Fill from GSTIN ---------------- */}
-        <div className="flex items-center gap-2">
-          <Label htmlFor="fill-from-gstin" className="text-sm font-medium cursor-pointer">
-            Fill from GSTIN
-          </Label>
-          <Switch
-            id="fill-from-gstin"
-            checked={lookupMode}
-            disabled={busy}
-            onCheckedChange={(next) => {
-              setLookupMode(next)
-              setErrors({})
-            }}
-          />
-        </div>
+        <SwitchField
+          id="fill-from-gstin"
+          label="Fill from GSTIN"
+          checked={lookupMode}
+          disabled={busy}
+          onCheckedChange={(next) => {
+            setLookupMode(next)
+            setErrors({})
+          }}
+        />
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <FormGrid>
           {/* The GST number is the one field shown in BOTH modes - it is
               what the lookup needs, and what the company is saved with. On
               its own it takes the full width. */}
           <Field
             id="gst_no"
-            label="GST number"
+            label="GST Number"
+            required
             placeholder="24AAAAA0000A1Z5"
             maxLength={15}
             autoFocus={lookupMode}
@@ -322,7 +280,8 @@ export default function AddCompanyModal({ open, onOpenChange, onCreated }) {
             value={form.gst_no}
             error={errors.gst_no}
             onChange={(e) => setField('gst_no', e.target.value.toUpperCase())}
-            className={cn('[&_input]:uppercase', lookupMode && 'sm:col-span-2')}
+            inputClassName="uppercase"
+            className={cn(lookupMode && 'sm:col-span-2')}
           />
 
           {/* ---------------- Everything else ----------------
@@ -333,7 +292,8 @@ export default function AddCompanyModal({ open, onOpenChange, onCreated }) {
             <>
               <Field
                 id="comp_name"
-                label="Company name"
+                label="Company Name"
+                required
                 placeholder="ABC Traders Pvt Ltd"
                 value={form.comp_name}
                 error={errors.comp_name}
@@ -342,7 +302,8 @@ export default function AddCompanyModal({ open, onOpenChange, onCreated }) {
 
               <Field
                 id="mobile_no"
-                label="Mobile number"
+                label="Mobile Number"
+                required
                 placeholder="9876543210"
                 inputMode="numeric"
                 maxLength={10}
@@ -356,6 +317,7 @@ export default function AddCompanyModal({ open, onOpenChange, onCreated }) {
               <Field
                 id="pincode"
                 label="Pincode"
+                required
                 placeholder="380007"
                 inputMode="numeric"
                 maxLength={6}
@@ -364,40 +326,22 @@ export default function AddCompanyModal({ open, onOpenChange, onCreated }) {
                 onChange={(e) => setField('pincode', e.target.value.replace(/\D/g, ''))}
               />
 
-              <div className="space-y-1.5 sm:col-span-2">
-                <Label htmlFor="comp_state" className="text-sm text-muted-foreground">
-                  State
-                </Label>
-
-                <Select
-                  value={form.comp_state}
-                  onValueChange={(value) => setField('comp_state', value)}
-                >
-                  <SelectTrigger
-                    id="comp_state"
-                    aria-invalid={Boolean(errors.comp_state)}
-                    className={cn('h-10 w-full', errors.comp_state && 'border-destructive')}
-                  >
-                    <SelectValue placeholder="Select a state" />
-                  </SelectTrigger>
-
-                  <SelectContent>
-                    {INDIAN_STATES.map((state) => (
-                      <SelectItem key={state.code} value={state.name}>
-                        {state.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-
-                {errors.comp_state ? (
-                  <p className="text-xs text-destructive">{errors.comp_state}</p>
-                ) : null}
-              </div>
+              <SelectField
+                id="comp_state"
+                label="State"
+                required
+                placeholder="Select a state"
+                className="sm:col-span-2"
+                value={form.comp_state}
+                error={errors.comp_state}
+                onValueChange={(value) => setField('comp_state', value)}
+                options={INDIAN_STATES.map((state) => ({ value: state.name, label: state.name }))}
+              />
 
               <Field
                 id="comp_address"
                 label="Address"
+                required
                 placeholder="5/H Sumeru Center, 6th Floor, CG Road, Paldi"
                 className="sm:col-span-2"
                 value={form.comp_address}
@@ -406,7 +350,7 @@ export default function AddCompanyModal({ open, onOpenChange, onCreated }) {
               />
             </>
           )}
-        </div>
+        </FormGrid>
       </form>
     </Modal>
   )

@@ -1,52 +1,18 @@
+import { useState } from 'react'
 import { Mail } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Input } from '@/Components/ui/input'
-import { Label } from '@/Components/ui/label'
+
+import { Field } from '@/Components/Common/FormFields'
 import { Button } from '@/Components/ui/button'
-import { Card, CardContent } from '@/Components/ui/card'
 import { ROUTES } from '@/Constants/routes'
-import { useState } from 'react'
 import { toast } from '@/Library/toast'
 import { api } from '@/Services/authService'
-import { cn } from '@/Library/utils'
+import AuthShell from '../Components/AuthShell'
 
 /**
- * PLACEHOLDER PAGE.
- *
- * It exists so the "Forgot password?" link on the login page has somewhere
- * to land instead of hitting the 404 route. The real screen (email box ->
- * useraccount/password-reset-complete/ -> reset form) still has to be built.
+ * Forgot password: one email box that asks the backend to send a reset link
+ * (useraccount/request-reset-email/), then goes back to the login page.
  */
-function IconField({ id, label, icon: Icon, error, children, ...props }) {
-  return (
-    <div className="space-y-1.5">
-      <Label htmlFor={id} className="text-sm text-muted-foreground">
-        {label}
-      </Label>
-
-      {/* `relative` lets us position the icon on top of the input */}
-      <div className="relative">
-        <span className="pointer-events-none absolute inset-y-0 left-0 flex w-10 items-center justify-center text-brand">
-          <Icon className="size-4" />
-        </span>
-
-        <Input
-          id={id}
-          className={cn(
-            'h-11 rounded-md border-transparent bg-brand-soft pl-10 text-foreground placeholder:text-brand-light',
-            children && 'pr-10',
-            error && 'border-destructive',
-          )}
-          {...props}
-        />
-
-        {children}
-      </div>
-
-      {error ? <p className="text-xs text-destructive">{error}</p> : null}
-    </div>
-  )
-}
 export default function ForgotPassword() {
 
   const navigate = useNavigate();
@@ -108,56 +74,38 @@ export default function ForgotPassword() {
     }
   }
   return (
-    <div className="flex min-h-screen items-center justify-center bg-brand-soft/60 px-4 py-10">
-      <div className="w-full max-w-md space-y-6">
-        {/* ---------- Page heading ---------- */}
-        <h1 className="text-center font-normal text-4xl font-light text-brand-light">
-          Welcome to <span className="font-bold text-brand">Intelligere</span>
-        </h1>
-        <Card className="w-full max-w-md overflow-hidden border-border/70 py-0 shadow-lg shadow-brand/5">
-
-          <CardContent className="space-y-4 px-6 py-8 text-left">
-            <IconField
-              id="email"
-              label="Email"
-              icon={Mail}
-              type="email"
-              placeholder="Email"
-              autoComplete="email"
-              value={email}
-              error={errors.email}
-              onChange={(e) => setField('email', e.target.value)}
-            />
-
-
-            {/* ---------- Submit ----------
-                  Full width, solid brand blue, with a soft brand-tinted
-                  shadow that grows on hover and a tiny press-down on click. */}
-            <div className="text-right">
-              <Button
-                type="submit"
-                variant="default"
-                // Disabled while the request is running, so one click = one attempt.
-                disabled={submitting}
-                onClick={handleSubmit}
-              >
-                {submitting ? 'Sending reset link...' : 'Forget Password'}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-        {/* ---------- Link across to the register page ---------- */}
-        <p className="text-center text-sm text-muted-foreground">
-          New to Intelligere?{' '}<br />
-          <Button
-            asChild
-            variant="secondary"
-            className="bg-brand-soft text-brand hover:bg-brand hover:text-brand-foreground"
-          >
+    <AuthShell
+      footer={
+        <>
+          New to Intelligere?
+          <Button asChild variant="secondary">
             <Link to={ROUTES.REGISTER}>Register Here</Link>
           </Button>
-        </p>
-      </div>
-    </div>
+        </>
+      }
+    >
+      {/* A real <form>, so Enter in the email box sends it as well as the
+          button. */}
+      <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+        <Field
+          id="email"
+          label="Email"
+          required
+          icon={Mail}
+          type="email"
+          placeholder="Email"
+          autoComplete="email"
+          value={email}
+          error={errors.email}
+          onChange={(e) => setField('email', e.target.value)}
+        />
+
+        <div className="flex justify-end">
+          <Button type="submit" loading={submitting}>
+            {submitting ? 'Sending reset link...' : 'Forget Password'}
+          </Button>
+        </div>
+      </form>
+    </AuthShell>
   )
 }

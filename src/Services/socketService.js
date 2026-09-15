@@ -190,7 +190,7 @@ const detach = (ws) => {
  * The backend sends two shapes and this copes with both, without caring what
  * is inside them:
  *
- *  { res: { message: { module: 'Gcompany_id', ... } } } a module's reply
+ *  { res: { message: { module: 'fetch_tally_company', ... } } } a module's reply
  *  { message: { msg: 'stop_loader' } } a common message
  *
  * Anything else is handed back as-is, so a new shape cannot break this file.

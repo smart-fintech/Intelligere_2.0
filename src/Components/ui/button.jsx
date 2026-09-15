@@ -1,25 +1,68 @@
 import * as React from "react"
 import { cva } from "class-variance-authority"
 import { Slot } from "radix-ui"
-import * as TooltipPrimitive from "@radix-ui/react-tooltip"
 
+import Spinner from "@/Components/Common/Loader/Spinner"
+import { Tooltip } from "@/Components/ui/tooltip"
 import { cn } from "@/Library/utils"
 
+/**
+ * THE button. Every clickable action in the app is one of these, so a change
+ * to how buttons look is made here and nowhere else.
+ *
+ * ------------------------------------------------------------------
+ * WHICH VARIANT FOR WHICH ACTION
+ * ------------------------------------------------------------------
+ *   default      Submit, Save, Update, Add, Create, Login, Fetch - the action
+ *                the screen is for. Blue outline, the ERP look set for this
+ *                project. It is the default, so a plain <Button> is right for
+ *                these and needs no variant at all.
+ *
+ *   destructive  Delete, and anything else that removes data. Red outline,
+ *                so it can never be mistaken for the blue action beside it.
+ *
+ *   ghost        Cancel, Close, Clear, Reset - backing out. No border, so it
+ *                sits quietly next to the action it declines.
+ *
+ *   outline      Refresh, Retry, Previous, Next, Export - utilities around a
+ *                list. Neutral grey outline.
+ *
+ *   secondary    Soft brand fill, for navigation dressed as a button
+ *                ("Register here", "Copy referral link").
+ *
+ *   link         Text only.
+ *
+ * Sizes: `default` in forms and dialogs, `sm` in toolbars above and below a
+ * list, `icon-sm` for the icon buttons on a table row.
+ *
+ * ------------------------------------------------------------------
+ * EXTRAS ON TOP OF THE STOCK BUTTON
+ * ------------------------------------------------------------------
+ *   loading   true while the action runs: the button is disabled and shows a
+ *             spinner, so one click can only ever be one request.
+ *   icon      a lucide icon component drawn before the text, e.g.
+ *             `icon={Search}`. While `loading` the spinner takes its place.
+ *             Icons passed as children still work too.
+ *   tooltip   text shown on hover/focus - for icon-only buttons. Drawn by
+ *             the shared <Tooltip> in ui/tooltip.jsx; `tooltipSide` and
+ *             `tooltipAlign` are its `side` and `align`.
+ */
 const buttonVariants = cva(
-  "inline-flex shrink-0 items-center justify-center gap-2 rounded-md text-sm font-medium whitespace-nowrap transition-all outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "inline-flex shrink-0 cursor-pointer items-center justify-center gap-2 rounded-md text-sm font-medium whitespace-nowrap transition-all outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground hover:bg-primary/90 cursor-pointer",
+        default:
+          "border border-brand/40 bg-card text-brand shadow-xs hover:border-brand hover:bg-brand-soft hover:text-brand-dark",
         destructive:
-          "bg-destructive text-white hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:bg-destructive/60 dark:focus-visible:ring-destructive/40 cursor-pointer",
+          "border border-destructive/40 bg-card text-destructive shadow-xs hover:border-destructive hover:bg-destructive/10 focus-visible:border-destructive focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40",
         outline:
-          "border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50 cursor-pointer",
+          "border border-input bg-card shadow-xs hover:bg-accent hover:text-accent-foreground dark:bg-input/30 dark:hover:bg-input/50",
         secondary:
-          "bg-secondary text-secondary-foreground hover:bg-secondary/80 cursor-pointer",
+          "bg-brand-soft text-brand hover:bg-brand hover:text-brand-foreground",
         ghost:
-          "hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50 cursor-pointer",
-        link: "text-primary underline-offset-4 hover:underline cursor-pointer",
+          "hover:bg-brand-soft hover:text-brand-dark",
+        link: "text-brand underline-offset-4 hover:underline",
       },
       size: {
         default: "h-9 px-4 py-2 has-[>svg]:px-3",
@@ -44,6 +87,10 @@ function Button({
   variant = "default",
   size = "default",
   asChild = false,
+  loading = false,
+  icon: Icon,
+  disabled,
+  children,
   tooltip,
   tooltipSide = "top",
   tooltipAlign = "center",
@@ -51,39 +98,36 @@ function Button({
 }) {
   const Comp = asChild ? Slot.Root : "button"
 
-  const buttonElement = (
-    <Comp
-      data-slot="button"
-      data-variant={variant}
-      data-size={size}
-      className={cn(buttonVariants({ variant, size, className }))}
-      {...props}
-    />
+  // `asChild` hands the styling to the single child it wraps (a <Link>, say),
+  // so nothing may be added beside that child.
+  const content = asChild ? (
+    children
+  ) : (
+    <>
+      {loading ? (
+        <Spinner size="xs" className="text-current" />
+      ) : Icon ? (
+        <Icon />
+      ) : null}
+      {children}
+    </>
   )
 
-  if (!tooltip) {
-    return buttonElement
-  }
-
+  // Without a `tooltip` the shared Tooltip renders the button on its own.
   return (
-    <TooltipPrimitive.Provider delayDuration={200}>
-      <TooltipPrimitive.Root>
-        <TooltipPrimitive.Trigger asChild>
-          {buttonElement}
-        </TooltipPrimitive.Trigger>
-        <TooltipPrimitive.Portal>
-          <TooltipPrimitive.Content
-            side={tooltipSide}
-            align={tooltipAlign}
-            sideOffset={6}
-            className="z-50 overflow-hidden rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground shadow-md animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2"
-          >
-            {tooltip}
-            <TooltipPrimitive.Arrow className="fill-primary" />
-          </TooltipPrimitive.Content>
-        </TooltipPrimitive.Portal>
-      </TooltipPrimitive.Root>
-    </TooltipPrimitive.Provider>
+    <Tooltip text={tooltip} side={tooltipSide} align={tooltipAlign}>
+      <Comp
+        data-slot="button"
+        data-variant={variant}
+        data-size={size}
+        className={cn(buttonVariants({ variant, size, className }))}
+        disabled={disabled || loading}
+        aria-busy={loading || undefined}
+        {...props}
+      >
+        {content}
+      </Comp>
+    </Tooltip>
   )
 }
 

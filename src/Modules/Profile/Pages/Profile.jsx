@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react'
 import { Check, Copy, Download, Pencil, X } from 'lucide-react'
 import { useDispatch, useSelector } from 'react-redux'
 
-import { Loader, Spinner } from '@/Components/Common/Loader'
+import { Loader } from '@/Components/Common/Loader'
+import { PlainHead } from '@/Components/Common/TableTools'
 import { Button } from '@/Components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/Components/ui/card'
 import { Input } from '@/Components/ui/input'
+import { Table, TableBody, TableCell, TableHeader, TableRow } from '@/Components/ui/table'
 import { toast } from '@/Library/toast'
 import {
   fetchProfile,
@@ -49,7 +51,7 @@ function ProfileFieldItem({
 
   return (
     <div className="flex min-h-[44px] items-center justify-between border-b border-border/50 py-2.5">
-      <span className="w-2/5 text-sm font-semibold text-[#1a5b82]">
+      <span className="w-2/5 text-sm font-semibold text-brand">
         {item.label}
       </span>
 
@@ -68,49 +70,46 @@ function ProfileFieldItem({
               className="h-8 max-w-[200px]"
             />
             <div className="flex items-center gap-1">
+              {/* Save is the row's action and Cancel backs out - the same two
+                  looks as everywhere else, at icon size. The tick becomes a
+                  spinner while the change is on its way to the server, so
+                  the row itself says it is saving. */}
               <Button
                 type="button"
-                variant="ghost"
-                size="icon"
-                title="Save"
-                disabled={isSaving}
+                size="icon-sm"
+                tooltip="Save"
+                aria-label={`Save ${item.label}`}
+                icon={Check}
+                loading={isSaving}
                 onClick={onSave}
-                className="size-7 text-[#1a5b82] hover:bg-slate-100"
-              >
-                {/* The tick becomes a spinner while the change is on its way
-                    to the server, so the row itself says it is saving. */}
-                {isSaving ? <Spinner size="xs" /> : <Check className="size-4" />}
-              </Button>
+              />
               <Button
                 type="button"
                 variant="ghost"
-                size="icon"
-                title="Cancel"
+                size="icon-sm"
+                tooltip="Cancel"
+                aria-label="Cancel"
+                icon={X}
                 disabled={isSaving}
                 onClick={onCancel}
-                className="size-7 text-muted-foreground hover:bg-slate-100"
-              >
-                <X className="size-4" />
-              </Button>
+              />
             </div>
           </div>
         ) : (
           <div className="flex w-full items-center justify-between gap-2">
-            <span className="text-sm font-medium text-slate-700">
+            <span className="text-sm font-medium text-foreground">
               {hasValue ? item.display : ''}
             </span>
 
             {item.editable && (
               <Button
                 type="button"
-                variant="ghost"
-                size="icon"
-                title={`Edit ${item.label}`}
+                size="icon-sm"
+                tooltip="Edit"
+                aria-label={`Edit ${item.label}`}
+                icon={Pencil}
                 onClick={onStartEdit}
-                className="size-7 text-[#1a5b82] hover:bg-slate-100"
-              >
-                <Pencil className="size-4" />
-              </Button>
+              />
             )}
           </div>
         )}
@@ -344,8 +343,8 @@ export default function Profile() {
   }
   return (
     <div className="mx-auto max-w-5xl space-y-6 p-4 sm:p-6">
-      <Card className="overflow-hidden border border-slate-200 shadow-sm ">
-        <CardHeader className="bg-[#e9f4f7] py-3 text-center gap-0">
+      <Card className="overflow-hidden border-border/70 shadow-sm">
+        <CardHeader className="gap-0 bg-brand-soft py-3 text-center">
           <CardTitle className="text-lg font-bold text-primary">
             User Profile
           </CardTitle>
@@ -398,11 +397,12 @@ export default function Profile() {
 
           <div className="mt-6 flex justify-end">
             <Button
-              variant="default"
+              type="button"
+              variant="outline"
               size="sm"
+              icon={Download}
               onClick={(e) => downloadActivityLog(e)}
             >
-              <Download className="mr-1.5 size-4" />
               Activity Log
             </Button>
           </div>
@@ -411,19 +411,18 @@ export default function Profile() {
 
       {/* Referrals Section (MSME only) */}
       {/* {isMsme && ( */}
-      <Card className="border border-slate-200 gap-0">
+      <Card className="gap-0 border-border/70 shadow-sm">
         <CardHeader className="flex flex-row items-center justify-between py-4">
-          <CardTitle className="text-base font-semibold text-[#1a5b82]">
+          <CardTitle className="text-base font-semibold text-brand">
             Referrals
           </CardTitle>
           <Button
             type="button"
             variant="secondary"
             size="sm"
+            icon={copied ? Check : Copy}
             onClick={copyReferralLink}
-            className="bg-[#e9f4f7] text-[#1a5b82] hover:bg-[#1a5b82] hover:text-white"
           >
-            <Copy className="mr-1.5 size-4" />
             {copied ? 'Copied!' : 'Copy referral link'}
           </Button>
         </CardHeader>
@@ -437,28 +436,28 @@ export default function Profile() {
               Nobody has signed up with your link yet. Share it to get started.
             </p>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse text-left text-sm">
-                <thead>
-                  <tr className="border-b border-border/60 bg-slate-50">
-                    <th className="px-6 py-2.5 text-xs font-semibold text-muted-foreground">Referred to</th>
-                    <th className="px-3 py-2.5 text-xs font-semibold text-muted-foreground">Joined</th>
-                    <th className="px-3 py-2.5 text-xs font-semibold text-muted-foreground">Paid</th>
-                    <th className="px-6 py-2.5 text-xs font-semibold text-muted-foreground">Paid on</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {referrals.map((referral) => (
-                    <tr key={referral.id} className="border-b border-border/60 last:border-0">
-                      <td className="px-6 py-3 text-slate-700">{referral.Referred_to}</td>
-                      <td className="px-3 py-3 text-slate-700">{formatDate(referral.created_at)}</td>
-                      <td className="px-3 py-3"><YesNo value={referral.is_paid} /></td>
-                      <td className="px-6 py-3 text-slate-700">{formatDate(referral.payment_at)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            // The same table pieces and header lettering as the dashboard
+            // lists. Table scrolls sideways on its own on a narrow screen.
+            <Table>
+              <TableHeader className="bg-muted">
+                <TableRow className="hover:bg-transparent">
+                  <PlainHead className="pl-6">Referred to</PlainHead>
+                  <PlainHead>Joined</PlainHead>
+                  <PlainHead>Paid</PlainHead>
+                  <PlainHead className="pr-6">Paid on</PlainHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {referrals.map((referral) => (
+                  <TableRow key={referral.id} className="border-border/60">
+                    <TableCell className="pl-6">{referral.Referred_to}</TableCell>
+                    <TableCell>{formatDate(referral.created_at)}</TableCell>
+                    <TableCell><YesNo value={referral.is_paid} /></TableCell>
+                    <TableCell className="pr-6">{formatDate(referral.payment_at)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           )}
         </CardContent>
       </Card>

@@ -7,31 +7,44 @@
  * look like.
  *
  * Props:
- *   label   the tooltip AND the screen-reader name - an icon on its own
- *           says nothing to either, so this is required
- *   icon    a lucide icon component, e.g. `Bell`
- *   badge   an optional number drawn in a little circle on the corner
- *           (used by the notification bell)
+ *   label        the tooltip AND the screen-reader name - an icon on its own
+ *                says nothing to either, so this is required
+ *   icon         a lucide icon component, e.g. `Bell`
+ *   badge        an optional number drawn in a little circle on the corner
+ *                (used by the notification bell)
+ *   tooltipSide  where the tooltip opens. "bottom" by default, because these
+ *                buttons sit in the header at the very top of the window.
  *
  * Anything else - onClick, disabled, className - is passed straight to the
  * button underneath.
+ *
+ * The tooltip is the app's shared one (ui/tooltip.jsx, through Button's
+ * `tooltip` prop), not the browser's `title`, so it looks like every other
+ * tooltip and also opens on keyboard focus.
  */
 
 import { Button } from '@/Components/ui/button'
 import { cn } from '@/Library/utils'
 
-export default function IconAction({ label, icon: Icon, badge, className, ...props }) {
+export default function IconAction({
+  label,
+  icon: Icon,
+  badge,
+  tooltipSide = 'bottom',
+  className,
+  ...props
+}) {
   return (
     <Button
       type="button"
       variant="ghost"
       size="icon"
-      title={label}
+      tooltip={label}
+      tooltipSide={tooltipSide}
       aria-label={label}
-      className={cn(
-        'relative text-brand hover:bg-brand-soft hover:text-brand-dark',
-        className,
-      )}
+      // The ghost variant already gives the brand-tinted hover; this only
+      // colours the icon and makes room for the badge.
+      className={cn('relative text-brand', className)}
       {...props}
     >
       <Icon className="size-5" />

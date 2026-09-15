@@ -1,81 +1,35 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import {
-  Contact,
-  Eye,
-  EyeOff,
-  Lock,
-  Mail,
-  Phone,
-  ReceiptText,
-  User,
-} from 'lucide-react'
+import { Contact, Mail, Phone, ReceiptText, User } from 'lucide-react'
 
+import {
+  Field,
+  FieldError,
+  FormGrid,
+  PasswordField,
+  SelectField,
+  fieldLabelClass,
+} from '@/Components/Common/FormFields'
 import { Modal } from '@/Components/Common/Modal'
 import { Button } from '@/Components/ui/button'
-import { Card, CardContent } from '@/Components/ui/card'
 import { Checkbox } from '@/Components/ui/checkbox'
-import { Input } from '@/Components/ui/input'
 import { Label } from '@/Components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/Components/ui/radio-group'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/Components/ui/select'
 import { INDIAN_STATES } from '@/Constants/indianStates'
 import { ROUTES } from '@/Constants/routes'
 import { TermsAndConditions } from '@/Info/TermsAndConditions'
 import { toast } from '@/Library/toast'
-import { cn } from '@/Library/utils'
 import { api } from '@/Services/authService'
 import SystemRequirements from '@/Info/SystemRequirements'
+import AuthShell from '../Components/AuthShell'
 
 // The form stores short values; the backend expects these exact words.
 const USER_TYPE = { professional: 'Accounting Professional', msme: 'MSME' }
 const TALLY_CATEGORY = { gold: 'Gold', silver: 'Silver' }
 
 /* ------------------------------------------------------------------ */
-/* Small building blocks used only by this page                       */
+/* Small building block used only by this page                        */
 /* ------------------------------------------------------------------ */
-
-/**
- * A labelled text box with an icon sitting inside it on the left.
- * `icon` is a lucide icon component. `children` is for anything extra
- * on the right hand side of the box (such as the show-password eye).
- */
-function IconField({ id, label, icon: Icon, error, className, children, ...props }) {
-  return (
-    <div className={cn('', className)}>
-      <Label htmlFor={id} className="text-sm text-muted-foreground">
-        {label}
-      </Label>
-
-      {/* `relative` lets us position the icon on top of the input */}
-      <div className="relative">
-        <span className="pointer-events-none absolute inset-y-0 left-0 flex w-10 items-center justify-center text-brand">
-          <Icon className="size-4" />
-        </span>
-
-        <Input
-          id={id}
-          className={cn(
-            'h-11 rounded-md border-transparent bg-brand-soft pl-10 text-foreground placeholder:text-brand-light',
-            children && 'pr-10',
-            error && 'border-destructive',
-          )}
-          {...props}
-        />
-
-        {children}
-      </div>
-
-      {error ? <p className="text-xs text-destructive">{error}</p> : null}
-    </div>
-  )
-}
 
 /** A single radio button with its text label beside it. */
 function RadioOption({ value, label }) {
@@ -95,7 +49,7 @@ function RadioOption({ value, label }) {
 
 // The values the form starts out with.
 const EMPTY_FORM = {
-  accountType: 'professional',
+  accountType: 'msme',
   name: '',
   email: '',
   mobile: '',
@@ -103,7 +57,7 @@ const EMPTY_FORM = {
   password: '',
   state: '',
   address: '',
-  erp: 'Tally',
+  erp: 'Intelligere',
   tallyCategory: 'gold',
   // Who invited this user. Empty for anyone who came to /register on their
   // own; filled in from the URL when they arrived through a referral link
@@ -125,7 +79,6 @@ export default function Register() {
   // registration without the new user ever seeing it.
   const [form, setForm] = useState({ ...EMPTY_FORM, referralBy: referralBy || '' })
   const [errors, setErrors] = useState({})
-  const [showPassword, setShowPassword] = useState(false)
 
   // True while the API call is in flight - used to disable the button so the
   // user cannot submit the same registration twice.
@@ -146,6 +99,18 @@ export default function Register() {
   const isMsme = form.accountType === 'msme'
   // ERP is not Tally, so that whole section is hidden for them.
   const isTally = form.erp === 'Tally'
+
+  // When the user switches ERP, we need to fix up the Tally plan: if they switch to Tally, the default plan is Gold; if they switch away from Tally, the plan is cleared.
+  const handleErpChange = (value) => {
+    setForm((previous) => ({
+      ...previous,
+      erp: value,
+      // Automatically select 'gold' when Tally is chosen
+      tallyCategory: value === 'Tally' ? 'gold' : previous.tallyCategory,
+    }))
+    // Clear any potential errors for the erp field
+    setErrors((previous) => ({ ...previous, erp: undefined }))
+  }
 
   // Switching account type also fixes up the Tally plan:
   // MSME clears it, switching back puts the default choice in.
@@ -236,268 +201,231 @@ export default function Register() {
   }
 
   return (
-    <div className="flex flex-col items-center justify-center gap-6 bg-brand-soft/60 px-4 py-10">
-      {/* ---------- Page heading ---------- */}
-      <h1 className="text-center font-normal text-4xl font-light text-brand-light">
-        Welcome to <span className="font-bold text-brand">Intelligere</span>
-      </h1>
+    <AuthShell
+      width="max-w-lg"
+      // footer={
+      //   /* ---------- Link across to the login page ----------
+      //      `asChild` tells Button to render the <Link> it wraps instead of a
+      //      <button>, so we keep the styling but get real routing: the URL
+      //      changes to /login with no full page reload. */
+      //   <Button asChild variant="secondary">
+      //     <Link to={ROUTES.LOGIN}>Login Here</Link>
+      //   </Button>
+      // }
+    >
+      <form onSubmit={handleSubmit} className="space-y-5" noValidate>
+        {/* Who is signing up - two radios across the top */}
+        <RadioGroup
+          value={form.accountType}
+          onValueChange={handleAccountTypeChange}
+          className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:justify-items-center grid-cols-[2fr_1fr]"
+        >
+          <RadioOption value="msme" label="MSME" />
+          <RadioOption value="professional" label="Accounting Professional" />
+        </RadioGroup>
 
-      {/* ---------- The form card ---------- */}
-      <Card className="w-full max-w-3xl border-border/70 shadow-sm">
-        <CardContent className="px-6">
-          <form onSubmit={handleSubmit} className="space-y-5" noValidate>
-            {/* Who is signing up - two radios across the top */}
+        {/* Main fields: two columns on desktop, one on mobile */}
+        <FormGrid>
+          <Field
+            id="name"
+            label="Name"
+            required
+            icon={User}
+            placeholder="Name"
+            autoComplete="name"
+            value={form.name}
+            error={errors.name}
+            onChange={(e) => setField('name', e.target.value)}
+          />
+
+          <Field
+            id="email"
+            label="Email"
+            required
+            icon={Mail}
+            type="email"
+            placeholder="Email"
+            autoComplete="email"
+            value={form.email}
+            error={errors.email}
+            onChange={(e) => setField('email', e.target.value)}
+          />
+
+          {/* Mobile number keeps a fixed +91 prefix inside the box */}
+          <Field
+            id="mobile"
+            label="Mobile Number"
+            required
+            icon={Phone}
+            prefix="+91"
+            inputMode="numeric"
+            maxLength={10}
+            placeholder="Mobile Number"
+            autoComplete="tel-national"
+            value={form.mobile}
+            error={errors.mobile}
+            // Strip anything that is not a digit as the user types.
+            onChange={(e) => setField('mobile', e.target.value.replace(/\D/g, ''))}
+          />
+
+          <Field
+            id="gstNumber"
+            label="GST Number"
+            icon={ReceiptText}
+            placeholder="GST Number"
+            maxLength={15}
+            value={form.gstNumber}
+            error={errors.gstNumber}
+            // GST numbers are always stored in capitals.
+            onChange={(e) => setField('gstNumber', e.target.value.toUpperCase())}
+          />
+
+          {/* The show / hide eye is part of PasswordField. */}
+          <PasswordField
+            id="password"
+            label="Password"
+            required
+            placeholder="Password"
+            autoComplete="new-password"
+            value={form.password}
+            error={errors.password}
+            onChange={(e) => setField('password', e.target.value)}
+          />
+
+          {/* State picker, filled from the shared constants file */}
+          <SelectField
+            id="state"
+            label="State"
+            required
+            placeholder="Select a State"
+            searchable
+            searchPlaceholder="Search state..."
+            value={form.state}
+            error={errors.state}
+            onValueChange={(value) => setField('state', value)}
+            options={INDIAN_STATES.map((state) => ({ value: state.name, label: state.name }))}
+          />
+
+          {/* Address spans the full width of the card */}
+          <Field
+            id="address"
+            label="Address"
+            required
+            icon={Contact}
+            placeholder="Address"
+            autoComplete="street-address"
+            className="sm:col-span-2"
+            value={form.address}
+            error={errors.address}
+            onChange={(e) => setField('address', e.target.value)}
+          />
+        </FormGrid>
+
+        {/* ERP choice on the left, Tally plan on the right. Each heading is
+            the label for its whole group of radios, so it is tied to the
+            group with aria-labelledby and lettered like every other label. */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 grid-cols-[1fr_1fr]">
+          <div className="space-y-2">
+            <p id="erp-label" className={fieldLabelClass}>
+              ERP
+            </p>
             <RadioGroup
-              value={form.accountType}
-              onValueChange={handleAccountTypeChange}
-              className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:justify-items-center grid-cols-[2fr_1fr]"
+              aria-labelledby="erp-label"
+              value={form.erp}
+              // onValueChange={(value) => setField('erp', value)}
+              onValueChange={handleErpChange}
+              className="flex flex-wrap gap-6"
             >
-              <RadioOption value="professional" label="Accounting Professional" />
-              <RadioOption value="msme" label="MSME" />
+              {isMsme && <RadioOption value="Intelligere" label="Intelligere" />}
+              <RadioOption value="Tally" label="Tally" />
             </RadioGroup>
+          </div>
 
-            {/* Main fields: two columns on desktop, one on mobile */}
-            <div className="grid grid-cols-1 gap-x-6 gap-y-1 sm:grid-cols-2 my-[5px]">
-              <IconField
-                id="name"
-                label="Name"
-                icon={User}
-                placeholder="Name"
-                autoComplete="name"
-                value={form.name}
-                error={errors.name}
-                onChange={(e) => setField('name', e.target.value)}
-              />
-
-              <IconField
-                id="email"
-                label="Email"
-                icon={Mail}
-                type="email"
-                placeholder="Email"
-                autoComplete="email"
-                value={form.email}
-                error={errors.email}
-                onChange={(e) => setField('email', e.target.value)}
-              />
-
-              {/* Mobile number keeps a fixed +91 prefix inside the box */}
-              <div className="">
-                <Label htmlFor="mobile" className="text-sm text-muted-foreground">
-                  Mobile Number
-                </Label>
-                <div className="relative">
-                  <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center gap-2 pl-3 text-brand">
-                    <Phone className="size-4" />
-                    <span className="text-sm text-brand-light">+91</span>
-                  </span>
-                  <Input
-                    id="mobile"
-                    inputMode="numeric"
-                    maxLength={10}
-                    placeholder="Mobile Number"
-                    autoComplete="tel-national"
-                    value={form.mobile}
-                    // Strip anything that is not a digit as the user types.
-                    onChange={(e) =>
-                      setField('mobile', e.target.value.replace(/\D/g, ''))
-                    }
-                    className={cn(
-                      'h-11 rounded-md border-transparent bg-brand-soft pl-18 text-foreground placeholder:text-brand-light',
-                      errors.mobile && 'border-destructive',
-                    )}
-                  />
-                </div>
-                {errors.mobile ? (
-                  <p className="text-xs text-destructive">{errors.mobile}</p>
-                ) : null}
-              </div>
-
-              <IconField
-                id="gstNumber"
-                label="GST Number"
-                icon={ReceiptText}
-                placeholder="GST Number"
-                maxLength={15}
-                value={form.gstNumber}
-                error={errors.gstNumber}
-                // GST numbers are always stored in capitals.
-                onChange={(e) => setField('gstNumber', e.target.value.toUpperCase())}
-              />
-
-              <IconField
-                id="password"
-                label="Password"
-                icon={Lock}
-                type={showPassword ? 'text' : 'password'}
-                placeholder="Password"
-                autoComplete="new-password"
-                value={form.password}
-                error={errors.password}
-                onChange={(e) => setField('password', e.target.value)}
+          {/* Tally Category is only for Accounting Professionals - MSME users don't pick a plan */}
+          {isTally && (
+            <div className="space-y-2">
+              <p id="tally-category-label" className={fieldLabelClass}>
+                Tally Category
+              </p>
+              <RadioGroup
+                aria-labelledby="tally-category-label"
+                value={form.tallyCategory}
+                onValueChange={(value) => setField('tallyCategory', value)}
+                className="flex flex-wrap gap-6"
               >
-                {/* This button flips the input between text and password */}
+                <RadioOption value="gold" label="Gold" />
+                <RadioOption value="silver" label="Silver" />
+              </RadioGroup>
+            </div>
+          )}
+        </div>
+
+        {/* Terms checkbox on the left, helper links on the right */}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="terms"
+                checked={form.agreed}
+                aria-invalid={Boolean(errors.agreed) || undefined}
+                aria-describedby={errors.agreed ? 'terms-error' : undefined}
+                onCheckedChange={(checked) => setField('agreed', checked === true)}
+              />
+              <Label htmlFor="terms" className="font-normal">
+                I agree to the{' '}
                 <button
                   type="button"
-                  onClick={() => setShowPassword((visible) => !visible)}
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
-                  className="absolute inset-y-0 right-0 flex w-10 items-center justify-center text-brand-light hover:text-brand"
+                  // `type="button"` keeps this from submitting the form.
+                  // `preventDefault` stops the surrounding <Label> from
+                  // ticking the checkbox when the link itself is clicked.
+                  onClick={(event) => {
+                    event.preventDefault()
+                    setModalType('terms')
+                  }}
+                  className="cursor-pointer font-semibold text-brand underline-offset-4 hover:underline"
                 >
-                  {showPassword ? <Eye className="size-4" /> : <EyeOff className="size-4" />}
+                  terms and conditions
                 </button>
-              </IconField>
-
-              {/* State picker, filled from the shared constants file */}
-              <div className="">
-                <Label htmlFor="state" className="text-sm text-muted-foreground">
-                  State
-                </Label>
-                <Select
-                  value={form.state}
-                  onValueChange={(value) => setField('state', value)}
-                >
-                  <SelectTrigger
-                    id="state"
-                    className={cn(
-                      'w-full rounded-md border-transparent bg-brand-soft data-[size=default]:h-11',
-                      errors.state && 'border-destructive',
-                    )}
-                  >
-                    <SelectValue placeholder="Select a State" />
-                  </SelectTrigger>
-                  <SelectContent searchable searchPlaceholder="Search state...">
-                    {INDIAN_STATES.map((state) => (
-                      <SelectItem key={state.code} value={state.name}>
-                        {state.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {errors.state ? (
-                  <p className="text-xs text-destructive">{errors.state}</p>
-                ) : null}
-              </div>
-
-              {/* Address spans the full width of the card */}
-              <IconField
-                id="address"
-                label="Address"
-                icon={Contact}
-                placeholder="Address"
-                autoComplete="street-address"
-                className="sm:col-span-2"
-                value={form.address}
-                error={errors.address}
-                onChange={(e) => setField('address', e.target.value)}
-              />
+              </Label>
             </div>
+            <FieldError id="terms-error">{errors.agreed}</FieldError>
+          </div>
 
-            {/* ERP choice on the left, Tally plan on the right */}
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 grid-cols-[1fr_1fr]">
-              <div className="space-y-2">
-                <p className="text-sm text-muted-foreground">ERP</p>
-                <RadioGroup
-                  value={form.erp}
-                  onValueChange={(value) => setField('erp', value)}
-                  className="flex flex-wrap gap-6"
-                >
-                  <RadioOption value="Tally" label="Tally" />
-                  {isMsme && <RadioOption value="Intelligere" label="Intelligere" />}
-                </RadioGroup>
-              </div>
+          {/* <div className="flex flex-col gap-2 text-sm sm:items-end">
+            <button
+              type="button"
+              onClick={() => setModalType('requirements')}
+              className="cursor-pointer text-brand hover:underline"
+            >
+              Check System Requirements
+            </button>
+            <a href="#payment" className="text-brand hover:underline">
+              Generate Payment Link
+            </a>
+          </div> */}
+        </div>
 
-              {/* Tally Category is only for Accounting Professionals - MSME users don't pick a plan */}
-              {isTally && (
-                <div className="space-y-2">
-                  <p className="text-sm text-muted-foreground">Tally Category</p>
-                  <RadioGroup
-                    value={form.tallyCategory}
-                    onValueChange={(value) => setField('tallyCategory', value)}
-                    className="flex flex-wrap gap-6"
-                  >
-                    <RadioOption value="gold" label="Gold" />
-                    <RadioOption value="silver" label="Silver" />
-                  </RadioGroup>
-                </div>
-              )}
-            </div>
+        {/* Submit */}
+        <div className="pt-1 text-center">
+          {/* `loading` disables it while the request is running, so one
+              click = one account. */}
+          <Button type="submit" loading={submitting}>
+            {submitting ? 'Registering...' : 'Register'}
+          </Button>
 
-            {/* Terms checkbox on the left, helper links on the right */}
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between my-[5px]">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    id="terms"
-                    checked={form.agreed}
-                    onCheckedChange={(checked) => setField('agreed', checked === true)}
-                  />
-                  <Label htmlFor="terms" className="font-normal">
-                    I agree to the{' '}
-                    <button
-                      type="button"
-                      // `type="button"` keeps this from submitting the form.
-                      // `preventDefault` stops the surrounding <Label> from
-                      // ticking the checkbox when the link itself is clicked.
-                      onClick={(event) => {
-                        event.preventDefault()
-                        setModalType('terms')
-                      }}
-                      className="font-semibold text-brand underline-offset-4 hover:underline"
-                    >
-                      terms and conditions
-                    </button>
-                  </Label>
-                </div>
-                {errors.agreed ? (
-                  <p className="text-xs text-destructive">{errors.agreed}</p>
-                ) : null}
-              </div>
-
-              <div className="flex flex-col gap-2 text-sm sm:items-end">
-                <button
-                  type="button"
-                  onClick={() => setModalType('requirements')}
-                  className="text-brand hover:underline"
-                >
-                  Check System Requirements
-                </button>
-                <a href="#payment" className="text-brand hover:underline">
-                  Generate Payment Link
-                </a>
-              </div>
-            </div>
-
-            {/* Submit */}
-            <div className="text-center pt-1">
-              <Button
-                type="submit"
-                variant="default"
-                // Disabled while the request is running, so one click = one account.
-                disabled={submitting}
-              >
-                {submitting ? 'Registering...' : 'Register'}
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
-
-      {/* ---------- Link across to the login page ----------
-          `asChild` tells Button to render the <Link> it wraps instead of a
-          <button>, so we keep the styling but get real routing: the URL
-          changes to /login with no full page reload. */}
-      <Button
-        asChild
-        variant="secondary"
-        className="bg-brand-soft text-brand hover:bg-brand hover:text-brand-foreground"
-      >
-        <Link to={ROUTES.LOGIN}>Login Here</Link>
-      </Button>
+        </div>
+              <div className="pt-1 text-center">
+          <Button asChild variant="secondary">
+          <Link to={ROUTES.LOGIN}>Login Here</Link>
+        </Button>
+        </div>
+      </form>
 
       {/* ---------- Terms and conditions ----------
           Opened by the link next to the checkbox above. The wording itself
           lives in TermsAndConditions.jsx; this only decides how it is shown.
-          "Accept" ticks the checkbox and closes the modal. */}
+          It renders through a portal, so sitting inside the card here does
+          not affect where it appears. */}
       <Modal
         open={modalType !== null}
         onOpenChange={(open) => !open && setModalType(null)}
@@ -506,11 +434,9 @@ export default function Register() {
         size={modalType === "terms" ? "xxl" : "md"}
         backdrop="blur"
         footer={
-          <>
-            <Button variant="outline" onClick={() => setModalType(null)}>
-              Close
-            </Button>
-          </>
+          <Button type="button" variant="ghost" onClick={() => setModalType(null)}>
+            Close
+          </Button>
         }
       >
         {modalType === "terms" ? (
@@ -519,6 +445,6 @@ export default function Register() {
           <SystemRequirements />
         )}
       </Modal>
-    </div>
+    </AuthShell>
   )
 }

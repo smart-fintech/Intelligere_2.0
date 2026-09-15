@@ -19,6 +19,7 @@ import { useWebSocket } from '@/Hooks/useWebSocket'
 import Bars from '../ui/CustomIcons/Bars'
 import { useSelector } from 'react-redux'
 import { selectProfileDetails } from '@/Store/Slices/profileSlice'
+import { selectSelectedCompany } from '@/Store/Slices/companySlice'
 
 /* ------------------------------------------------------------------ */
 /* The header                                                         */
@@ -56,6 +57,8 @@ export default function Header({ onToggleSidebar }) {
   const [refreshing, setRefreshing] = useState(false)
 
   const profile = useSelector(selectProfileDetails)
+  // The company being worked in - what the Refresh message is about.
+  const selectedCompany = useSelector(selectSelectedCompany)
 
   // Refs, not state, because they are read inside a socket callback that was
   // created on mount: a ref is always the CURRENT value, while state read in
@@ -96,9 +99,9 @@ export default function Header({ onToggleSidebar }) {
   /**
    * Refresh: asks the backend to re-read the company the user is working in.
    *
-   * The payload is built by companyService (buildActiveCompanyMessage), so the
-   * selected company's id and name go with it - empty only when no company has
-   * been chosen yet.
+   * The payload is built by companyService (buildActiveCompanyMessage) from the
+   * selected company in the store, so its company_id and name go with it -
+   * empty only when no company has been chosen yet.
    *
    * Nothing here guesses at timing. `await send(...)` resolves when the
    * message is really on the wire, so the button can say honestly whether the
@@ -111,8 +114,7 @@ export default function Header({ onToggleSidebar }) {
     waitingRef.current = true
     setRefreshing(true)
 
-    const payload = buildActiveCompanyMessage()
-
+    const payload = buildActiveCompanyMessage(selectedCompany)
     // FIX: Wrap the payload in JSON.stringify()
     const delivered = await send(JSON.stringify(payload))
 
@@ -146,7 +148,7 @@ export default function Header({ onToggleSidebar }) {
           onClick={onToggleSidebar}
           title="Toggle sidebar"
           aria-label="Toggle sidebar"
-          className="text-brand hover:bg-brand-soft hover:text-brand-dark"
+          className="text-brand"
         >
           {/* <PanelLeft className="size-5" />
            */}
@@ -180,7 +182,7 @@ export default function Header({ onToggleSidebar }) {
             Intelligere user, the one who can actually pick a company, needs
             it most. */}
         <IconAction
-          label="Refresh"
+          label="Refresh Company"
           icon={RefreshCw}
           onClick={handleRefresh}
           disabled={refreshing}
@@ -221,17 +223,9 @@ export default function Header({ onToggleSidebar }) {
 
         {/* ---------------- Logout ----------------
             logout() tells the server, clears the saved tokens, and then
-            sends the browser back to the login page. */}
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={logout}
-          tooltip="Log out"
-          className="text-brand hover:bg-brand-soft hover:text-brand-dark"
-        >
-          <LogOut className="size-4" />
-        </Button>
+            sends the browser back to the login page. The same IconAction
+            as Refresh and the bell, so every header button matches. */}
+        <IconAction label="Logout" icon={LogOut} onClick={logout} />
       </div>
     </header>
   )

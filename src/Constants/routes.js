@@ -27,7 +27,30 @@ export const ROUTES = {
 
   // ---- After a successful login (these sit inside the app shell:
   //      header + sidebar + footer) ----
+
+  // The Modules & Features grid - the landing page of the app, and the
+  // parent of every module page below it.
   DASHBOARD: '/dashboard',
+
+  // ---- The dashboard modules ----
+  // Bank Details is built; the other three show the Coming Soon page. All
+  // four are listed in Constants/dashboardModules.js, which is what draws
+  // both the cards on the grid and the sidebar inside a module.
+  BANK_DETAILS: '/dashboard/bank-details',
+  COMPANY_DETAILS: '/dashboard/company-details',
+  LEDGER_DETAILS: '/dashboard/ledger-details',
+  INVENTORY_DETAILS: '/dashboard/inventory-details',
+
+  // ---- The product modules ----
+  // The base every product module lives under: /modules/bank-statement,
+  // /modules/gst-compare, ... Each module's full path is built from its key
+  // in Constants/dashboardModules (PRODUCT_MODULES), so there is no
+  // per-module line here to keep in step with that list.
+  PRODUCT_MODULES: '/modules',
+
+  // ---- Account pages in the sidebar (placeholders for now) ----
+  PAYMENT: '/payment',
+  CREATE_SUB_USER: '/sub-users/create',
 
   // Opened from the profile icon in the header.
   PROFILE: '/profile',

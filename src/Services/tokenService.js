@@ -65,15 +65,16 @@ export const setTokens = ({ access, refresh }) => {
  * goes to. Everything the backend sends is optional - only what arrives
  * gets written.
  *
+ * Only fields something actually READS are kept. The response also carries
+ * role, is_salesman, tm_user_type and free_trial_date; no screen uses them
+ * (the free-trial date shown on Profile comes from the profile API), so they
+ * are not written to the browser.
+ *
  * TO SUPPORT A NEW FIELD: add one line here (and its key in
- * Library/secureStorage.js). Nothing else in the project changes.
+ * Library/secureStorage.js) - once there is code that reads it.
  */
 const SESSION_FIELDS = {
   email: STORAGE_KEYS.EMAIL,
-  role: STORAGE_KEYS.ROLE,
-  is_salesman: STORAGE_KEYS.IS_SALESMAN,
-  tm_user_type: STORAGE_KEYS.TM_USER_TYPE,
-  free_trial_date: STORAGE_KEYS.FREE_TRIAL_DATE,
   tally_category: STORAGE_KEYS.TALLY_CATEGORY,
   erp: STORAGE_KEYS.ERP,
   uuid: STORAGE_KEYS.UUID,
@@ -101,7 +102,7 @@ export const saveSession = (data) => {
 
   Object.entries(SESSION_FIELDS).forEach(([field, key]) => {
     // Compared against null/undefined rather than truthiness, because
-    // `false` (is_salesman) and 0 are real answers that must still be saved.
+    // `false` and 0 are real answers that must still be saved.
     const value = data[field]
     if (value !== undefined && value !== null) setItem(key, value)
   })

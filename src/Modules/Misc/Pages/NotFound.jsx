@@ -40,10 +40,7 @@ export default function NotFound() {
 
       {/* Somebody already signed in does not want to be sent to the login
           page - the dashboard is the way back into the app for them. */}
-      <Button
-        asChild
-        className="mt-2 bg-brand text-brand-foreground shadow-md shadow-brand/25 hover:bg-brand-dark"
-      >
+      <Button asChild className="mt-2">
         <Link to={signedIn ? ROUTES.DASHBOARD : ROUTES.LOGIN}>
           {signedIn ? 'Go to dashboard' : 'Go to login'}
         </Link>

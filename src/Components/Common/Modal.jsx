@@ -102,8 +102,9 @@ export function Modal({
           className={cn(
             // Position: pinned to the centre of the screen.
             'fixed top-1/2 left-1/2 z-50 -translate-x-1/2 -translate-y-1/2',
-            // Shape.
-            'flex w-[calc(100%-2rem)] flex-col gap-4 rounded-lg border bg-background p-6 shadow-lg outline-none',
+            // Shape. White (`bg-card`), like every other card - the page
+            // background is tinted, and a dialog is a card floating over it.
+            'flex w-[calc(100%-2rem)] flex-col gap-4 rounded-lg border bg-card p-6 shadow-lg outline-none',
             // Never taller than the screen.
             'max-h-[calc(100dvh-4rem)]',
             // Opening: fade and grow in. Closing: the reverse.

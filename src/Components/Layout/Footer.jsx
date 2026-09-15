@@ -66,6 +66,12 @@ export default function Footer() {
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
         <Logo size="sm" showText={false} className="text-brand" />
 
+        {/* The year is taken from the clock rather than typed in, so the
+            footer cannot go stale on 1 January. */}
+        <span className="text-muted-foreground">
+          {new Date().getFullYear()} &copy; DDSPL
+        </span>
+
         {/* Tapping the number dials it on a phone. */}
         <a
           href={SUPPORT.phoneHref}
@@ -103,6 +109,11 @@ export default function Footer() {
         >
           <LinkIcon />
         </Button>
+
+        {/* TODO: drive this from the socket once the Tally check is wired up.
+            Red because a disconnected agent is a problem the user has to act
+            on, not a neutral state. */}
+        <span className="font-medium text-destructive">Disconnected</span>
 
       </div>
     </footer>

@@ -137,5 +137,49 @@ export const toInputDate = (value) => {
 /** True when the value is a date this file can read. */
 export const isValidDate = (value) => readParts(value) !== null
 
+/** "Sep" from 9 - the month names above, capitalised for display. */
+const monthLabel = (month) => {
+  const name = MONTHS[month - 1]
+  return name.charAt(0).toUpperCase() + name.slice(1)
+}
+
+/**
+ * The same date written out for reading in a table: DD Mon YYYY.
+ *
+ *   formatLongDate('2026-09-03T13:07:40.734222+05:30')  ->  '03 Sep 2026'
+ *   formatLongDate(null)                                ->  '--'
+ *
+ * Used where a date is information rather than a value to type back in
+ * (Company Details' Active and Last dates). Same reading rules and fallback
+ * as formatDate.
+ */
+export const formatLongDate = (value, fallback = '--') => {
+  if (value === null || value === undefined || value === '') return fallback
+
+  const parts = readParts(value)
+  if (!parts) return String(value)
+
+  return `${pad(parts.day)} ${monthLabel(parts.month)} ${parts.year}`
+}
+
+/**
+ * Where a date falls relative to today: -1 before, 0 today, 1 after, or null
+ * when there is no readable date.
+ *
+ * Compared as calendar days, not instants - "valid until 10 Sep" means valid
+ * all of 10 Sep, whatever the time and whatever the timezone.
+ */
+export const compareToToday = (value) => {
+  const parts = readParts(value)
+  if (!parts) return null
+
+  const now = new Date()
+  const asNumber = ({ year, month, day }) => year * 10000 + month * 100 + day
+  const target = asNumber(parts)
+  const current = asNumber({ year: now.getFullYear(), month: now.getMonth() + 1, day: now.getDate() })
+
+  return target === current ? 0 : target < current ? -1 : 1
+}
+
 /** Today, in the display format. */
 export const today = () => formatDate(new Date())

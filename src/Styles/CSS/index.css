@@ -12,6 +12,7 @@
   --color-brand-dark: var(--brand-dark);
   --color-brand-light: var(--brand-light);
   --color-brand-soft: var(--brand-soft);
+  --color-brand-muted: var(--brand-muted);
   --color-brand-foreground: var(--brand-foreground);
 
   --radius-sm: calc(var(--radius) - 4px);
@@ -59,9 +60,16 @@
   --brand-dark: #0f5480;       /* darker, for hover/pressed states */
   --brand-light: #4a8cba;      /* lighter, for secondary text */
   --brand-soft: #eef4f9;       /* very light tint, for input backgrounds */
+  /* Form labels. Quieter than the brand blue so headings still lead, but
+     dark enough to read at label size: 5.2:1 on white, 4.7:1 on brand-soft
+     (--brand-light is only 3.6:1, which is why labels do not use it). */
+  --brand-muted: #3b7199;
   --brand-foreground: #ffffff; /* text placed on top of the brand blue */
 
-  --background: oklch(1 0 0);
+  /* The page sits on a very light gray-blue, so the white cards on top of
+     it read as cards. Anything that must stay pure white (a card, the
+     header) uses --card. */
+  --background: oklch(0.976 0.005 240);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
@@ -100,6 +108,7 @@
   --brand-dark: #2f7cb0;
   --brand-light: #7fb6d9;
   --brand-soft: #16242e;
+  --brand-muted: #9bbfd9;
   --brand-foreground: #06131c;
 
   --background: oklch(0.145 0 0);

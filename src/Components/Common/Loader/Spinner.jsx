@@ -7,12 +7,10 @@
  *
  * You will rarely import this directly - reach for <Loader /> instead. It is
  * exported for the odd case where a spinner has to sit inside something that
- * already has its own layout, such as a button:
+ * already has its own layout. A button is NOT one of those: Button has a
+ * `loading` prop that draws this spinner and disables it for you -
  *
- *   <Button disabled={saving}>
- *     {saving ? <Spinner size="xs" className="mr-1.5" /> : null}
- *     Save
- *   </Button>
+ *   <Button type="submit" loading={saving}>Save</Button>
  *
  * Props:
  *   size       xs | sm | md | lg | xl        (default md)

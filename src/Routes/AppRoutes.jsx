@@ -30,7 +30,15 @@
  *   /register          ->  Register.jsx                 (bare)
  *   /register/:referralBy -> Register.jsx, from a referral link  (bare)
  *   /forgot-password   ->  ForgotPassword.jsx           (bare)
- *   /dashboard         ->  Dashboard.jsx                (inside the shell)
+ *   /dashboard         ->  Dashboard.jsx - the module grid   (inside the shell)
+ *   /dashboard/bank-details    ->  BankDetailsPage.jsx   (inside the shell)
+ *   /dashboard/company-details ->  ModulePlaceholder     (inside the shell)
+ *   /dashboard/ledger-details  ->  LedgerDetailsPage.jsx (inside the shell)
+ *   /dashboard/inventory-details -> ModulePlaceholder    (inside the shell)
+ *   /modules/<key>     ->  one per PRODUCT_MODULES entry; its real page, or
+ *                          ComingSoonPage until built    (inside the shell)
+ *   /payment           ->  ComingSoonPage               (inside the shell)
+ *   /sub-users/create  ->  ComingSoonPage               (inside the shell)
  *   /profile           ->  Profile.jsx                  (inside the shell)
  *   /issue             ->  ReportIssue.jsx              (inside the shell)
  *   anything else      ->  NotFound.jsx    (inside the shell when signed in,
@@ -53,15 +61,33 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 
 import AppLayout from '@/Components/Layout/AppLayout'
+import { PRODUCT_MODULES } from '@/Constants/dashboardModules'
+import { CREATE_SUB_USER_LINK, PAYMENT_LINK } from '@/Constants/navigation'
 import { ROUTES } from '@/Constants/routes'
 import useIsLoggedIn from '@/Hooks/useIsLoggedIn'
 import ForgotPassword from '@/Modules/Auth/Pages/ForgetPassword'
 import Login from '@/Modules/Auth/Pages/Login'
 import Register from '@/Modules/Auth/Pages/Register'
 import Dashboard from '@/Modules/Dashboard/Pages/Dashboard'
+import BankDetailsPage from '@/Modules/Dashboard/Pages/BankDetailsPage'
+import CompanyDetailsPage from '@/Modules/Dashboard/Pages/CompanyDetailsPage'
+import LedgerDetailsPage from '@/Modules/Dashboard/Pages/LedgerDetailsPage'
+import ModulePlaceholder from '@/Modules/Dashboard/Pages/ModulePlaceholder'
 import Profile from '@/Modules/Profile/Pages/Profile'
+import ComingSoonPage from '@/Modules/Misc/Pages/ComingSoonPage'
 import NotFound from '@/Modules/Misc/Pages/NotFound'
 import ReportIssue from '@/Modules/Support/Pages/ReportIssue'
+
+/**
+ * The real page of each product module that has one, by its key in
+ * PRODUCT_MODULES. A module missing from here gets the Coming Soon page.
+ *
+ * TO BUILD A MODULE: import its page above and add one line, e.g.
+ *   'gst-compare': GstComparePage,
+ * then set its status to AVAILABLE in Constants/dashboardModules. Its route,
+ * sidebar row and card already exist.
+ */
+const PRODUCT_MODULE_PAGES = {}
 
 export default function AppRoutes() {
   // The project's existing session check, read as a value so these routes
@@ -100,6 +126,47 @@ export default function AppRoutes() {
           typing the URL while signed out. */}
       <Route element={<AppLayout />}>
         <Route path={ROUTES.DASHBOARD} element={<Dashboard />} />
+
+        {/* ---- The dashboard modules ----
+            Company, Bank and Ledger Details are built. Inventory uses the
+            shared placeholder page: it looks its module up in
+            Constants/dashboardModules by the key given here and shows Coming
+            Soon for it. Building it means pointing its line at the real page
+            and setting `ready: true` in that list - nothing else changes. */}
+        <Route path={ROUTES.BANK_DETAILS} element={<BankDetailsPage />} />
+        <Route path={ROUTES.COMPANY_DETAILS} element={<CompanyDetailsPage />} />
+        <Route path={ROUTES.LEDGER_DETAILS} element={<LedgerDetailsPage />} />
+        <Route
+          path={ROUTES.INVENTORY_DETAILS}
+          element={<ModulePlaceholder moduleKey="inventory" />}
+        />
+
+        {/* ---- The product modules ----
+            One route per PRODUCT_MODULES entry, at /modules/<key>, generated
+            from that list so a new module needs no line here. */}
+        {PRODUCT_MODULES.map(({ key, name, icon, path }) => {
+          const Page = PRODUCT_MODULE_PAGES[key]
+          return (
+            <Route
+              key={key}
+              path={path}
+              element={Page ? <Page /> : <ComingSoonPage title={name} icon={icon} />}
+            />
+          )
+        })}
+
+        {/* ---- Account pages - placeholders until they are built ---- */}
+        <Route
+          path={PAYMENT_LINK.path}
+          element={<ComingSoonPage title={PAYMENT_LINK.label} icon={PAYMENT_LINK.icon} />}
+        />
+        <Route
+          path={CREATE_SUB_USER_LINK.path}
+          element={
+            <ComingSoonPage title={CREATE_SUB_USER_LINK.label} icon={CREATE_SUB_USER_LINK.icon} />
+          }
+        />
+
         <Route path={ROUTES.PROFILE} element={<Profile />} />
         <Route path={ROUTES.ISSUE} element={<ReportIssue />} />
         {/* Add new signed-in pages here - they get header/sidebar/footer. */}

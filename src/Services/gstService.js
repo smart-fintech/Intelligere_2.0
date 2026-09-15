@@ -130,9 +130,14 @@ export const decodeGstPayload = (encoded) => {
  * empty string, so they are joined in reading order and the gaps dropped.
  *
  *   flno "6TH FLOOR" + bno "5/H" + bnm "SUMERU CENTER" + st "C.G.ROAD" + loc "PALDI"
+ *
+ * `locality` and `landMark` are read too. Most records leave them empty and
+ * are then unaffected - an empty part is dropped - but when a record does
+ * fill them in they are genuinely part of the address. Built here, once, so
+ * the Add company form and the Ledger form always produce the same line.
  */
 const buildAddress = (addr = {}) =>
-  [addr.flno, addr.bno, addr.bnm, addr.st, addr.loc]
+  [addr.flno, addr.bno, addr.bnm, addr.st, addr.locality, addr.loc, addr.landMark]
     .map((part) => String(part ?? '').trim())
     .filter(Boolean)
     .join(' ')

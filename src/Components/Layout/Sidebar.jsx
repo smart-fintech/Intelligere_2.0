@@ -1,14 +1,26 @@
 import { NavLink } from 'react-router-dom'
 
-import { NAV_ITEMS } from '@/Constants/navigation'
+import { NAV_SECTIONS } from '@/Constants/navigation'
 import { cn } from '@/Library/utils'
 
 /**
  * The menu down the left hand side of every signed-in page.
  *
- * It draws one row per entry in Constants/navigation.js. Entries marked
- * `ready: false` are shown greyed out and cannot be clicked, because those
- * pages do not exist yet.
+ * It draws the sections in Constants/navigation.js, in order:
+ *
+ *   Dashboard
+ *   PRODUCT MODULES          <- one row per PRODUCT_MODULES entry
+ *     Bank Statement
+ *     GST Compare ...
+ *   ACCOUNT
+ *     Payment
+ *     Create Sub User
+ *   ...planned rows
+ *
+ * Nothing here names a section or an item, so adding either is a change to
+ * that file only. Items marked `ready: false` are shown greyed out and cannot
+ * be clicked, because those pages do not exist yet; items marked `comingSoon`
+ * are real links to a placeholder page and carry a small badge.
  *
  * `open` is owned by AppLayout and toggled by the button in the header:
  *   - wide screens: open = full width with labels, closed = a narrow
@@ -45,53 +57,101 @@ export default function Sidebar({ open, onClose }) {
         aria-hidden={!open}
       >
         <nav className={`flex flex-1 flex-col gap-1 p-2 ${open ? "overflow-y-auto" : "overflow-hidden"}`}>
-          {NAV_ITEMS.map(({ key, label, icon: Icon, path, ready }) => {
-            // Pages that do not exist yet: a dead row, not a link.
-            if (!ready) {
-              return (
-                <span
-                  key={key}
-                  title={`${label} (coming soon)`}
+          {NAV_SECTIONS.map((section, index) => (
+            <div
+              key={section.key}
+              role="group"
+              aria-label={section.title}
+              // Every section after the first is set off by a thin rule.
+              className={cn('flex flex-col gap-1', index > 0 && 'mt-1 border-t border-border pt-2')}
+            >
+              {section.title ? (
+                <p
                   className={cn(
-                    'flex h-10 cursor-not-allowed items-center gap-3 rounded-md px-3 opacity-50',
-                    !open && 'lg:justify-center lg:px-0',
+                    'px-3 pb-1 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase',
+                    !open && 'lg:hidden',
                   )}
                 >
-                  <Icon className="size-5 shrink-0" />
-                  <span className={cn('truncate text-sm', !open && 'lg:hidden')}>
-                    {label}
-                  </span>
-                </span>
-              )
-            }
+                  {section.title}
+                </p>
+              ) : null}
 
-            return (
-              <NavLink
-                key={key}
-                to={path}
-                // Closes the drawer after a tap on small screens. On large
-                // screens the sidebar stays as it was.
-                onClick={onClose}
-                title={label}
-                // NavLink hands its render function an `isActive` flag that
-                // is true when the current URL matches `to`. That is how the
-                // page you are on gets highlighted - no manual comparing.
-                className={({ isActive }) =>
-                  cn(
-                    'flex h-10 items-center gap-3 rounded-md px-3 text-sm transition-colors',
-                    'hover:bg-brand-foreground/15',
-                    isActive && 'bg-brand-foreground/20 font-semibold',
-                    !open && 'lg:justify-center lg:px-0',
-                  )
-                }
+              {/* A nested section hangs its rows off a guide line under the
+                  title, so they read as children of it. */}
+              <div
+                className={cn(
+                  'flex flex-col gap-1',
+                  section.nested && open && 'border-l border-border',
+                )}
               >
-                <Icon className="size-5 shrink-0" />
-                <span className={cn('truncate', !open && 'lg:hidden')}>{label}</span>
-              </NavLink>
-            )
-          })}
+                {section.items.map((item) => (
+                  <SidebarItem key={item.key} item={item} open={open} onClose={onClose} />
+                ))}
+              </div>
+            </div>
+          ))}
         </nav>
       </aside>
     </>
+  )
+}
+
+/** One row of the menu: a link, or a dead row for a page not built yet. */
+function SidebarItem({ item: { label, icon: Icon, path, ready, comingSoon }, open, onClose }) {
+  // Pages that do not exist yet: a dead row, not a link.
+  if (!ready) {
+    return (
+      <span
+        title={`${label} (coming soon)`}
+        className={cn(
+          'flex h-10 cursor-not-allowed items-center gap-3 rounded-md px-3 opacity-50',
+          !open && 'lg:justify-center lg:px-0 ',
+        )}
+      >
+        <Icon className="size-5 shrink-0" />
+        <span className={cn('truncate text-sm', !open && 'lg:hidden')}>
+          {label}
+        </span>
+      </span>
+    )
+  }
+
+  return (
+    <NavLink
+      to={path}
+      // Closes the drawer after a tap on small screens. On large
+      // screens the sidebar stays as it was.
+      onClick={onClose}
+      title={comingSoon ? `${label} (coming soon)` : label}
+      // NavLink hands its render function an `isActive` flag that
+      // is true when the current URL matches `to`. That is how the
+      // page you are on gets highlighted - no manual comparing.
+      // It also matches the pages BELOW `to`, which is what keeps
+      // Dashboard lit on /dashboard/company-details, and will keep a
+      // module lit on its own sub-pages once it has them.
+      className={({ isActive }) =>
+        cn(
+          'flex h-10 items-center gap-3 rounded-md px-3 text-sm transition-colors',
+          'hover:bg-brand-foreground/15',
+          isActive && 'bg-brand-foreground/20 font-semibold',
+          !open && 'lg:justify-center lg:px-0',
+        )
+      }
+    >
+      <Icon className="size-5 shrink-0" />
+      
+      <span className={cn('min-w-0 flex-1 truncate', !open && 'lg:hidden')}>{label}</span>
+      {comingSoon ? (
+        // Same colours as the Coming Soon badge on the Modules & Features cards.
+        <span
+          className={cn(
+            'shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-400',
+            !open && 'lg:hidden',
+          )}
+        >
+          Soon
+        </span>
+      ) : null}
+    </NavLink>
   )
 }

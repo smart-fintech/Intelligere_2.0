@@ -15,19 +15,30 @@
  * AppLayout loads it as the shell mounts, which covers a page reload as
  * well as a fresh sign-in.
  *
+ * ------------------------------------------------------------------
+ * THE LIST IS NOT KEPT HERE
+ * ------------------------------------------------------------------
+ * The companies and the one being worked in live in the store
+ * (Store/Slices/companySlice), which AppLayout fills as the shell mounts.
+ * They are shared: the dashboard's Bank Details reads the selected company
+ * from the same place this picker writes it to, so there is one company
+ * selection in the app and this is the only screen that changes it.
+ *
  * What it does:
  *
- *   on load     GET  the user's companies and fill the dropdown, with the
- *               company they were last working in already selected
- *   on pick     PUT  { id, comp_name, gst_no } to switch into it
+ *   on load     nothing - the store already has the companies, with the one
+ *               the backend marked `is_active` already selected
+ *   on pick     tells the store, then PUTs the switch so the backend moves
+ *               with it; a failed switch puts the picker back
  *   on add      opens AddCompanyModal, which POSTs the new company; the
- *               reply is the new list, so the dropdown updates itself
+ *               list is then reloaded so the picker and every other module
+ *               see the same thing
  *
- * All three go through Services/companyService - no URL is written here.
+ * Both calls go through Services/companyService - no URL is written here.
  */
 
-import { useEffect, useState } from 'react'
-import { useSelector } from 'react-redux'
+import { useState } from 'react'
+import { useDispatch, useSelector } from 'react-redux'
 import { Plus } from 'lucide-react'
 
 import { Spinner } from '@/Components/Common/Loader'
@@ -39,104 +50,52 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/Components/ui/select'
-import { getActiveCompanyId } from '@/Library/secureStorage'
 import { toast } from '@/Library/toast'
 import { selectIsIntelligereErp } from '@/Store/Slices/profileSlice'
 import {
-  listIntelligereCompanies,
-  readStoredCompanyName,
-  selectIntelligereCompany,
-} from '@/Services/companyService'
+  fetchCompanies,
+  selectCompanies,
+  selectCompanyStatus,
+  selectSelectedCompany,
+  setSelectedCompany,
+} from '@/Store/Slices/companySlice'
+import { selectIntelligereCompany } from '@/Services/companyService'
 import AddCompanyModal from './AddCompanyModal'
 
-/**
- * Which company should already be showing when the header first draws.
- *
- * The id saved at the last switch is the reliable answer; the saved NAME is
- * the fallback, for a session that picked a company before this component
- * existed. Failing both, nothing is preselected - better an empty picker
- * than a wrong one, because the choice decides which company's data every
- * other screen is about.
- */
-const findCurrent = (companies) => {
-  const savedId = getActiveCompanyId()
-  if (savedId) {
-    // The saved id is text out of storage, the company's is a number.
-    const match = companies.find((company) => String(company.company_id) === String(savedId))
-    if (match) return match
-  }
-
-  const savedName = readStoredCompanyName()
-  if (savedName) {
-    const match = companies.find((company) => company.comp_name === savedName)
-    if (match) return match
-  }
-
-  return null
-}
-
 export default function CompanySwitcher() {
-  const [companies, setCompanies] = useState([])
-  const [loading, setLoading] = useState(true)
-  // The row id of the chosen company, as a string - which is the only kind
-  // of value a <Select> deals in.
-  const [selectedId, setSelectedId] = useState('')
+  const dispatch = useDispatch()
+
+  const companies = useSelector(selectCompanies)
+  const selected = useSelector(selectSelectedCompany)
+  const status = useSelector(selectCompanyStatus)
+
+  // True only while the switch request is in flight.
   const [switching, setSwitching] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
 
   // Which ERP the user is on comes from the profile in the store - the same
   // place the profile page reads it from. It is false until the profile has
-  // arrived, and turns true on its own the moment it does, which is what
-  // sets the effect below going. A Tally user never makes the request.
+  // arrived, which is why a Tally user never sees this appear and vanish.
   const enabled = useSelector(selectIsIntelligereErp)
-
-  useEffect(() => {
-    if (!enabled) return
-
-    // Set to false when the header unmounts mid-request, so a slow reply
-    // cannot call setState on a component that is no longer on screen.
-    let live = true
-
-    listIntelligereCompanies()
-      .then((list) => {
-        if (!live) return
-        setCompanies(list)
-        setSelectedId(String(findCurrent(list)?.id ?? ''))
-      })
-      .catch((error) => {
-        if (!live) return
-        // Said once, quietly: a failed company list must not stop the user
-        // from using the rest of the page.
-        toast.error(error.message)
-      })
-      .finally(() => {
-        if (live) setLoading(false)
-      })
-
-    return () => {
-      live = false
-    }
-  }, [enabled])
-
   if (!enabled) return null
 
   /** Switches into the company the user just picked. */
   const handleSelect = async (value) => {
-    const company = companies.find((entry) => String(entry.id) === value)
-    if (!company || switching) return
-
-    // The picker shows the new name straight away; if the call fails it is
-    // put back, so what is on screen is never a company the user is not
+    const company = companies.find((entry) => String(entry.company_id) === value)
+    if (!company || switching || company.company_id === selected?.company_id) return
+    // The picker shows the new company straight away, and every module
+    // watching the store reloads with it. If the call fails the previous one
+    // is put back, so what is on screen is never a company the user is not
     // actually in.
-    const previous = selectedId
-    setSelectedId(value)
+    const previous = selected
+    dispatch(setSelectedCompany(company))
     setSwitching(true)
 
     try {
       const response = await selectIntelligereCompany(company)
       toast.success(response?.msg || `Switched to ${company.comp_name}.`)
     } catch (error) {
-      setSelectedId(previous)
+      dispatch(setSelectedCompany(previous))
       toast.error(error.message)
     } finally {
       setSwitching(false)
@@ -144,13 +103,16 @@ export default function CompanySwitcher() {
   }
 
   /**
-   * The reply to the POST is the whole list, so the new company is already
-   * in it - there is nothing to fetch again.
+   * A company was added. The POST replies with the Intelligere list, but the
+   * store is filled from the fuller user-companies endpoint, so the list is
+   * reloaded rather than patched - one source of truth, and the new company
+   * arrives with the same fields as all the others.
    */
-  const handleCreated = (list) => {
-    if (list.length > 0) setCompanies(list)
+  const handleCreated = () => {
+    dispatch(fetchCompanies({ force: true }))
   }
 
+  const loading = status === 'loading'
   const busy = loading || switching
 
   return (
@@ -159,7 +121,11 @@ export default function CompanySwitcher() {
           Narrow on a phone, roomier from `sm` up. A long company name is cut
           short by the trigger rather than pushing the other buttons off the
           end of the bar. */}
-      <Select value={selectedId} onValueChange={handleSelect} disabled={busy}>
+      <Select
+        value={selected ? String(selected.company_id) : ''}
+        onValueChange={handleSelect}
+        disabled={busy}
+      >
         <SelectTrigger
           size="sm"
           title="Active company"
@@ -180,7 +146,7 @@ export default function CompanySwitcher() {
 
         <SelectContent>
           {companies.map((company) => (
-            <SelectItem key={company.id} value={String(company.id)}>
+            <SelectItem key={company.company_id} value={String(company.company_id)}>
               {company.comp_name}
             </SelectItem>
           ))}
@@ -191,7 +157,7 @@ export default function CompanySwitcher() {
           Same IconAction the refresh and bell buttons use, so it matches
           them without a single style being repeated here. */}
       <IconAction
-        label="Add company"
+        label="Add Company"
         icon={Plus}
         disabled={switching}
         onClick={() => setAddOpen(true)}
