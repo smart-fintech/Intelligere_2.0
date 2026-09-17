@@ -282,3 +282,29 @@ export const selectErp = (state) => state.profile.data?.profile_details?.erp
 export const selectIsIntelligereErp = (state) =>
   String(state.profile.data?.profile_details?.erp ?? '').trim().toLowerCase() ===
   'intelligere'
+
+/* ------------------------------------------------------------------ */
+/* Tally plan - which active-company rule applies                      */
+/* ------------------------------------------------------------------ */
+
+/** Lower-cased and trimmed, so "Gold", "gold " and "GOLD" all match. */
+const normalise = (value) => String(value ?? '').trim().toLowerCase()
+
+/** The Tally plan: "Silver", "Gold", or undefined. */
+export const selectTallyCategory = (state) =>
+  state.profile.data?.profile_details?.tally_category
+
+/** True when the signed-in user is on Tally. */
+export const selectIsTallyErp = (state) =>
+  normalise(state.profile.data?.profile_details?.erp) === 'tally'
+
+/**
+ * Tally + Gold: the user picks the company in the header, and that choice
+ * (kept in secure storage) is the active company - see companySlice.
+ */
+export const selectIsGoldTally = (state) =>
+  selectIsTallyErp(state) && normalise(selectTallyCategory(state)) === 'gold'
+
+/** Tally + Silver: the active company is the one the API marks is_active. */
+export const selectIsSilverTally = (state) =>
+  selectIsTallyErp(state) && normalise(selectTallyCategory(state)) === 'silver'

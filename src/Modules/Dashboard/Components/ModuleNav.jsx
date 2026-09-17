@@ -47,7 +47,7 @@ export default function ModuleNav() {
                 to={page.path}
                 aria-current={active ? 'page' : undefined}
                 className={cn(
-                  'flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-sm px-3 py-2.5 text-sm transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
+                  'flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-sm px-3 py-4 text-sm transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
                   active
                     ? 'font-semibold text-brand'
                     : 'font-medium text-brand/70 hover:bg-brand-soft hover:text-brand',

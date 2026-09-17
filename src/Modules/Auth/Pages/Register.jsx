@@ -47,6 +47,14 @@ function RadioOption({ value, label }) {
 /* The registration page                                              */
 /* ------------------------------------------------------------------ */
 
+// The ERP and Tally plan that go with each user type. An Accounting
+// Professional is always on Tally, and Tally always has a plan (Gold unless
+// they pick Silver); an MSME starts on Intelligere, which has no plan at all.
+const DEFAULTS_BY_ACCOUNT_TYPE = {
+  professional: { erp: 'Tally', tallyCategory: 'gold' },
+  msme: { erp: 'Intelligere', tallyCategory: '' },
+}
+
 // The values the form starts out with.
 const EMPTY_FORM = {
   accountType: 'msme',
@@ -57,8 +65,8 @@ const EMPTY_FORM = {
   password: '',
   state: '',
   address: '',
-  erp: 'Intelligere',
-  tallyCategory: 'gold',
+  // ERP and the Tally plan always follow the account type above.
+  ...DEFAULTS_BY_ACCOUNT_TYPE.msme,
   // Who invited this user. Empty for anyone who came to /register on their
   // own; filled in from the URL when they arrived through a referral link
   // (/register/<uuid>) - see below.
@@ -100,26 +108,30 @@ export default function Register() {
   // ERP is not Tally, so that whole section is hidden for them.
   const isTally = form.erp === 'Tally'
 
-  // When the user switches ERP, we need to fix up the Tally plan: if they switch to Tally, the default plan is Gold; if they switch away from Tally, the plan is cleared.
+  // When the user switches ERP, we need to fix up the Tally plan: switching to
+  // Tally puts Gold in, switching away from Tally clears the plan, so the form
+  // can never carry a plan for an ERP that has none.
   const handleErpChange = (value) => {
     setForm((previous) => ({
       ...previous,
       erp: value,
       // Automatically select 'gold' when Tally is chosen
-      tallyCategory: value === 'Tally' ? 'gold' : previous.tallyCategory,
+      tallyCategory: value === 'Tally' ? 'gold' : '',
     }))
-    // Clear any potential errors for the erp field
-    setErrors((previous) => ({ ...previous, erp: undefined }))
+    // Clear any potential errors for these two fields
+    setErrors((previous) => ({ ...previous, erp: undefined, tallyCategory: undefined }))
   }
 
-  // Switching account type also fixes up the Tally plan:
-  // MSME clears it, switching back puts the default choice in.
+  // Switching account type also moves ERP and the Tally plan to whatever that
+  // type uses: an Accounting Professional lands on Tally + Gold, an MSME lands
+  // on Intelligere with no plan.
   const handleAccountTypeChange = (value) => {
     setForm((previous) => ({
       ...previous,
       accountType: value,
-      tallyCategory: value === 'msme' ? '' : EMPTY_FORM.tallyCategory,
+      ...DEFAULTS_BY_ACCOUNT_TYPE[value],
     }))
+    setErrors((previous) => ({ ...previous, erp: undefined, tallyCategory: undefined }))
   }
 
   // Checks the form and returns an object of error messages.
@@ -146,6 +158,16 @@ export default function Register() {
 
     if (!form.password) found.password = 'Password is required'
     else if (form.password.length < 6) found.password = 'Use at least 6 characters'
+
+    // The two radio groups are kept in step by the handlers above, so these
+    // only ever fire if something got the form into a state the backend
+    // rejects: a Professional on anything but Tally, or Tally with no plan.
+    if (form.accountType === 'professional' && form.erp !== 'Tally')
+      found.erp = 'Accounting Professionals are registered on Tally'
+    else if (!form.erp) found.erp = 'Please select an ERP'
+
+    if (form.erp === 'Tally' && !form.tallyCategory)
+      found.tallyCategory = 'Please select a Tally category'
 
     if (!form.state) found.state = 'Please select a state'
     if (!form.address.trim()) found.address = 'Address is required'
@@ -179,8 +201,8 @@ export default function Register() {
         address: form.address.trim(),
         erp: form.erp,
         user_type: USER_TYPE[form.accountType],
-        // MSME users never pick a plan, so this stays empty for them.
-        tally_category: TALLY_CATEGORY[form.tallyCategory] || '',
+        // Only Tally has plans, so anyone on another ERP sends this empty.
+        tally_category: (form.erp === 'Tally' && TALLY_CATEGORY[form.tallyCategory]) || '',
         userUuid: '',
         validate: '',
       })
@@ -203,15 +225,15 @@ export default function Register() {
   return (
     <AuthShell
       width="max-w-lg"
-      // footer={
-      //   /* ---------- Link across to the login page ----------
-      //      `asChild` tells Button to render the <Link> it wraps instead of a
-      //      <button>, so we keep the styling but get real routing: the URL
-      //      changes to /login with no full page reload. */
-      //   <Button asChild variant="secondary">
-      //     <Link to={ROUTES.LOGIN}>Login Here</Link>
-      //   </Button>
-      // }
+      footer={
+        /* ---------- Link across to the login page ----------
+           `asChild` tells Button to render the <Link> it wraps instead of a
+           <button>, so we keep the styling but get real routing: the URL
+           changes to /login with no full page reload. */
+        <Button asChild variant="secondary" className="mt-1 border-1 border-brand/40">
+          <Link to={ROUTES.LOGIN}>Login Here</Link>
+        </Button>
+      }
     >
       <form onSubmit={handleSubmit} className="space-y-5" noValidate>
         {/* Who is signing up - two radios across the top */}
@@ -339,9 +361,10 @@ export default function Register() {
               {isMsme && <RadioOption value="Intelligere" label="Intelligere" />}
               <RadioOption value="Tally" label="Tally" />
             </RadioGroup>
+            <FieldError id="erp-error">{errors.erp}</FieldError>
           </div>
 
-          {/* Tally Category is only for Accounting Professionals - MSME users don't pick a plan */}
+          {/* Tally Category belongs to Tally only - it is hidden on any other ERP */}
           {isTally && (
             <div className="space-y-2">
               <p id="tally-category-label" className={fieldLabelClass}>
@@ -356,6 +379,7 @@ export default function Register() {
                 <RadioOption value="gold" label="Gold" />
                 <RadioOption value="silver" label="Silver" />
               </RadioGroup>
+              <FieldError id="tally-category-error">{errors.tallyCategory}</FieldError>
             </div>
           )}
         </div>
@@ -414,12 +438,8 @@ export default function Register() {
           </Button>
 
         </div>
-              <div className="pt-1 text-center">
-          <Button asChild variant="secondary">
-          <Link to={ROUTES.LOGIN}>Login Here</Link>
-        </Button>
-        </div>
       </form>
+           
 
       {/* ---------- Terms and conditions ----------
           Opened by the link next to the checkbox above. The wording itself
@@ -446,5 +466,6 @@ export default function Register() {
         )}
       </Modal>
     </AuthShell>
+      
   )
 }

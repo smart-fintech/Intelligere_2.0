@@ -65,7 +65,7 @@ export function CsvDownloadButton({ payload, disabled = false }) {
   return (
     <Button
       type="button"
-      variant="outline"
+      variant="default"
       size="sm"
       icon={Download}
       loading={downloading}

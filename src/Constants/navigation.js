@@ -32,7 +32,7 @@
 
 import {
   CreditCard,
-  LayoutDashboard,
+  // LayoutDashboard,
   UserPlus,
   // Banknote,
   // BookOpen,
@@ -70,16 +70,16 @@ export const CREATE_SUB_USER_LINK = {
 }
 
 export const NAV_SECTIONS = [
-  {
-    key: 'main',
-    items: [
-      { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: ROUTES.DASHBOARD, ready: true },
-    ],
-  },
+  // {
+  //   key: 'main',
+  //   items: [
+  //     { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: ROUTES.DASHBOARD, ready: true },
+  //   ],
+  // },
 
   {
     key: 'product-modules',
-    title: 'Product Modules',
+    title: 'Modules',
     nested: true,
     items: PRODUCT_MODULES.map(({ key, name, icon, path, status }) => ({
       key,

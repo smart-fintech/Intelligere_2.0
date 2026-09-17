@@ -10,11 +10,18 @@
  * filtering, sorting and paging never reach the network. Only the first
  * visit for a company, Refresh, Retry, and one forced reload after a
  * create / update / delete do.
+ *
+ * SYNC NOW (Tally users)
+ * Asks Tally, over the app's shared WebSocket, to send this company's ledgers
+ * again: { payload: { module_name: "fetch_ledger", company_name } }. The
+ * loader stays on through the WHOLE job - until the `fetch_ledger` reply
+ * with action_status "stop_loader", and then until the ledger list has been
+ * reloaded (the same fetchLedgers the Refresh button uses).
  */
 
-import { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
-import { AlertCircle, BookOpen, RefreshCw } from 'lucide-react'
+import { AlertCircle, BookOpen, CloudDownload, RefreshCw, Trash2 } from 'lucide-react'
 
 import { ConfirmDialog } from '@/Components/Common/ConfirmDialog'
 import { CsvDownloadButton } from '@/Components/Common/CsvDownloadButton'
@@ -25,6 +32,7 @@ import {
   RowActions,
   StateMessage,
 } from '@/Components/Common/DataList'
+import { Spinner } from '@/Components/Common/Loader'
 import { Panel } from '@/Components/Common/Panel'
 import {
   DataTable,
@@ -35,19 +43,29 @@ import {
 } from '@/Components/Common/TableTools'
 import { Button } from '@/Components/ui/button'
 import { TableCell, TableRow } from '@/Components/ui/table'
+import { ENV } from '@/Config/env'
 import { useListView } from '@/Hooks/useListView'
+import { useWebSocket } from '@/Hooks/useWebSocket'
 import { toast } from '@/Library/toast'
 import { cn } from '@/Library/utils'
 import { CSV_SOURCES } from '@/Services/csvService'
-import { deleteLedger, getLedgerId } from '@/Services/ledgerService'
+import {
+  LEDGER_SOCKET_MODULE,
+  buildFetchLedgerMessage,
+  deleteLedger,
+  getLedgerId,
+  deleteAllLedgers,
+} from '@/Services/ledgerService'
 import { fetchBankOptions, selectBankNames } from '@/Store/Slices/bankSlice'
 import {
   fetchCompanies,
   selectCompanyError,
   selectCompanyStatus,
-  selectSelectedCompany,
-  selectSelectedCompanyId,
+  selectActiveCompany,
+  selectActiveCompanyId,
+  selectActiveCompanyName,
 } from '@/Store/Slices/companySlice'
+import { selectIsTallyErp } from '@/Store/Slices/profileSlice'
 import {
   fetchLedgerGroups,
   fetchLedgers,
@@ -60,6 +78,18 @@ import {
 import { orDash } from '@/Utils/display'
 import LedgerForm from './LedgerForm'
 
+/**
+ * Safety net for Sync Now: the longest the loader waits for Tally's
+ * stop_loader. A large company can take a while, so this is generous - it
+ * only stops the page spinning for ever if the reply never comes.
+ */
+const SYNC_TIMEOUT_MS = 5 * 60 * 1000
+
+/** A browser-console line about Sync Now (ENV.DEBUG_LOGS). */
+const syncLog = (...args) => {
+  if (ENV.DEBUG_LOGS) console.log('[Ledger Sync]', ...args)
+}
+
 /** "0" is a real credit period; only a missing value becomes a dash. */
 const creditPeriod = (days) =>
   days === null || days === undefined || days === '' ? '--' : `${days} days`
@@ -70,17 +100,17 @@ const creditPeriod = (days) =>
 const SEARCH_FIELDS = ['ledeger_name', 'ledeger_email', 'ledeger_phone', 'ledeger_group_name']
 const FILTER_FIELDS = {
   ledeger_group_name: 'Group',
-  ledger_gst_reg_type: 'GST Type',
+  // ledger_gst_reg_type: 'GST Type',
 }
 
 export default function LedgerDetails() {
   const dispatch = useDispatch()
 
-  const company = useSelector(selectSelectedCompany)
+  const company = useSelector(selectActiveCompany)
   const companyStatus = useSelector(selectCompanyStatus)
   const companyError = useSelector(selectCompanyError)
   // The selected company's `company_id` - what every ledger request is about.
-  const companyId = useSelector(selectSelectedCompanyId)
+  const companyId = useSelector(selectActiveCompanyId)
 
   const ledgers = useSelector(selectLedgers)
   const status = useSelector(selectLedgerStatus)
@@ -96,6 +126,143 @@ export default function LedgerDetails() {
   const [editing, setEditing] = useState(null)
   const [confirming, setConfirming] = useState(null)
   const [deleting, setDeleting] = useState(false)
+
+  /* ---------------- Sync Now ---------------- */
+
+  // The active company's name - what the sync is about (central store).
+  const activeCompanyName = useSelector(selectActiveCompanyName)
+  // Sync Now fetches from Tally, so only Tally users get it.
+  const isTally = useSelector(selectIsTallyErp)
+
+  // True from the click until the reloaded list is on screen.
+  const [syncing, setSyncing] = useState(false)
+  // Where the sync is: 'idle' | 'sending' | 'waiting' (for stop_loader) |
+  // 'reloading' (the ledger API). A ref, because the socket callback that
+  // reads it was registered on mount.
+  const syncPhaseRef = useRef('idle')
+  const syncTimerRef = useRef(null)
+  // The company to reload after the sync - the CURRENT one, read in a callback.
+  const companyIdRef = useRef(companyId)
+
+  useEffect(() => {
+    companyIdRef.current = companyId
+  }, [companyId])
+
+  /** Loader off, and ready for the next Sync Now. */
+  const endSync = () => {
+    syncPhaseRef.current = 'idle'
+    clearTimeout(syncTimerRef.current)
+    syncTimerRef.current = null
+    setSyncing(false)
+  }
+
+  /** The sync failed before stop_loader: stop, say so, reload nothing. */
+  const failSync = (message, error) => {
+    console.error('[Ledger Sync] WebSocket error:', error ?? message)
+    endSync()
+    toast.error(message)
+  }
+
+  /** stop_loader arrived: reload the ledgers, loader still on until done. */
+  const reloadAfterSync = async () => {
+    syncPhaseRef.current = 'reloading'
+    clearTimeout(syncTimerRef.current)
+    syncTimerRef.current = null
+
+    syncLog('Refreshing Ledger API after stop_loader')
+    const result = await dispatch(fetchLedgers({ companyId: companyIdRef.current, force: true }))
+
+    // `meta.condition` means the request was skipped (one already running),
+    // which is not a failure. A real failure keeps the rows already shown;
+    // the list's own error line appears as well.
+    if (fetchLedgers.rejected.match(result) && !result.meta.condition) {
+      console.error('[Ledger Sync] Ledger API error:', result.payload ?? result.error)
+      toast.error(result.payload || 'Could not reload the ledgers.')
+    }
+
+    endSync()
+  }
+
+  /**
+   * The app's shared WebSocket - no new connection. `module` means only
+   * fetch_ledger replies reach this handler.
+   */
+  const { send, status: socketStatus } = useWebSocket({
+    module: LEDGER_SOCKET_MODULE,
+    onMessage: (data) => {
+      const reply = data?.res
+      if (!reply || reply.return_module_name !== LEDGER_SOCKET_MODULE) return
+
+      // Not a sync this page started (or already finished): ignore it.
+      const phase = syncPhaseRef.current
+      if (phase !== 'waiting' && phase !== 'sending') return
+
+      syncLog('WebSocket response:', data)
+
+      // Several replies can arrive; only stop_loader ends the Tally part.
+      if (reply.action_status !== 'stop_loader') return
+
+      if (reply.msg) {
+        if (reply.status === 'error') toast.error(reply.msg)
+        else if (reply.status === 'success') toast.success(reply.msg)
+        else toast.info(reply.msg)
+      }
+
+      reloadAfterSync()
+    },
+  })
+
+  // The connection dropped while Tally was working: its reply is lost, so
+  // stop rather than spin until the safety timeout.
+  useEffect(() => {
+    if (socketStatus === 'closed' && syncPhaseRef.current === 'waiting') {
+      failSync('The live server connection was lost during the ledger sync. Please try again.')
+    }
+    // failSync is a plain function recreated each render; only the status
+    // should trigger this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [socketStatus])
+
+  // Nothing of the sync may outlive the page.
+  useEffect(
+    () => () => {
+      syncPhaseRef.current = 'idle'
+      clearTimeout(syncTimerRef.current)
+    },
+    [],
+  )
+
+  /** Sync Now. A click while a sync is running is ignored. */
+  const handleSync = async () => {
+    if (syncPhaseRef.current !== 'idle') return
+
+    const companyName = activeCompanyName?.trim()
+    if (!companyName) {
+      toast.error('Please select an active company before syncing Ledger data.')
+      return
+    }
+
+    syncPhaseRef.current = 'sending'
+    setSyncing(true)
+    syncLog('Sync started', { company_name: companyName })
+
+    const delivered = await send(buildFetchLedgerMessage(companyName))
+
+    // The reply may already have arrived, or the page gone away.
+    if (syncPhaseRef.current !== 'sending') return
+
+    if (!delivered) {
+      failSync('Could not reach the live server. Please try again.')
+      return
+    }
+
+    syncPhaseRef.current = 'waiting'
+    syncTimerRef.current = setTimeout(() => {
+      if (syncPhaseRef.current === 'waiting') {
+        failSync('Tally did not finish the ledger sync in time. Please try again.')
+      }
+    }, SYNC_TIMEOUT_MS)
+  }
 
   /* Asks for what this page shows. Both thunks refuse a duplicate request
      (see their `condition`), so this effect re-running still produces at most
@@ -141,6 +308,30 @@ export default function LedgerDetails() {
       const response = await deleteLedger(getLedgerId(confirming), companyId)
       toast.success(response?.msg || 'Ledger deleted successfully.')
       if (editing && getLedgerId(editing) === getLedgerId(confirming)) setEditing(null)
+      setConfirming(null)
+      reload()
+    } catch (failure) {
+      toast.error(failure.message)
+      if (failure.status === 404) {
+        setConfirming(null)
+        reload()
+      }
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  /**
+   * deletes all ledgers for the selected company.
+   */
+  const handleDeleteAll = async () => {
+    if (confirming !== 'all' || deleting) return
+
+    setDeleting(true)
+
+    try {
+      const response = await deleteAllLedgers(companyId)
+      toast.success(response?.msg || 'All ledgers deleted successfully.')
       setConfirming(null)
       reload()
     } catch (failure) {
@@ -230,30 +421,33 @@ export default function LedgerDetails() {
           <DataTable
             head={
               <>
-                <SortableHead view={view} field="ledeger_name">
+                <SortableHead view={view} field="ledeger_name" width={200}>
                   Ledger Name
                 </SortableHead>
-                <SortableHead view={view} field="ledeger_group_name">
+                <SortableHead view={view} field="ledeger_gstin" width={170}>
+                  GSTIN
+                </SortableHead>
+                <SortableHead view={view} field="ledger_sac" width={140}>
+                  SAC
+                </SortableHead>
+                <SortableHead view={view} field="gst_rate" width={140}>
+                  GST Rate
+                </SortableHead>
+                <SortableHead view={view} field="ledeger_group_name" width={170}>
                   Group
                 </SortableHead>
-                <SortableHead view={view} field="ledeger_email">
-                  Email
+                <SortableHead view={view} field="ledeger_state" width={150}>
+                  State
                 </SortableHead>
-                <SortableHead view={view} field="ledeger_phone">
-                  Phone
-                </SortableHead>
-                <SortableHead view={view} field="ledger_gst_reg_type">
-                  GST Type
-                </SortableHead>
-                <SortableHead view={view} field="credit_period_days">
+                <SortableHead view={view} field="credit_period_days" width={120}>
                   Credit Days
                 </SortableHead>
-                <PlainHead className="text-right">Actions</PlainHead>
+                <PlainHead width={110} className="text-right">Actions</PlainHead>
               </>
             }
           >
             {view.rows.map((ledger) => (
-              <TableRow
+              <TableRow className="text-brand"
                 // `ledger_obj_id` is the ledger's own id from the API - stable
                 // and unique, so React can tell the rows apart across a sort,
                 // a filter or a reload. (These rows have no `id` field; keying
@@ -263,14 +457,15 @@ export default function LedgerDetails() {
                 // left-hand side is showing.
                 data-state={editingId === getLedgerId(ledger) ? 'selected' : undefined}
               >
-                <TableCell className="font-medium text-brand">
+                <TableCell className="font-medium">
                   {orDash(ledger.ledeger_name)}
                 </TableCell>
                 {/* The group's NAME, as the API sends it - not its number. */}
+                <TableCell>{orDash(ledger.ledeger_gstin)}</TableCell>
+                <TableCell>{orDash(ledger.ledger_sac)}</TableCell>
+                <TableCell>{orDash(ledger.gst_rate)}</TableCell>
                 <TableCell>{orDash(ledger.ledeger_group_name)}</TableCell>
-                <TableCell>{orDash(ledger.ledeger_email)}</TableCell>
-                <TableCell>{orDash(ledger.ledeger_phone)}</TableCell>
-                <TableCell>{orDash(ledger.ledger_gst_reg_type)}</TableCell>
+                <TableCell>{orDash(ledger.ledeger_state)}</TableCell>
                 <TableCell>{creditPeriod(ledger.credit_period_days)}</TableCell>
                 <TableCell className="text-right">
                   <RowActions
@@ -314,19 +509,56 @@ export default function LedgerDetails() {
         <div className="min-w-0 flex-1">
           <Panel
             title="Ledger List"
-            meta={`(Total Count: ${ledgers.length})`}
+            meta={
+              // Use flex and items-center to keep everything vertically centered on one line
+              <React.Fragment>
+                <span className="text-muted-foreground whitespace-nowrap">
+                  Total Count: {ledgers.length}
+                </span>&nbsp;&nbsp;
+
+                <Button
+                  type="button"
+                  variant="iconDelete"
+                  size="sm"
+                  tooltip="Delete all ledgers for this company"
+                  onClick={() => setConfirming('all')} // Set to 'all' to trigger the modal
+                  disabled={loading || ledgers.length === 0}
+                  aria-label="Delete all ledgers"
+                >
+                  <Trash2 className="w-3.5 h-3.5" /> 
+                </Button>
+              </React.Fragment>
+            }
             actions={
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={reload}
-                disabled={loading || !companyId}
-                aria-label="Refresh ledger list"
-              >
-                <RefreshCw className={cn(loading && 'animate-spin')} />
-                Refresh
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="default"
+                  size="sm"
+                  onClick={reload}
+                  disabled={loading|| !companyId}
+                  aria-label="Refresh ledger list"
+                >
+                  <RefreshCw className={cn(loading)} />
+                  Refresh
+                </Button>
+
+                {/* Fetches the ledgers from Tally, then reloads the list. */}
+                {isTally && (
+                  <Button
+                    type="button"
+                    variant="default"
+                    size="sm"
+                    icon={CloudDownload}
+                    loading={syncing}
+                    onClick={handleSync}
+                    disabled={!companyId || !activeCompanyName}
+                    aria-label="Sync ledgers from Tally"
+                  >
+                    {syncing ? 'Syncing...' : 'Sync Now'}
+                  </Button>
+                )}
+              </div>
             }
           >
             {/* The groups could not be loaded. The ledgers are still perfectly
@@ -341,6 +573,17 @@ export default function LedgerDetails() {
               >
                 Ledger groups could not be loaded. {groupsError}
               </InlineAlert>
+            ) : null}
+
+            {/* Sync Now in progress - on until the reloaded list is here. */}
+            {syncing ? (
+              <div
+                role="status"
+                className="mb-3 flex items-center gap-2 rounded-md border border-brand/30 bg-brand-soft/60 px-2.5 py-2 text-xs text-brand"
+              >
+                <Spinner size="xs" />
+                Syncing ledgers from Tally for {activeCompanyName}...
+              </div>
             ) : null}
 
             {/* A failed refresh with rows still on screen. */}
@@ -359,13 +602,17 @@ export default function LedgerDetails() {
         onOpenChange={(next) => {
           if (!next) setConfirming(null)
         }}
-        title="Delete ledger"
+        title={confirming === 'all' ? "Delete All Ledgers" : "Delete ledger"}
         description={
-          confirming ? `Remove ${confirming.ledeger_name} from this company?` : undefined
+          confirming === 'all'
+            ? "Are you sure you want to permanently delete ALL ledgers for this company? This action cannot be undone."
+            : confirming
+              ? `Remove ${confirming.ledeger_name} from this company?`
+              : undefined
         }
         confirmLabel={deleting ? 'Deleting...' : 'Delete'}
         busy={deleting}
-        onConfirm={handleDelete}
+        onConfirm={confirming === 'all' ? handleDeleteAll : handleDelete}
       />
     </>
   )

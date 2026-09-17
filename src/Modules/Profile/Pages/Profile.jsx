@@ -104,6 +104,7 @@ function ProfileFieldItem({
             {item.editable && (
               <Button
                 type="button"
+                variant='iconEdit'
                 size="icon-sm"
                 tooltip="Edit"
                 aria-label={`Edit ${item.label}`}
@@ -343,15 +344,15 @@ export default function Profile() {
   }
   return (
     <div className="mx-auto max-w-5xl space-y-6 p-4 sm:p-6">
-      <Card className="overflow-hidden border-border/70 shadow-sm">
-        <CardHeader className="gap-0 bg-brand-soft py-3 text-center">
+      <Card className="overflow-hidden gap-0 border-border/70 shadow-sm">
+        <CardHeader className="gap-0  py-3 text-center  border-b mx-[40px]">
           <CardTitle className="text-lg font-bold text-primary">
             User Profile
           </CardTitle>
         </CardHeader>
 
         <CardContent className="p-6">
-          <div className="grid grid-cols-1 gap-x-12 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-x-12 sm:grid-cols-2 w-full">
             {/* Left Column */}
             <div>
               {Array.from({ length: maxRows }).map((_, idx) => {
@@ -398,7 +399,7 @@ export default function Profile() {
           <div className="mt-6 flex justify-end">
             <Button
               type="button"
-              variant="outline"
+              variant="default"
               size="sm"
               icon={Download}
               onClick={(e) => downloadActivityLog(e)}

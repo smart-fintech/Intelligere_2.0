@@ -22,9 +22,9 @@ export default function HelpTab() {
   to={ROUTES.ISSUE}
   title="Help"
   aria-label="Help"
-  className="fixed top-1/2 right-0 z-40 flex -translate-y-1/2 items-center rounded-l-md bg-brand px-1.5 py-2 text-xs font-semibold tracking-widest text-brand-foreground shadow-md transition-colors hover:bg-brand-dark focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none [writing-mode:vertical-rl] [text-orientation:upright]"
+  className="fixed top-40 right-0 z-40 flex -translate-y-1/2 items-center rounded-l-md bg-brand px-2.5 py-1 text-xs font-semibold tracking-widest text-brand-foreground shadow-md transition-colors hover:bg-brand-dark focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none [writing-mode:vertical-rl] [text-orientation:upright]"
 >
-  HELP
+  <p className="tracking-[6px]">Help</p>
 </Link>
   )
 }

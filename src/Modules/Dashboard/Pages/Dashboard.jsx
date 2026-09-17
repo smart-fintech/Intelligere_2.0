@@ -40,22 +40,23 @@ function FeatureCard({ module }) {
           available ? 'hover:-translate-y-0.5 hover:border-brand/40 hover:shadow-md' : 'opacity-90',
         )}
       >
-        <div className="flex items-start gap-3">
+        <div className="flex items-center gap-3">
           <span
             className={cn(
               'flex size-10 shrink-0 items-center justify-center rounded-lg',
               available
                 ? 'bg-brand-soft text-brand dark:bg-brand/15'
-                : 'bg-muted text-muted-foreground',
+                // : 'bg-muted text-muted-foreground',
+                : 'bg-muted text-brand',
             )}
           >
             <Icon className="size-5" strokeWidth={1.75} />
           </span>
 
           <div className="min-w-0">
-            <h2 className="text-sm font-medium text-foreground">{module.name}</h2>
+            <h2 className="text-sm font-medium text-brand">{module.name}</h2>
 
-            {available ? (
+            {/* {available ? (
               <span className="mt-1.5 inline-block rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400">
                 Available
               </span>
@@ -63,7 +64,7 @@ function FeatureCard({ module }) {
               <span className="mt-1.5 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-400">
                 Coming Soon
               </span>
-            )}
+            )} */}
           </div>
         </div>
       </Card>
@@ -76,7 +77,7 @@ export default function Dashboard() {
 
   return (
     <ModuleLayout title={page.label}>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         {PRODUCT_MODULES.map((module) => (
           <FeatureCard key={module.key} module={module} />
         ))}

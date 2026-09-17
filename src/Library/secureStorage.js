@@ -187,11 +187,11 @@ export const getUuid = () => getItem(STORAGE_KEYS.UUID)
  * every start (Store/Slices/companySlice), so storing them again would only
  * be a second copy that can go stale.
  *
- * The id itself IS kept, for two readers that cannot wait for that list:
+ * The id itself IS kept, for two readers:
  *   - authService, which sends it as the `activecompanyid` header on every
  *     request, from plain JavaScript with no access to the store
- *   - companySlice, which falls back to it after a reload when the backend
- *     has not marked any company as active
+ *   - companySlice, for Tally Gold users only: the company they picked is
+ *     the active company, and this is where that pick survives a reload
  *
  * It is written as { company_id } rather than a bare number on purpose.
  * Earlier builds stored a bare value that was sometimes the company's row

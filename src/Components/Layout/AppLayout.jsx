@@ -6,6 +6,7 @@ import Footer from '@/Components/Layout/Footer'
 import Header from '@/Components/Layout/Header'
 import HelpTab from '@/Components/Layout/HelpTab'
 import Sidebar from '@/Components/Layout/Sidebar'
+import { useActiveCompanyStorageSync } from '@/Hooks/useActiveCompany'
 import { fetchCompanies } from '@/Store/Slices/companySlice'
 import { fetchProfile } from '@/Store/Slices/profileSlice'
 
@@ -68,6 +69,11 @@ export default function AppLayout() {
      which is the only place that can decide it without a race. This just
      says the shell needs the profile. */
   const dispatch = useDispatch()
+
+  // Logs the active company whenever it is worked out again, and keeps the
+  // `activecompanyid` request header in step with it (not for Gold users,
+  // whose pick is the only thing that writes it). Mounted here, once.
+  useActiveCompanyStorageSync()
 
   /* ---------------- The companies ----------------
      Loaded here for the same reason and in the same way: the company the

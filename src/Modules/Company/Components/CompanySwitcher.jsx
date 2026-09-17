@@ -3,12 +3,16 @@
  * header.
  *
  * ------------------------------------------------------------------
- * FOR INTELLIGERE USERS ONLY
+ * FOR INTELLIGERE USERS, AND TALLY GOLD USERS
  * ------------------------------------------------------------------
- * This whole component renders NOTHING unless the signed-in user's ERP is
- * Intelligere. That single check is here, at the top, rather than in the
- * header - so Header.jsx just drops <CompanySwitcher /> in and never has to
- * know the rule. A Tally user sees the header exactly as it was before.
+ * This whole component renders NOTHING for anyone else. That check is here,
+ * at the top, rather than in the header.
+ *
+ *   Intelligere   picker + Add company. A pick PUTs the switch to the
+ *                 backend (its is_active flags are the active company).
+ *   Tally Gold    picker only, listing EVERY company. A pick is stored in
+ *                 secure storage (selectStoredCompany) - that stored id IS
+ *                 the active company for Gold; is_active is not used.
  *
  * The ERP is read from the profile in the Redux store (the same value the
  * profile page shows), so it is only known once the profile has loaded.
@@ -51,22 +55,21 @@ import {
   SelectValue,
 } from '@/Components/ui/select'
 import { toast } from '@/Library/toast'
-import { selectIsIntelligereErp } from '@/Store/Slices/profileSlice'
+import { selectIsGoldTally, selectIsIntelligereErp } from '@/Store/Slices/profileSlice'
 import {
   fetchCompanies,
-  selectCompanies,
+  markActiveCompany,
   selectCompanyStatus,
-  selectSelectedCompany,
-  setSelectedCompany,
+  selectStoredCompany,
 } from '@/Store/Slices/companySlice'
+import { useActiveCompany } from '@/Hooks/useActiveCompany'
 import { selectIntelligereCompany } from '@/Services/companyService'
 import AddCompanyModal from './AddCompanyModal'
 
 export default function CompanySwitcher() {
   const dispatch = useDispatch()
 
-  const companies = useSelector(selectCompanies)
-  const selected = useSelector(selectSelectedCompany)
+  const { allCompanies: companies, activeCompany: selected } = useActiveCompany()
   const status = useSelector(selectCompanyStatus)
 
   // True only while the switch request is in flight.
@@ -76,26 +79,37 @@ export default function CompanySwitcher() {
   // Which ERP the user is on comes from the profile in the store - the same
   // place the profile page reads it from. It is false until the profile has
   // arrived, which is why a Tally user never sees this appear and vanish.
-  const enabled = useSelector(selectIsIntelligereErp)
-  if (!enabled) return null
+  const isIntelligere = useSelector(selectIsIntelligereErp)
+  const isGoldTally = useSelector(selectIsGoldTally)
+  if (!isIntelligere && !isGoldTally) return null
 
   /** Switches into the company the user just picked. */
   const handleSelect = async (value) => {
     const company = companies.find((entry) => String(entry.company_id) === value)
     if (!company || switching || company.company_id === selected?.company_id) return
+
+    // Gold Tally: the pick itself is the active company - store it, done.
+    if (isGoldTally) {
+      dispatch(selectStoredCompany(company))
+      toast.success(`Switched to ${company.comp_name}.`)
+      return
+    }
+
     // The picker shows the new company straight away, and every module
     // watching the store reloads with it. If the call fails the previous one
     // is put back, so what is on screen is never a company the user is not
     // actually in.
-    const previous = selected
-    dispatch(setSelectedCompany(company))
+    const previousId = selected?.company_id ?? null
+    dispatch(markActiveCompany(company.company_id))
     setSwitching(true)
 
     try {
       const response = await selectIntelligereCompany(company)
       toast.success(response?.msg || `Switched to ${company.comp_name}.`)
+      // Confirm from the backend: its is_active flags are the truth.
+      dispatch(fetchCompanies({ force: true }))
     } catch (error) {
-      dispatch(setSelectedCompany(previous))
+      dispatch(markActiveCompany(previousId))
       toast.error(error.message)
     } finally {
       setSwitching(false)
@@ -156,14 +170,18 @@ export default function CompanySwitcher() {
       {/* ---------- Add company ----------
           Same IconAction the refresh and bell buttons use, so it matches
           them without a single style being repeated here. */}
-      <IconAction
-        label="Add Company"
-        icon={Plus}
-        disabled={switching}
-        onClick={() => setAddOpen(true)}
-      />
+      {isIntelligere && (
+        <>
+          <IconAction
+            label="Add Company"
+            icon={Plus}
+            disabled={switching}
+            onClick={() => setAddOpen(true)}
+          />
 
-      <AddCompanyModal open={addOpen} onOpenChange={setAddOpen} onCreated={handleCreated} />
+          <AddCompanyModal open={addOpen} onOpenChange={setAddOpen} onCreated={handleCreated} />
+        </>
+      )}
     </>
   )
 }

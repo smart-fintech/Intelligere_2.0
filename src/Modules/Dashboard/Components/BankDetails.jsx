@@ -62,8 +62,8 @@ import {
   fetchCompanies,
   selectCompanyError,
   selectCompanyStatus,
-  selectSelectedCompany,
-  selectSelectedCompanyId,
+  selectActiveCompany,
+  selectActiveCompanyId,
 } from '@/Store/Slices/companySlice'
 import {
   fetchLedgers,
@@ -81,22 +81,22 @@ const NO_LEDGERS = []
 
 /** The one search box looks through these; the dropdowns filter these. */
 const SEARCH_FIELDS = ['bank_name', 'bank_ledger_name', 'account_no', 'ifsc_code', 'company_name']
-const FILTER_FIELDS = {
-  company_name: 'Company',
-  bank_name: 'Bank',
-  bank_ledger_name: 'Ledger',
-}
+// const FILTER_FIELDS = {
+//   company_name: 'Company',
+//   bank_name: 'Bank',
+//   bank_ledger_name: 'Ledger',
+// }
 
 export default function BankDetails() {
   const dispatch = useDispatch()
 
   // The company the header is on. Both modules read it from here, so the
   // company is fetched once for the whole app - see companySlice.
-  const company = useSelector(selectSelectedCompany)
+  const company = useSelector(selectActiveCompany)
   const companyStatus = useSelector(selectCompanyStatus)
   const companyError = useSelector(selectCompanyError)
   // The selected company's `company_id` - what every bank request is about.
-  const companyId = useSelector(selectSelectedCompanyId)
+  const companyId = useSelector(selectActiveCompanyId)
 
   const banks = useSelector(selectBanks)
   const status = useSelector(selectBankStatus)
@@ -146,7 +146,7 @@ export default function BankDetails() {
   /** Filtering, sorting and paging, all on the rows already in the store. */
   const view = useListView(banks, {
     searchFields: SEARCH_FIELDS,
-    filterFields: FILTER_FIELDS,
+    // filterFields: FILTER_FIELDS,
   })
 
   /** A save finished: refresh once and drop back out of edit mode. */
@@ -260,33 +260,33 @@ export default function BankDetails() {
           <DataTable
             head={
               <>
-                <SortableHead view={view} field="company_name">
+                <SortableHead view={view} field="company_name" width={180}>
                   Company
                 </SortableHead>
-                <SortableHead view={view} field="bank_ledger_name">
+                <SortableHead view={view} field="bank_ledger_name" width={180}>
                   Bank Ledger
                 </SortableHead>
-                <SortableHead view={view} field="bank_name">
+                <SortableHead view={view} field="bank_name" width={180}>
                   Bank Name
                 </SortableHead>
-                <SortableHead view={view} field="account_no">
+                <SortableHead view={view} field="account_no" width={150}>
                   Acc. No.
                 </SortableHead>
-                <SortableHead view={view} field="ifsc_code">
+                <SortableHead view={view} field="ifsc_code" width={130}>
                   IFSC
                 </SortableHead>
-                <PlainHead className="text-right">Actions</PlainHead>
+                <PlainHead width={110} className="text-right">Actions</PlainHead>
               </>
             }
           >
             {view.rows.map((bank) => (
-              <TableRow
+              <TableRow className="text-brand"
                 key={bank.id}
                 // The row open in the form is tinted, so it is obvious what the
                 // left-hand side is showing.
                 data-state={editing?.id === bank.id ? 'selected' : undefined}
               >
-                <TableCell className="font-medium text-brand">
+                <TableCell className="font-medium">
                   {orDash(bank.company_name ?? company?.comp_name)}
                 </TableCell>
                 <TableCell>{orDash(bank.bank_ledger_name)}</TableCell>
@@ -345,13 +345,13 @@ export default function BankDetails() {
             actions={
               <Button
                 type="button"
-                variant="outline"
+                variant="default"
                 size="sm"
                 onClick={reload}
                 disabled={loading || !companyId}
                 aria-label="Refresh bank list"
               >
-                <RefreshCw className={cn(loading && 'animate-spin')} />
+                <RefreshCw className={cn(loading)} />
                 Refresh
               </Button>
             }

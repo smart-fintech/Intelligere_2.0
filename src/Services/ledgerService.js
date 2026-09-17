@@ -155,4 +155,37 @@ export const updateLedger = (payload) => api.put(LEDGER_URL, { ...payload, ...sy
  * `id` is the ledger's `ledger_obj_id` (see getLedgerId).
  */
 export const deleteLedger = (id, companyId) =>
-  api.delete(LEDGER_URL, { data: { id, company_id: companyId, delete: true } })
+  api.delete(LEDGER_URL, {
+    data: { ledger_obj_id: id, company_id: companyId, delete: true }
+  })
+
+
+export const deleteAllLedgers = (companyId) =>
+  api.delete(LEDGER_URL, {
+    data: { company_id: companyId }
+  })
+
+/* ------------------------------------------------------------------ */
+/* Sync Now - fetching the ledgers from Tally over the WebSocket       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The module name the ledger sync uses in both directions: sent as
+ * `module_name`, and answered as `return_module_name`. Ledger Details passes
+ * it to useWebSocket({ module }) so it hears only these replies.
+ */
+export const LEDGER_SOCKET_MODULE = 'fetch_ledger'
+
+/**
+ * The Sync Now payload:
+ *
+ *   { "payload": { "module_name": "fetch_ledger", "company_name": "<active company>" } }
+ *
+ * `companyName` is the active company's name from the store - never typed in.
+ */
+export const buildFetchLedgerMessage = (companyName) => ({
+  payload: {
+    module_name: LEDGER_SOCKET_MODULE,
+    company_name: companyName,
+  },
+})

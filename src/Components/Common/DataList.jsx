@@ -123,6 +123,7 @@ export function RowActions({ label, onEdit, onDelete }) {
     <div className="flex justify-end gap-1.5">
       <Button
         type="button"
+        variant='iconEdit'
         size="icon-sm"
         tooltip="Edit"
         aria-label={`Edit ${label}`}
@@ -132,7 +133,7 @@ export function RowActions({ label, onEdit, onDelete }) {
 
       <Button
         type="button"
-        variant="destructive"
+        variant="iconDelete"
         size="icon-sm"
         tooltip="Delete"
         aria-label={`Delete ${label}`}

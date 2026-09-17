@@ -268,11 +268,22 @@ export default function AddCompanyModal({ open, onOpenChange, onCreated }) {
           {/* The GST number is the one field shown in BOTH modes - it is
               what the lookup needs, and what the company is saved with. On
               its own it takes the full width. */}
+          {lookupMode ? null : (
+            <>
+              <Field
+                id="comp_name"
+                label="Company Name"
+                required
+                value={form.comp_name}
+                error={errors.comp_name}
+                onChange={(e) => setField('comp_name', e.target.value)}
+              />
+            </>
+          )}
           <Field
             id="gst_no"
             label="GST Number"
             required
-            placeholder="24AAAAA0000A1Z5"
             maxLength={15}
             autoFocus={lookupMode}
             // Typed in lower case, stored in upper - the user does not have
@@ -291,20 +302,9 @@ export default function AddCompanyModal({ open, onOpenChange, onCreated }) {
           {lookupMode ? null : (
             <>
               <Field
-                id="comp_name"
-                label="Company Name"
-                required
-                placeholder="ABC Traders Pvt Ltd"
-                value={form.comp_name}
-                error={errors.comp_name}
-                onChange={(e) => setField('comp_name', e.target.value)}
-              />
-
-              <Field
                 id="mobile_no"
                 label="Mobile Number"
                 required
-                placeholder="9876543210"
                 inputMode="numeric"
                 maxLength={10}
                 // Anything that is not a digit is dropped as it is typed, so
@@ -318,7 +318,6 @@ export default function AddCompanyModal({ open, onOpenChange, onCreated }) {
                 id="pincode"
                 label="Pincode"
                 required
-                placeholder="380007"
                 inputMode="numeric"
                 maxLength={6}
                 value={form.pincode}
@@ -342,7 +341,6 @@ export default function AddCompanyModal({ open, onOpenChange, onCreated }) {
                 id="comp_address"
                 label="Address"
                 required
-                placeholder="5/H Sumeru Center, 6th Floor, CG Road, Paldi"
                 className="sm:col-span-2"
                 value={form.comp_address}
                 error={errors.comp_address}

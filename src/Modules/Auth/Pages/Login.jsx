@@ -93,7 +93,7 @@ export default function Login() {
       footer={
         <>
           New to Intelligere?
-          <Button asChild variant="secondary">
+          <Button asChild variant="secondary"  className="mt-1 border-1 border-brand/40">
             <Link to={ROUTES.REGISTER}>Register Here</Link>
           </Button>
         </>

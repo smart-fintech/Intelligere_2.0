@@ -59,6 +59,11 @@ export const ENV = {
   // sees - keeping the number small is what keeps the console readable.
   WS_MAX_RETRIES: readNumber(import.meta.env.VITE_API_WEBSOCKET_RETRIES, 3),
 
+  // Browser-console debug lines for the WebSockets and the company list
+  // ("[Header Tally WS] ...", "[Footer Tally WS] ...", "[Company List] ...").
+  // On unless VITE_DEBUG_LOGS=false.
+  DEBUG_LOGS: String(import.meta.env.VITE_DEBUG_LOGS ?? 'true').trim().toLowerCase() !== 'false',
+
   // Key used to scramble what we keep in localStorage.
   STORAGE_SECRET: import.meta.env.VITE_STORAGE_SECRET || 'intelligere-dev-key',
 

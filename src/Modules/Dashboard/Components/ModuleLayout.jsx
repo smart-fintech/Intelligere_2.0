@@ -33,7 +33,7 @@ export default function ModuleLayout({ title, actions, children }) {
           already see. */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-xl font-semibold text-brand sm:text-2xl">{title}</h1>
+          <h1 className="text-xl font-semibold text-brand sm:text-2xl">{title === "Modules & Features" ? "Modules" : title}</h1>
         </div>
 
         {actions ? <div className="flex items-center gap-2">{actions}</div> : null}

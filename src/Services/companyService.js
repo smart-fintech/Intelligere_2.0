@@ -13,10 +13,12 @@
  * these records; code that reads `company.id` is reading nothing.
  *
  * Where the selected company lives:
- *   Redux (companySlice)     the list, and which company_id is selected -
- *                            what every screen reads
- *   secureStorage            that company_id alone, for the request header
- *                            and a reload - see setActiveCompanyId
+ *   Redux (companySlice)     the list, and which company is active
+ *                            (getActiveCompanyInfo): is_active === true, or
+ *                            for Tally Gold the company_id the user picked
+ *   secureStorage            that company_id alone - the Gold pick itself,
+ *                            and the request header for everyone - see
+ *                            setActiveCompanyId
  * Nothing else about a company is written to the browser.
  */
 
@@ -107,12 +109,76 @@ export const findActiveCompany = (companies = []) =>
   companies.find((company) => company.is_active === true) ?? null
 
 /**
+ * How the active company is chosen. Decided from the profile (companySlice's
+ * selectActiveCompanyRule) - never mixed:
+ *
+ *   IS_ACTIVE   Silver, Intelligere, anyone not Gold: the company the API
+ *               marks is_active === true
+ *   STORED      Tally + Gold: the company_id the user picked, kept in
+ *               secure storage. is_active is ignored - it may be false for
+ *               every company.
+ *   UNKNOWN     the profile has not arrived yet, so neither rule can be
+ *               trusted: no active company until it does
+ */
+export const ACTIVE_COMPANY_RULE = Object.freeze({
+  IS_ACTIVE: 'is_active',
+  STORED: 'stored',
+  UNKNOWN: 'unknown',
+})
+
+/**
+ * The company whose company_id matches `companyId`, or null. Compared as
+ * text, so a stored "5" matches the API's 5. Never guesses another company.
+ */
+export const findCompanyById = (companies = [], companyId) => {
+  if (companyId === null || companyId === undefined || companyId === '') return null
+  return companies.find((company) => String(company.company_id) === String(companyId)) ?? null
+}
+
+/**
+ * The ONE place the active company is worked out from the company list:
+ *
+ *   {
+ *     activeCompany,       the whole record chosen by `rule`, or null
+ *     activeCompanyName,   its comp_name, or ''
+ *     activeCompanyId,     its company_id, or null
+ *     allCompanies,        the list itself, untouched
+ *   }
+ *
+ * `rule` is one of ACTIVE_COMPANY_RULE; `storedCompanyId` is only read for
+ * STORED. A stored id that is not in the list gives null - the user has to
+ * pick a company again.
+ *
+ * The store's selectors (companySlice) are built on this, so screens read
+ * these four values from there rather than calling it themselves.
+ */
+export const getActiveCompanyInfo = (
+  companies = [],
+  { rule = ACTIVE_COMPANY_RULE.IS_ACTIVE, storedCompanyId = null } = {},
+) => {
+  const allCompanies = Array.isArray(companies) ? companies : []
+  const activeCompany =
+    rule === ACTIVE_COMPANY_RULE.STORED
+      ? findCompanyById(allCompanies, storedCompanyId)
+      : rule === ACTIVE_COMPANY_RULE.IS_ACTIVE
+        ? findActiveCompany(allCompanies)
+        : null
+
+  return {
+    activeCompany,
+    activeCompanyName: activeCompany?.comp_name ?? '',
+    activeCompanyId: activeCompany?.company_id ?? null,
+    allCompanies,
+  }
+}
+
+/**
  * Writes the chosen company to storage - the ONE place that does.
  *
  * Only its `company_id` is saved. authService sends it as the
- * `activecompanyid` header on every request, and companySlice falls back to
- * it after a reload. Everything else about the company (its name included)
- * is read from the list in the store, by that id, so it is not stored.
+ * `activecompanyid` header on every request. For Tally Gold users it is also
+ * THE active company (read back on start - see companySlice); for everyone
+ * else it only mirrors the is_active company. Nothing else is stored.
  *
  * Passing null forgets the selection.
  */
@@ -169,12 +235,16 @@ export const deleteCompany = (companyId) =>
  * Dates are compared as whole days ("trial until 10 Sep" includes all of
  * 10 Sep). Returns { tone, label, detail }: `tone` picks the badge colour,
  * `detail` is the one-line reason, for a tooltip.
+ *
+ * `isActive` says whether this is the app's active company. Pass it from the
+ * store (company_id === activeCompanyId) so a Tally Gold user's pick shows as
+ * Active; left out, the company's own is_active flag is used.
  */
-export const getCompanyStatus = (company) => {
+export const getCompanyStatus = (company, { isActive = company?.is_active === true } = {}) => {
   const renewal = compareToToday(company?.renew_date)
   const trial = compareToToday(company?.free_trial_date)
 
-  if (company?.is_active === true) {
+  if (isActive) {
     return { tone: 'active', label: 'Active', detail: 'The company this account is working in' }
   }
 
@@ -282,6 +352,40 @@ export const selectIntelligereCompany = async (company) => {
 }
 
 /* ------------------------------------------------------------------ */
+/* Recent Tally companies (Tally Gold, before a Refresh)              */
+/* ------------------------------------------------------------------ */
+
+/*
+ *   GET     tally/recent_companies/   list them     -> [{ Comp_id, Comp_name }]
+ *   DELETE  tally/recent_companies/   remove some   { Comp_id: [5925, 5924] }
+ */
+const RECENT_COMPANIES_URL = 'tally/recent_companies/'
+
+/**
+ * The recent Tally companies, always as an array (a `{ data }` / `{ results }`
+ * wrapper is accepted too). Rows without a Comp_id cannot be deleted, so
+ * they are left out.
+ */
+export const getRecentCompanies = async () => {
+  const response = await api.get(RECENT_COMPANIES_URL)
+  const list = Array.isArray(response)
+    ? response
+    : Array.isArray(response?.data)
+      ? response.data
+      : Array.isArray(response?.results)
+        ? response.results
+        : []
+  return list.filter((company) => company && company.Comp_id != null)
+}
+
+/** The body the DELETE sends - exported so the caller can log exactly it. */
+export const buildDeleteRecentCompaniesPayload = (companyIds) => ({ Comp_id: companyIds })
+
+/** Removes the given recent companies. A DELETE body goes under `data` for axios. */
+export const deleteRecentCompanies = (companyIds) =>
+  api.delete(RECENT_COMPANIES_URL, { data: buildDeleteRecentCompaniesPayload(companyIds) })
+
+/* ------------------------------------------------------------------ */
 /* What this module says over the WebSocket                           */
 /* ------------------------------------------------------------------ */
 
@@ -305,14 +409,14 @@ export const COMPANY_SOCKET_MODULE = 'fetch_tally_company'
  * am working in".
  *
  *   {
- *     "res": { "message": {
+ *     "payload": { "message": {
  *       "module": "fetch_tally_company",
  *       "company_id": "418",            <- the selected company, or ""
  *       "company_name": "ABC Traders"   <-        "         "      ""
  *     } }
  *   }
  *
- * `company` is the selected company from the store (selectSelectedCompany) -
+ * `company` is the active company from the store (selectActiveCompany) -
  * the same record the rest of the screen is showing, so the id and the name
  * always belong to the same company. With no company selected both fields
  * are sent empty, exactly as the old project did, and the backend falls back
@@ -322,11 +426,12 @@ export const COMPANY_SOCKET_MODULE = 'fetch_tally_company'
  * what lets the next module (ledger, and so on) add its own builder without
  * touching either of them.
  */
-export const buildActiveCompanyMessage = (company) => ({
-  res: {
+// export const buildActiveCompanyMessage = (company) => ({
+export const buildActiveCompanyMessage = () => ({
+  payload: {
     module: COMPANY_SOCKET_MODULE,
     email: getEmail(),
-    company_id: company?.company_id != null ? String(company.company_id) : '',
-    company_name: company?.comp_name || '',
+    // company_id: company?.company_id != null ? String(company.company_id) : '',
+    // company_name: company?.comp_name || '',
   },
 })

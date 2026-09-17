@@ -20,7 +20,31 @@ import { cn } from "@/Library/utils"
  * stretching the page - that is the wrapper around <table> below. Pass
  * `containerClassName` to give that wrapper a height as well, which is what
  * a sticky header needs to stick to.
+ *
+ * COLUMN WIDTHS
+ *   TableHead and TableCell take a `width` - a number of pixels, or any CSS
+ *   length ('12rem', '20%'). Set it on the HEADER cell only: in a table laid
+ *   out with `table-fixed` (which is what DataTable in Common/TableTools
+ *   does) the header row decides every column, so the body cells below need
+ *   nothing. See DataTable for how a column that is too narrow for its text
+ *   behaves.
  */
+
+/**
+ * `width` as a style object, merged over anything the caller passed.
+ *
+ * A number means pixels, because that is what a column width is nearly
+ * always written as. `minWidth` is there for a table that is NOT
+ * `table-fixed`: fixed layout honours `width` exactly, auto layout treats it
+ * as a suggestion and will still stretch a column to fit its content, so the
+ * floor is what stops it.
+ */
+function widthStyle(width, style) {
+  if (width == null) return style
+
+  const value = typeof width === 'number' ? `${width}px` : width
+  return { width: value, minWidth: value, ...style }
+}
 
 function Table({ className, containerClassName, ...props }) {
   return (
@@ -84,7 +108,7 @@ function TableRow({ className, ...props }) {
   )
 }
 
-function TableHead({ className, ...props }) {
+function TableHead({ className, width, style, ...props }) {
   return (
     <th
       data-slot="table-head"
@@ -92,21 +116,33 @@ function TableHead({ className, ...props }) {
         "h-10 px-3 text-left align-middle font-medium whitespace-nowrap text-muted-foreground [&:has([role=checkbox])]:pr-0",
         className
       )}
+      style={widthStyle(width, style)}
       {...props}
     />
   )
 }
 
-function TableCell({ className, ...props }) {
+// `wrap` lets one cell run onto a second line instead of being cut off at
+// the column's width - a description or an address, where seeing all of it
+// matters more than every row being the same height.
+function TableCell({ className, width, wrap, style, title, children, ...props }) {
   return (
     <td
       data-slot="table-cell"
       className={cn(
         "p-3 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0",
+        wrap && "whitespace-normal break-words",
         className
       )}
+      style={widthStyle(width, style)}
+      // A cell of plain text that its column cuts off is still readable on
+      // hover. Only plain text: anything else has no text to offer, and a
+      // `title` the caller wrote itself is left alone.
+      title={title ?? (!wrap && typeof children === "string" ? children : undefined)}
       {...props}
-    />
+    >
+      {children}
+    </td>
   )
 }
 

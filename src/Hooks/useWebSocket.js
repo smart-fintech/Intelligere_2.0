@@ -14,6 +14,7 @@
  *     onMessage: (data) => { ... },       // this module's own handler
  *     onOpen: () => { ... },              // optional, runs on every connect
  *     connectOnMount: false,              // optional, see below
+ *     socket: appSocket,                  // optional, see below
  *   })
  *
  *   await send({ res: { message: { module: 'ledger', action: 'fetch' } } })
@@ -40,6 +41,14 @@
  * data the backend pushes on its own, with nothing to send first.
  *
  * ------------------------------------------------------------------
+ * `socket` - which connection
+ * ------------------------------------------------------------------
+ * Leave it out and you get the app's shared connection - what almost every
+ * screen wants. Pass another instance made by createSocket() (at module level,
+ * never in a component) only for a feature that must have its own - the
+ * footer's Tally check passes `tallySocket`.
+ *
+ * ------------------------------------------------------------------
  * WHY THERE IS NO DEPENDENCY ARRAY TO GET WRONG
  * ------------------------------------------------------------------
  * The old pattern re-created the socket whenever state changed:
@@ -54,19 +63,7 @@
 
 import { useEffect, useRef, useSyncExternalStore } from 'react'
 
-import {
-  connect,
-  disconnect,
-  getStatus,
-  isBusy,
-  onBusyChange,
-  onMessage,
-  onOpen,
-  onStatusChange,
-  reconnect,
-  send,
-  sendAll,
-} from '@/Services/socketService'
+import { appSocket } from '@/Services/socketService'
 
 /**
  * Keeps a box holding the newest version of a value.
@@ -96,7 +93,22 @@ export const useWebSocket = ({
   onMessage: handleMessage,
   onOpen: handleOpen,
   connectOnMount = false,
+  socket = appSocket,
 } = {}) => {
+  const {
+    connect,
+    disconnect,
+    getStatus,
+    isBusy,
+    onBusyChange,
+    onMessage,
+    onOpen,
+    onStatusChange,
+    reconnect,
+    send,
+    sendAll,
+  } = socket
+
   const messageRef = useLatest(handleMessage)
   const openRef = useLatest(handleOpen)
 
@@ -110,10 +122,10 @@ export const useWebSocket = ({
   // to re-subscribe is to genuinely ask for a different module.
   useEffect(
     () => onMessage((data) => messageRef.current?.(data), { module, connectOnMount }),
-    [module, connectOnMount, messageRef],
+    [module, connectOnMount, messageRef, onMessage],
   )
 
-  useEffect(() => onOpen(() => openRef.current?.()), [openRef])
+  useEffect(() => onOpen(() => openRef.current?.()), [openRef, onOpen])
 
   return {
     /** send(payload) -> promise: true once delivered, false if it could not be. */

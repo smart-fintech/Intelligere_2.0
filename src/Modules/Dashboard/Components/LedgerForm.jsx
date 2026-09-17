@@ -268,7 +268,7 @@ export default function LedgerForm({
     if (Object.keys(changed).length === 0) return null
 
     // The ledger's id is its `ledger_obj_id` - the rows have no `id` field.
-    return { id: getLedgerId(ledger), company_id: companyId, ...changed }
+    return { ledger_obj_id: getLedgerId(ledger), company_id: companyId, ...changed }
   }
 
   const handleSubmit = async (event) => {
@@ -318,7 +318,7 @@ export default function LedgerForm({
 
       toast.success(
         response?.msg ||
-          (editing ? 'Ledger updated successfully.' : 'Ledger added successfully.'),
+        (editing ? 'Ledger updated successfully.' : 'Ledger added successfully.'),
       )
 
       if (!editing) setForm(EMPTY_FORM)
@@ -544,9 +544,10 @@ export default function LedgerForm({
               <Field
                 id="ledger_accno"
                 label="Bank Account Number"
+                inputMode="numeric"
                 value={form.ledger_accno}
                 disabled={submitting}
-                onChange={(e) => setField('ledger_accno', e.target.value)}
+                onChange={(e) => setField('ledger_accno', e.target.value.replace(/\D/g, ''))}
               />
 
               <Field
@@ -582,7 +583,7 @@ export default function LedgerForm({
             works for each. */}
         <FormActions>
           {editing && !gstMode ? (
-            <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>
+            <Button type="button" variant="outline" onClick={onCancel} disabled={busy}>
               Cancel
             </Button>
           ) : null}

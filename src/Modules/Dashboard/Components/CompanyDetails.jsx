@@ -56,19 +56,20 @@ import { CSV_SOURCES } from '@/Services/csvService'
 import {
   fetchCompanies,
   removeCompany,
-  selectCompanies,
+  selectAllCompanies,
   selectCompanyError,
   selectCompanyStatus,
-  selectSelectedCompanyId,
+  selectActiveCompanyId,
 } from '@/Store/Slices/companySlice'
 import { formatLongDate } from '@/Utils/date'
 import { orDash } from '@/Utils/display'
 import CompanyForm from './CompanyForm'
 
-const SEARCH_FIELDS = ['comp_name', 'comp_gstin', 'comp_email', 'comp_phone', 'pan_no']
+// const SEARCH_FIELDS = ['comp_name', 'comp_gstin', 'comp_email', 'comp_phone', 'pan_no']
+const SEARCH_FIELDS = ['comp_name', 'comp_gstin']
 const FILTER_FIELDS = {
   status_label: 'Status',
-  comp_state: 'State',
+  // comp_state: 'State',
 }
 
 /** The badge colour for each status - see getCompanyStatus in companyService. */
@@ -101,11 +102,11 @@ function StatusBadge({ status }) {
 export default function CompanyDetails() {
   const dispatch = useDispatch()
 
-  const companies = useSelector(selectCompanies)
+  const companies = useSelector(selectAllCompanies)
   const status = useSelector(selectCompanyStatus)
   const error = useSelector(selectCompanyError)
   // The company the header is working in.
-  const selectedId = useSelector(selectSelectedCompanyId)
+  const selectedId = useSelector(selectActiveCompanyId)
 
   // The company_id whose Edit was clicked, or null.
   const [editingId, setEditingId] = useState(null)
@@ -126,10 +127,11 @@ export default function CompanyDetails() {
   const rows = useMemo(
     () =>
       companies.map((company) => {
-        const companyStatus = getCompanyStatus(company)
+        // Active = the app's active company (is_active, or a Gold user's pick).
+        const companyStatus = getCompanyStatus(company, { isActive: company.company_id === selectedId })
         return { ...company, status: companyStatus, status_label: companyStatus.label }
       }),
-    [companies],
+    [companies, selectedId],
   )
 
   const view = useListView(rows, {
@@ -202,7 +204,7 @@ export default function CompanyDetails() {
       <>
         <TableFilters
           view={view}
-          searchPlaceholder="Search name, GST, email or phone"
+          searchPlaceholder="Search name or GST"
           // Every company of the signed-in user: the export is asked for by
           // their email, the one saved at sign-in - the same value the
           // company list itself is requested with (getUserCompanies).
@@ -224,64 +226,43 @@ export default function CompanyDetails() {
           <DataTable
             head={
               <>
-                <SortableHead view={view} field="comp_name">
+                <SortableHead view={view} field="comp_name" width={200}>
                   Company Name
                 </SortableHead>
-                <SortableHead view={view} field="status_label">
-                  Status
-                </SortableHead>
-                <SortableHead view={view} field="comp_state">
+                <SortableHead view={view} field="comp_state" width={140}>
                   State
                 </SortableHead>
-                <SortableHead view={view} field="comp_email">
+                <SortableHead view={view} field="comp_email" width={220}>
                   Email
                 </SortableHead>
-                <SortableHead view={view} field="comp_phone">
-                  Mobile
-                </SortableHead>
-                <SortableHead view={view} field="comp_gstin">
+                <SortableHead view={view} field="comp_gstin" width={170}>
                   GST Number
                 </SortableHead>
-                <SortableHead view={view} field="pan_no">
-                  PAN
+                <SortableHead view={view} field="status_label" width={120}>
+                  Status
                 </SortableHead>
-                <SortableHead view={view} field="comp_website">
-                  Website
-                </SortableHead>
-                <SortableHead view={view} field="udyam">
-                  Udyam
-                </SortableHead>
-                <SortableHead view={view} field="category">
-                  Category
-                </SortableHead>
-                <SortableHead view={view} field="created_date">
+                <SortableHead view={view} field="created_date" width={150}>
                   Active Date
                 </SortableHead>
-                <SortableHead view={view} field="renew_date">
+                <SortableHead view={view} field="renew_date" width={150}>
                   Last Date
                 </SortableHead>
-                <PlainHead className="text-right">Actions</PlainHead>
+                <PlainHead width={110} className="text-right">Actions</PlainHead>
               </>
             }
           >
             {view.rows.map((company) => (
               <TableRow
+                className="text-brand"
                 // `company_id` - the company's own, stable identifier.
                 key={company.company_id}
                 data-state={company.company_id === formId ? 'selected' : undefined}
               >
-                <TableCell className="font-medium text-brand">{orDash(company.comp_name)}</TableCell>
-                <TableCell>
-                  <StatusBadge status={company.status} />
-                </TableCell>
+                <TableCell className="font-medium">{orDash(company.comp_name)}</TableCell>
                 <TableCell>{orDash(company.comp_state)}</TableCell>
                 <TableCell>{orDash(company.comp_email)}</TableCell>
-                <TableCell>{orDash(company.comp_phone)}</TableCell>
                 <TableCell>{orDash(company.comp_gstin)}</TableCell>
-                <TableCell>{orDash(company.pan_no)}</TableCell>
-                <TableCell>{orDash(company.comp_website)}</TableCell>
-                <TableCell>{orDash(company.udyam)}</TableCell>
-                <TableCell>{orDash(company.category)}</TableCell>
+                <TableCell><StatusBadge status={company.status} /></TableCell>
                 <TableCell>{formatLongDate(company.created_date)}</TableCell>
                 <TableCell>{formatLongDate(company.renew_date)}</TableCell>
                 <TableCell className="text-right">
@@ -321,7 +302,7 @@ export default function CompanyDetails() {
             actions={
               <Button
                 type="button"
-                variant="outline"
+                variant="default"
                 size="sm"
                 onClick={reload}
                 disabled={loading}
@@ -352,11 +333,10 @@ export default function CompanyDetails() {
         title="Delete company"
         description={
           confirming
-            ? `Delete ${confirming.comp_name}? ${
-                confirming.company_id === selectedId
-                  ? 'It is the company you are working in now. '
-                  : ''
-              }This cannot be undone.`
+            ? `Delete ${confirming.comp_name}? ${confirming.company_id === selectedId
+              ? 'It is the company you are working in now. '
+              : ''
+            }This cannot be undone.`
             : undefined
         }
         confirmLabel={deleting ? 'Deleting...' : 'Delete'}

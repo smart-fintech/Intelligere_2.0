@@ -22,21 +22,25 @@
 
 import { useEffect } from 'react'
 
-import { disconnect, enable } from '@/Services/socketService'
+import { appSocket } from '@/Services/socketService'
+import { tallySocket } from '@/Services/tallyConnectionService'
 import { isLoggedIn, onTokensChanged } from '@/Services/tokenService'
+
+// Every connection whose lifecycle follows the session: the shared one, and
+// the footer's dedicated Tally-check one. Each still opens only when used.
+const SOCKETS = [appSocket, tallySocket]
 
 const SocketProvider = ({ children }) => {
   useEffect(() => {
     // A reload keeps the saved session but loses the connection, so allow it
     // again. A visitor on the login page has no token, so nothing is allowed
     // until they sign in.
-    if (isLoggedIn()) enable()
+    if (isLoggedIn()) SOCKETS.forEach((socket) => socket.enable())
 
     // tokenService tells us the moment a token is saved or cleared, which is
     // exactly when the socket should be allowed or shut down.
     const stopListening = onTokensChanged((accessToken) => {
-      if (accessToken) enable()
-      else disconnect()
+      SOCKETS.forEach((socket) => (accessToken ? socket.enable() : socket.disconnect()))
     })
 
     return () => {
