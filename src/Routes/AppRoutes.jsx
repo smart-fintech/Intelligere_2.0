@@ -38,7 +38,7 @@
  *   /modules/<key>     ->  one per PRODUCT_MODULES entry; its real page, or
  *                          ComingSoonPage until built    (inside the shell)
  *   /payment           ->  ComingSoonPage               (inside the shell)
- *   /sub-users/create  ->  ComingSoonPage               (inside the shell)
+ *   /sub-users/create  ->  CreateSubUser                (inside the shell)
  *   /profile           ->  Profile.jsx                  (inside the shell)
  *   /issue             ->  ReportIssue.jsx              (inside the shell)
  *   anything else      ->  NotFound.jsx    (inside the shell when signed in,
@@ -75,6 +75,7 @@ import LedgerDetailsPage from '@/Modules/Dashboard/Pages/LedgerDetailsPage'
 import ModulePlaceholder from '@/Modules/Dashboard/Pages/ModulePlaceholder'
 import Profile from '@/Modules/Profile/Pages/Profile'
 import ComingSoonPage from '@/Modules/Misc/Pages/ComingSoonPage'
+import CreateSubUser from '@/Modules/SubUser/Pages/CreateSubUser'
 import NotFound from '@/Modules/Misc/Pages/NotFound'
 import ReportIssue from '@/Modules/Support/Pages/ReportIssue'
 
@@ -160,12 +161,7 @@ export default function AppRoutes() {
           path={PAYMENT_LINK.path}
           element={<ComingSoonPage title={PAYMENT_LINK.label} icon={PAYMENT_LINK.icon} />}
         />
-        <Route
-          path={CREATE_SUB_USER_LINK.path}
-          element={
-            <ComingSoonPage title={CREATE_SUB_USER_LINK.label} icon={CREATE_SUB_USER_LINK.icon} />
-          }
-        />
+        <Route path={CREATE_SUB_USER_LINK.path} element={<CreateSubUser />} />
 
         <Route path={ROUTES.PROFILE} element={<Profile />} />
         <Route path={ROUTES.ISSUE} element={<ReportIssue />} />

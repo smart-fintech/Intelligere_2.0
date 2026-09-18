@@ -66,7 +66,7 @@ export const CREATE_SUB_USER_LINK = {
   icon: UserPlus,
   path: ROUTES.CREATE_SUB_USER,
   ready: true,
-  comingSoon: true,
+  comingSoon: false,
 }
 
 export const NAV_SECTIONS = [

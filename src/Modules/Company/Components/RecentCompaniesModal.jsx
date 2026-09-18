@@ -75,17 +75,24 @@ export default function RecentCompaniesModal({
             Continue Without Delete
           </Button>
 
-          <Button
-            type="button"
-            variant="destructive"
-            loading={busy}
-            onClick={() => onDelete?.(deleteIds)}
-          >
-            {deleteIds.length > 0 ? `Delete (${deleteIds.length})` : 'Delete'}
-          </Button>
+          {companies.length > 0 && (
+            <Button
+              type="button"
+              variant="destructive"
+              loading={busy}
+              onClick={() => onDelete?.(deleteIds)}
+            >
+              {deleteIds.length > 0 ? `Delete (${deleteIds.length})` : 'Delete'}
+            </Button>
+          )}
         </>
       }
     >
+      {/* No recent companies: nothing to tick - the modal only confirms. */}
+      {companies.length === 0 && (
+        <p className="text-sm text-muted-foreground">No recent companies found.</p>
+      )}
+
       <ul className="space-y-2">
         {companies.map((company) => {
           const inputId = `recent-company-${company.Comp_id}`

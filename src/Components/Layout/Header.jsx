@@ -25,6 +25,7 @@ import { useDispatch, useSelector } from 'react-redux'
 import {
   selectIsGoldTally,
   selectIsSilverTally,
+  selectIsTallyErp,
   selectProfileDetails,
 } from '@/Store/Slices/profileSlice'
 import { fetchCompanies } from '@/Store/Slices/companySlice'
@@ -44,6 +45,9 @@ import RecentCompaniesModal from '@/Modules/Company/Components/RecentCompaniesMo
  * send() itself, not by a timer.
  */
 const REPLY_TIMEOUT_MS = 15000
+
+/** Tally Gold: how long after Refresh's fetch is sent to read the recent companies. */
+const RECENT_COMPANIES_DELAY_MS = 5000
 
 /**
  * A browser-console line about the recent-companies step (ENV.DEBUG_LOGS).
@@ -85,11 +89,14 @@ export default function Header({ onToggleSidebar }) {
   // is_active in tally/user-companies-list/ - never the name a socket reply
   // carried, so a reload of that list is what changes it.
   const isSilver = useSelector(selectIsSilverTally)
-  // Tally Gold: Refresh first offers to delete recent companies.
+  // Tally Gold: RECENT_COMPANIES_DELAY_MS after Refresh's fetch is sent,
+  // offers to delete recent companies.
   const isGoldTally = useSelector(selectIsGoldTally)
+  // Every Tally-only step below is skipped for any other ERP.
+  const isTally = useSelector(selectIsTallyErp)
 
-  // Gold Refresh, before the socket: fetching the recent companies, the
-  // list shown in the Delete Company modal (null = closed), and the delete.
+  // Gold Refresh: waiting for / fetching the recent companies, the list shown
+  // in the Delete Company modal (null = closed), and the delete.
   const [preparing, setPreparing] = useState(false)
   const [recentCompanies, setRecentCompanies] = useState(null)
   const [deletingRecent, setDeletingRecent] = useState(false)
@@ -102,6 +109,31 @@ export default function Header({ onToggleSidebar }) {
   // there would be the value from the render that registered it.
   const waitingRef = useRef(false)
   const timerRef = useRef(null)
+  const isGoldRef = useRef(isGoldTally)
+  const isTallyRef = useRef(isTally)
+  // The 5s wait before tally/recent_companies/.
+  const recentTimerRef = useRef(null)
+  // One Gold Refresh, from the send until the company list is reloaded:
+  // { stopped, closed } - the socket has finished (stop_loader or timeout),
+  // and the modal has closed. null when none is running.
+  const goldCycleRef = useRef(null)
+
+  useEffect(() => {
+    isGoldRef.current = isGoldTally
+    isTallyRef.current = isTally
+  }, [isGoldTally, isTally])
+
+  /**
+   * Ends a Gold Refresh: once BOTH the socket has finished and the modal has
+   * closed, tally/user-companies-list/ is reloaded - exactly once per Refresh.
+   */
+  const finishGoldCycle = () => {
+    const cycle = goldCycleRef.current
+    if (!cycle || !cycle.stopped || !cycle.closed) return
+
+    goldCycleRef.current = null
+    dispatch(fetchCompanies({ force: true }))
+  }
 
   /** Stops the spinner and forgets the safety-net timer. */
   const stopWaiting = () => {
@@ -126,6 +158,7 @@ export default function Header({ onToggleSidebar }) {
       // { res: { return_module_name, action_status, status, msg, company_name } }
       // Only fetch_tally_company replies count - a bare message the backend
       // sends to everybody is not an answer to Refresh.
+      if (!isTallyRef.current) return
       const reply = data?.res ?? {}
       if (reply.return_module_name !== COMPANY_SOCKET_MODULE) return
 
@@ -135,10 +168,19 @@ export default function Header({ onToggleSidebar }) {
       const requested = waitingRef.current
       if (requested) stopWaiting()
 
-      // ALWAYS after stop_loader, success or error: reload
-      // tally/user-companies-list/ so the store (picker, dashboard, footer
-      // check, the name beside Refresh) reflects which company is is_active.
-      dispatch(fetchCompanies({ force: true }))
+      if (isGoldRef.current) {
+        // Gold: the list is reloaded once, when the Refresh's modal has
+        // closed (finishGoldCycle) - not on every stop_loader.
+        if (goldCycleRef.current) {
+          goldCycleRef.current.stopped = true
+          finishGoldCycle()
+        }
+      } else {
+        // ALWAYS after stop_loader, success or error: reload
+        // tally/user-companies-list/ so the store (picker, dashboard, footer
+        // check, the name beside Refresh) reflects which company is is_active.
+        dispatch(fetchCompanies({ force: true }))
+      }
 
       // The toasts answer a Refresh this header asked for, not a late reply.
       if (!requested) return
@@ -161,9 +203,8 @@ export default function Header({ onToggleSidebar }) {
   })
 
   /**
-   * The fetch_tally_company request - what Refresh has always sent. Silver
-   * (and everyone but Gold) goes straight here; Gold comes here from the
-   * recent-companies step in handleRefresh.
+   * The fetch_tally_company request - what Refresh has always sent, for
+   * every user (Gold included). It is sent once per Refresh.
    *
    * The payload is built by companyService (buildActiveCompanyMessage) from the
    * selected company in the store, so its company_id and name go with it -
@@ -186,9 +227,18 @@ export default function Header({ onToggleSidebar }) {
     const delivered = await send(JSON.stringify(payload))
 
     if (!delivered) {
+      console.error('[Header Tally] WebSocket error:', 'the fetch_tally_company request could not be sent')
       stopWaiting()
       toast.error('Could not reach the live server. Please try again.')
       return
+    }
+
+    // Tally Gold: the recent companies follow after a fixed wait - one timer,
+    // one request per Refresh.
+    if (isGoldRef.current) {
+      goldCycleRef.current = { stopped: false, closed: false }
+      setPreparing(true)
+      recentTimerRef.current = setTimeout(showRecentCompanies, RECENT_COMPANIES_DELAY_MS)
     }
 
     // Sent. Wait for the answer, but never for ever.
@@ -198,55 +248,72 @@ export default function Header({ onToggleSidebar }) {
       console.warn('[Header Tally WS]', `No stop_loader after ${REPLY_TIMEOUT_MS}ms - spinner stopped`)
       stopWaiting()
       toast.info('Refresh sent. The server has not answered yet.')
+
+      // Gold: stop waiting for the socket; the list reloads when the modal closes.
+      if (goldCycleRef.current) {
+        goldCycleRef.current.stopped = true
+        finishGoldCycle()
+      }
     }, REPLY_TIMEOUT_MS)
   }
 
   /**
-   * The Refresh button.
-   *
-   *   Tally Gold   GET tally/recent_companies/ first. Any there -> the
-   *                Delete Company modal, and the fetch starts from its
-   *                buttons. None (or the list could not be read) -> the
-   *                fetch starts straight away.
-   *   everyone     the fetch_tally_company socket request, as before.
+   * The Refresh button: the fetch_tally_company socket request, for everyone.
+   * Tally Gold also reads tally/recent_companies/ RECENT_COMPANIES_DELAY_MS
+   * later (showRecentCompanies). A Gold Refresh still in progress blocks
+   * another one.
    */
-  const handleRefresh = async () => {
-    if (waitingRef.current || preparing || recentCompanies) return
+  const handleRefresh = () => {
+    if (!isTally) return
+    if (waitingRef.current || preparing || recentCompanies || goldCycleRef.current) return
+    startFetchTallyCompany()
+  }
 
-    if (!isGoldTally) {
-      startFetchTallyCompany()
-      return
-    }
-
-    setPreparing(true)
+  /**
+   * Tally Gold, RECENT_COMPANIES_DELAY_MS after the Refresh was sent:
+   * GET tally/recent_companies/, shown in the Delete Company modal. An empty
+   * list (or one that could not be read) opens no modal: the Refresh simply
+   * carries on with the socket request already sent, exactly as if the modal
+   * had been closed. Nothing here reloads the company list; closeRecentModal
+   * does, once the socket has finished.
+   */
+  const showRecentCompanies = async () => {
+    recentTimerRef.current = null
     let recent = []
     try {
       recent = await getRecentCompanies()
-      debug('Response:', recent)
     } catch (error) {
-      // Cleaning up is optional; it must never block the fetch itself.
-      console.error('[Tally Recent Companies] Could not load - fetching without it:', error)
+      console.error('[Header Tally] Could not load recent companies:', error)
       toast.warning(`Could not load recent companies: ${error.message}`)
     } finally {
       setPreparing(false)
     }
 
     if (recent.length === 0) {
-      startFetchTallyCompany()
+      closeRecentModal()
       return
     }
 
     setRecentCompanies(recent)
   }
 
+  /** Every way the modal closes: close it, then end the Gold Refresh. */
+  const closeRecentModal = () => {
+    setRecentCompanies(null)
+    if (goldCycleRef.current) {
+      goldCycleRef.current.closed = true
+      finishGoldCycle()
+    }
+  }
+
   /**
    * "Delete": `companyIds` are the UNTICKED companies (ticked = keep). None
-   * unticked -> no Delete call. Either way the fetch follows.
+   * unticked -> no Delete call. Either way the modal then closes, which
+   * reloads the company list once.
    */
   const handleDeleteRecent = async (companyIds) => {
     if (companyIds.length === 0) {
-      setRecentCompanies(null)
-      startFetchTallyCompany()
+      closeRecentModal()
       return
     }
 
@@ -256,31 +323,33 @@ export default function Header({ onToggleSidebar }) {
       const response = await deleteRecentCompanies(companyIds)
       toast.success(response?.msg || `Deleted ${companyIds.length} recent compan${companyIds.length === 1 ? 'y' : 'ies'}.`)
     } catch (error) {
-      // The delete is only a clean-up - the fetch still goes ahead.
-      console.error('[Tally Recent Companies] Delete failed - fetching anyway:', error)
-      toast.error(error.message)
+      console.error('[Header Tally] Recent companies delete failed:', error)
     } finally {
       setDeletingRecent(false)
     }
 
-    setRecentCompanies(null)
-    startFetchTallyCompany()
+    closeRecentModal()
   }
 
   /** "Continue Without Delete". */
   const handleSkipRecent = () => {
-    setRecentCompanies(null)
-    startFetchTallyCompany()
+    closeRecentModal()
   }
 
-  /** The modal's X / Escape: the Refresh is called off. */
+  /** The modal's X / Escape: just closes it - the Refresh already ran. */
   const handleCancelRecent = () => {
-    setRecentCompanies(null)
+    closeRecentModal()
   }
 
   // A timer must not outlive the header - it would call setState on a
   // component that is no longer on screen.
-  useEffect(() => () => clearTimeout(timerRef.current), [])
+  useEffect(
+    () => () => {
+      clearTimeout(timerRef.current)
+      clearTimeout(recentTimerRef.current)
+    },
+    [],
+  )
 
   return (
     <header className="flex h-16 shrink-0 items-center justify-between gap-3 border-b border-border bg-card px-3 sm:px-4">
@@ -347,7 +416,7 @@ export default function Header({ onToggleSidebar }) {
         />
         }
 
-        {/* Tally Gold only: opened by Refresh when recent companies exist.
+        {/* Tally Gold only: opened after Refresh's fetch when recent companies exist.
             Mounted only while open, so each opening starts unticked. */}
         {recentCompanies && (
           <RecentCompaniesModal

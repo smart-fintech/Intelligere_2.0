@@ -206,7 +206,7 @@ export const createSocket = ({ name = 'socket' } = {}) => {
    * The backend sends three shapes and this copes with all of them, without
    * caring what is inside them:
    *
-   *  { res: { message: { module: 'fetch_tally_company', ... } } } a module's reply
+   *  { res: { message: { module_name: 'fetch_tally_company', ... } } } a module's reply
    *  { res: { return_module_name: 'tally_check_connection',
    *           action_status: 'stop_loader', ... } }             a module's reply
    *  { message: { msg: 'stop_loader' } } a common message

@@ -61,8 +61,8 @@ export const ENV = {
 
   // Browser-console debug lines for the WebSockets and the company list
   // ("[Header Tally WS] ...", "[Footer Tally WS] ...", "[Company List] ...").
-  // On unless VITE_DEBUG_LOGS=false.
-  DEBUG_LOGS: String(import.meta.env.VITE_DEBUG_LOGS ?? 'true').trim().toLowerCase() !== 'false',
+  // Off unless VITE_DEBUG_LOGS=true, so the console stays clean by default.
+  DEBUG_LOGS: String(import.meta.env.VITE_DEBUG_LOGS ?? 'false').trim().toLowerCase() === 'true',
 
   // Key used to scramble what we keep in localStorage.
   STORAGE_SECRET: import.meta.env.VITE_STORAGE_SECRET || 'intelligere-dev-key',

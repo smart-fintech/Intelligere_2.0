@@ -24,6 +24,7 @@
  *       "status": "success" | "error",
  *       "tally_connect": true | false,
  *       "company_name": "Bhavi Electronics789",   <- "" when none is open
+ *       "tally_company": "Bhavi Electronics789",  <- or a list of names
  *       "msg": "...",
  *       "pc_name": "PC-NAME"
  *   } }
@@ -65,12 +66,69 @@ const sameName = (a, b) =>
   a.trim() !== '' &&
   a.trim().toLowerCase() === b.trim().toLowerCase()
 
-/** True when this reply says the ACTIVE company is open and connected. */
-export const isActiveCompanyConnected = (reply, activeCompanyName) =>
-  reply?.tally_connect === true && sameName(reply.company_name, activeCompanyName)
+/**
+ * Every company name one reply reports. The backend names the open company
+ * in `tally_company` and/or `company_name`, and either may hold one name or a
+ * list of them (several companies open in one Tally), so all are gathered.
+ */
+const COMPANY_NAME_FIELDS = ['tally_company', 'company_name']
+
+const toNames = (value) => {
+  if (Array.isArray(value)) return value.flatMap(toNames)
+  if (typeof value === 'string') return value.trim() ? [value.trim()] : []
+  if (value && typeof value === 'object') {
+    return toNames(value.tally_company ?? value.company_name ?? value.comp_name)
+  }
+  return []
+}
+
+export const readReplyCompanyNames = (reply) => [
+  ...new Set(COMPANY_NAME_FIELDS.flatMap((field) => toNames(reply?.[field]))),
+]
 
 /**
- * Turns every reply gathered for one check into the footer's answer.
+ * True when this reply says Tally is connected. `tally_connect` decides when
+ * the backend sent it; a reply without it counts when it is not an error.
+ */
+const isConnectedReply = (reply) =>
+  reply?.tally_connect === true || (reply?.tally_connect == null && reply?.status !== 'error')
+
+/** True when this reply says the ACTIVE company is open and connected. */
+export const isActiveCompanyConnected = (reply, activeCompanyName) =>
+  isConnectedReply(reply) &&
+  readReplyCompanyNames(reply).some((name) => sameName(name, activeCompanyName))
+
+/**
+ * Every reply of one check merged into { reply, name } pairs - one per
+ * company any connected agent reported - so the active company is found
+ * whichever reply (or which entry of a list) carried it.
+ */
+const mergeConnectedCompanies = (replies) =>
+  replies
+    .filter(isConnectedReply)
+    .flatMap((reply) => readReplyCompanyNames(reply).map((name) => ({ reply, name })))
+
+/** The "not connected" answer, preferring the backend's own explanation. */
+const notConnected = (replies, message) => {
+  const explained = replies.find((reply) => reply.msg)
+  return {
+    state: 'disconnected',
+    label: 'Tally Not Connected',
+    message: message || explained?.msg || 'Tally is not connected. Please open Tally and try again.',
+    reply: explained ?? replies[replies.length - 1] ?? null,
+  }
+}
+
+const connectedTo = (match) => ({
+  state: 'connected',
+  label: 'Tally Connected',
+  message: match.msg || 'Tally connection successful',
+  reply: match,
+})
+
+/**
+ * Turns every reply gathered for one check into the footer's answer
+ * (Silver, and everyone who is not Tally Gold).
  *
  * Returns { state, label, message, reply }:
  *   connected     Tally is connected, with the active company open
@@ -80,40 +138,56 @@ export const isActiveCompanyConnected = (reply, activeCompanyName) =>
  * With no active company chosen in the app yet, any connected agent counts.
  */
 export const resolveTallyConnection = (replies, activeCompanyName) => {
-  const connected = replies.filter((reply) => reply.tally_connect === true)
+  const connected = replies.filter(isConnectedReply)
+  const companies = mergeConnectedCompanies(replies)
   const hasActive = typeof activeCompanyName === 'string' && activeCompanyName.trim() !== ''
 
   const match = hasActive
-    ? connected.find((reply) => sameName(reply.company_name, activeCompanyName))
+    ? companies.find(({ name }) => sameName(name, activeCompanyName))?.reply
     : connected[0]
 
-  if (match) {
-    return {
-      state: 'connected',
-      label: 'Tally Connected',
-      message: match.msg || 'Tally connection successful',
-      reply: match,
-    }
-  }
+  if (match) return connectedTo(match)
 
   if (connected.length > 0) {
-    const other = connected.find((reply) => reply.company_name) ?? connected[0]
+    const other = companies[0]
     return {
       state: 'mismatch',
       label: 'Company Mismatch',
-      message: other.company_name
-        ? `Tally is connected, but "${other.company_name}" is open instead of "${activeCompanyName}".`
+      message: other
+        ? `Tally is connected, but "${other.name}" is open instead of "${activeCompanyName}".`
         : `Tally is connected, but "${activeCompanyName}" is not open in Tally.`,
-      reply: other,
+      reply: other?.reply ?? connected[0],
     }
   }
 
-  // Prefer the backend's own explanation when an agent gave one.
-  const explained = replies.find((reply) => reply.msg)
-  return {
-    state: 'disconnected',
-    label: 'Tally Not Connected',
-    message: explained?.msg || 'Tally is not connected. Please open Tally and try again.',
-    reply: explained ?? replies[replies.length - 1] ?? null,
+  return notConnected(replies)
+}
+
+/**
+ * The footer's answer for Tally Gold. Connected ONLY when
+ *
+ *   1. tally/user-companies-list/ has at least one company,
+ *   2. the stored company_id is one of them (the active Gold company), and
+ *   3. some connected reply reports that company's comp_name.
+ *
+ * Anything else is disconnected - there is no "mismatch" for Gold.
+ */
+export const resolveGoldTallyConnection = (replies, { activeCompanyName, companyCount }) => {
+  if (!companyCount) return notConnected(replies, 'No Tally company found for this account.')
+
+  const hasActive = typeof activeCompanyName === 'string' && activeCompanyName.trim() !== ''
+  if (!hasActive) {
+    return notConnected(replies, 'No active company selected. Please select a company and try again.')
   }
+
+  const companies = mergeConnectedCompanies(replies)
+  const match = companies.find(({ name }) => sameName(name, activeCompanyName))
+  if (match) return connectedTo(match.reply)
+
+  return notConnected(
+    replies,
+    companies.length > 0
+      ? `"${activeCompanyName}" is not open in Tally ("${companies.map(({ name }) => name).join('", "')}" found).`
+      : undefined,
+  )
 }

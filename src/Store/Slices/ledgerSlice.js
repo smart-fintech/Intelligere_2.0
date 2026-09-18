@@ -19,7 +19,9 @@
 
 import { createAsyncThunk, createSlice } from '@reduxjs/toolkit'
 
-import { getLedgerGroups, getLedgers } from '@/Services/ledgerService'
+import { LEDGER_GROUP_SOURCE, getLedgerGroups, getLedgers } from '@/Services/ledgerService'
+import { selectIsIntelligereErp, selectIsTallyErp } from '@/Store/Slices/profileSlice'
+import { selectActiveCompanyId } from '@/Store/Slices/companySlice'
 
 /* ------------------------------------------------------------------ */
 /* 1. The ledgers                                                     */
@@ -66,23 +68,44 @@ export const fetchLedgers = createAsyncThunk(
  * Reference data: the same for every company, so it is fetched once per
  * session and shared by the table and the form rather than being asked for
  * each time the form opens.
+ *
+ * The endpoint follows the ERP (selectLedgerGroupSource): Tally reads
+ * tally/ledger_groups/, Intelligere tally/intelligere_group_list/. Until the
+ * profile says which, nothing is requested; the groups are fetched again only
+ * when the ERP - and so the source - changes.
+ *
+ * Tally's groups belong to a company (POST { company_id }), so for Tally they
+ * also wait for the active company and are fetched again when it changes
+ * (selectLedgerGroupCompanyId). Intelligere's do not depend on it.
  */
 export const fetchLedgerGroups = createAsyncThunk(
   'ledger/fetchGroups',
-  async (_, { rejectWithValue }) => {
+  async (_, { getState, rejectWithValue }) => {
     try {
-      return await getLedgerGroups()
+      const state = getState()
+      return await getLedgerGroups(selectLedgerGroupSource(state), selectLedgerGroupCompanyId(state))
     } catch (error) {
       return rejectWithValue(error.message)
     }
   },
   {
     condition: (arg, { getState }) => {
+      const state = getState()
+      const source = selectLedgerGroupSource(state)
+      if (!source) return false
+      const companyId = selectLedgerGroupCompanyId(state)
+      if (source === LEDGER_GROUP_SOURCE.TALLY && !companyId) return false
       if (arg?.force) return true
 
-      const { groupsStatus } = getState().ledger
+      const { groupsStatus, groupsSource, groupsCompanyId } = state.ledger
+      if (groupsSource !== source || groupsCompanyId !== companyId) return true
       return groupsStatus !== 'loading' && groupsStatus !== 'succeeded'
     },
+    // Which endpoint (and, for Tally, company) this request is for.
+    getPendingMeta: (_, { getState }) => ({
+      source: selectLedgerGroupSource(getState()),
+      companyId: selectLedgerGroupCompanyId(getState()),
+    }),
   },
 )
 
@@ -99,6 +122,11 @@ const initialState = {
   groups: [],
   groupsStatus: 'idle',
   groupsError: null,
+  // The source (ERP) of the newest groups request, and that request - a
+  // late answer from an older one is ignored.
+  groupsSource: null,
+  groupsCompanyId: null,
+  groupsRequestId: null,
 }
 
 const ledgerSlice = createSlice({
@@ -129,15 +157,24 @@ const ledgerSlice = createSlice({
       })
 
       // ---- the groups ----
-      .addCase(fetchLedgerGroups.pending, (state) => {
+      .addCase(fetchLedgerGroups.pending, (state, action) => {
+        // Another ERP or company: the old groups are not this one's.
+        if (state.groupsSource !== action.meta.source || state.groupsCompanyId !== action.meta.companyId) {
+          state.groups = []
+        }
         state.groupsStatus = 'loading'
         state.groupsError = null
+        state.groupsSource = action.meta.source
+        state.groupsCompanyId = action.meta.companyId
+        state.groupsRequestId = action.meta.requestId
       })
       .addCase(fetchLedgerGroups.fulfilled, (state, action) => {
+        if (action.meta.requestId !== state.groupsRequestId) return
         state.groupsStatus = 'succeeded'
         state.groups = action.payload
       })
       .addCase(fetchLedgerGroups.rejected, (state, action) => {
+        if (action.meta.requestId !== state.groupsRequestId) return
         state.groupsStatus = 'failed'
         state.groupsError = action.payload || 'Could not load ledger groups.'
       })
@@ -158,5 +195,19 @@ export const selectLedgerError = (state) => state.ledger.error
 export const selectLedgersCompanyId = (state) => state.ledger.companyId
 
 export const selectLedgerGroups = (state) => state.ledger.groups
+
+/** Which endpoint the groups come from for this ERP, or null until it is known. */
+export function selectLedgerGroupSource(state) {
+  if (selectIsTallyErp(state)) return LEDGER_GROUP_SOURCE.TALLY
+  if (selectIsIntelligereErp(state)) return LEDGER_GROUP_SOURCE.INTELLIGERE
+  return null
+}
+
+/** The company the groups are for: Tally's active company, null otherwise. */
+export function selectLedgerGroupCompanyId(state) {
+  return selectLedgerGroupSource(state) === LEDGER_GROUP_SOURCE.TALLY
+    ? selectActiveCompanyId(state)
+    : null
+}
 export const selectLedgerGroupsStatus = (state) => state.ledger.groupsStatus
 export const selectLedgerGroupsError = (state) => state.ledger.groupsError

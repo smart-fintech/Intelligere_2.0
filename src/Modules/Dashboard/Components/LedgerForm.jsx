@@ -30,9 +30,12 @@
  *   bankNames   the bank list, from the store (shared with Bank Details)
  *   onSaved()   called after a successful save, so the list can refresh
  *   onCancel()  leaves edit mode and goes back to an empty form
+ *   isTally     Tally ERP: create / update go over the WebSocket
+ *               (tally_ledger_create / tally_ledger_alter) instead of the API
+ *   onRefresh() reloads the ledger list - after a Tally save that failed
  */
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Search } from 'lucide-react'
 
 import {
@@ -48,9 +51,23 @@ import { Button } from '@/Components/ui/button'
 import { GST_RATES, GST_REGISTRATION_TYPES } from '@/Constants/gst'
 import { INDIAN_STATES } from '@/Constants/indianStates'
 import { useGstLookup } from '@/Hooks/useGstLookup'
+import { useWebSocket } from '@/Hooks/useWebSocket'
 import { toast } from '@/Library/toast'
 import { isValidGstNumber } from '@/Services/gstService'
-import { createLedger, getLedgerId, updateLedger } from '@/Services/ledgerService'
+import {
+  TALLY_LEDGER_ALTER_MODULE,
+  TALLY_LEDGER_CREATE_MODULE,
+  buildTallyLedgerMessage,
+  createLedger,
+  getLedgerId,
+  updateLedger,
+} from '@/Services/ledgerService'
+
+/**
+ * Tally save safety net: the longest the button waits for Tally's
+ * stop_loader. The reply normally ends the wait long before this.
+ */
+const TALLY_SAVE_TIMEOUT_MS = 2 * 60 * 1000
 
 /**
  * The fields the form owns, named exactly as the backend names them (the
@@ -84,6 +101,8 @@ export default function LedgerForm({
   bankNames,
   onSaved,
   onCancel,
+  isTally = false,
+  onRefresh,
 }) {
   const editing = Boolean(ledger)
 
@@ -133,6 +152,86 @@ export default function LedgerForm({
   const setField = (field, value) => {
     setForm((previous) => ({ ...previous, [field]: value }))
     setErrors((previous) => ({ ...previous, [field]: undefined }))
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* Tally: saving over the WebSocket                                 */
+  /* ---------------------------------------------------------------- */
+
+  // The Tally save in flight - the module its reply comes back under - or
+  // null. A ref: the socket callback reads it.
+  const tallySaveRef = useRef(null)
+  const tallyTimerRef = useRef(null)
+
+  const endTallySave = () => {
+    tallySaveRef.current = null
+    clearTimeout(tallyTimerRef.current)
+    tallyTimerRef.current = null
+    setSubmitting(false)
+  }
+
+  /**
+   * The app's shared WebSocket. Only the reply to this form's own save
+   * counts, and only its stop_loader ends it: then the ledger list is
+   * reloaded - never before.
+   */
+  const { send } = useWebSocket({
+    onMessage: (data) => {
+      const reply = data?.res
+      const moduleName = tallySaveRef.current
+      if (!reply || !moduleName || reply.return_module_name !== moduleName) return
+      if (reply.action_status !== 'stop_loader') return
+
+      endTallySave()
+
+      if (reply.status === 'error') {
+        toast.error(reply.msg || 'Tally could not save the ledger.')
+        onRefresh?.()
+        return
+      }
+
+      toast.success(
+        reply.msg || (editing ? 'Ledger updated successfully.' : 'Ledger added successfully.'),
+      )
+      if (!editing) setForm(EMPTY_FORM)
+      // Reloads the list and leaves edit mode - as after an API save.
+      onSaved?.()
+    },
+  })
+
+  // Nothing of a Tally save may outlive the form.
+  useEffect(
+    () => () => {
+      tallySaveRef.current = null
+      clearTimeout(tallyTimerRef.current)
+    },
+    [],
+  )
+
+  /** Sends the Tally create / alter; the reply finishes it (see onMessage). */
+  const saveToTally = async () => {
+    const moduleName = editing ? TALLY_LEDGER_ALTER_MODULE : TALLY_LEDGER_CREATE_MODULE
+
+    tallySaveRef.current = moduleName
+    setSubmitting(true)
+
+    const delivered = await send(buildTallyLedgerMessage(moduleName, companyName, form))
+
+    // Already answered, or the form has gone away.
+    if (tallySaveRef.current !== moduleName) return
+
+    if (!delivered) {
+      console.error('[Ledger Tally] WebSocket error:', `${moduleName} could not be sent`)
+      endTallySave()
+      toast.error('Could not reach the live server. Please try again.')
+      return
+    }
+
+    tallyTimerRef.current = setTimeout(() => {
+      if (tallySaveRef.current !== moduleName) return
+      endTallySave()
+      toast.error('Tally did not finish saving the ledger in time. Please try again.')
+    }, TALLY_SAVE_TIMEOUT_MS)
   }
 
   /* ---------------------------------------------------------------- */
@@ -290,6 +389,17 @@ export default function LedgerForm({
       return
     }
 
+    // Tally ERP: over the WebSocket, never the Intelligere API.
+    if (isTally) {
+      if (tallySaveRef.current) return
+      if (editing && !buildEditPayload()) {
+        toast.info('Nothing has been changed.')
+        return
+      }
+      saveToTally()
+      return
+    }
+
     setSubmitting(true)
 
     try {
@@ -408,8 +518,8 @@ export default function LedgerForm({
               />
 
               {/* ---- Row 2: Ledger Group | SAC Code ----
-                  The groups come from tally/intelligere_group_list/, fetched
-                  once into the store. `user_show_group` is both what is shown
+                  The groups come from tally/intelligere_group_list/ (Intelligere)
+                  or tally/ledger_groups/ (Tally), fetched once into the store. `user_show_group` is both what is shown
                   and what is sent - the payload's group field is the name, not
                   the id. */}
               <SelectField

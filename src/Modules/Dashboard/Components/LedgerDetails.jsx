@@ -32,7 +32,7 @@ import {
   RowActions,
   StateMessage,
 } from '@/Components/Common/DataList'
-import { Spinner } from '@/Components/Common/Loader'
+import { Loader } from '@/Components/Common/Loader'
 import { Panel } from '@/Components/Common/Panel'
 import {
   DataTable,
@@ -43,7 +43,6 @@ import {
 } from '@/Components/Common/TableTools'
 import { Button } from '@/Components/ui/button'
 import { TableCell, TableRow } from '@/Components/ui/table'
-import { ENV } from '@/Config/env'
 import { useListView } from '@/Hooks/useListView'
 import { useWebSocket } from '@/Hooks/useWebSocket'
 import { toast } from '@/Library/toast'
@@ -70,8 +69,9 @@ import {
   fetchLedgerGroups,
   fetchLedgers,
   selectLedgerError,
+  selectLedgerGroupCompanyId,
+  selectLedgerGroupSource,
   selectLedgerGroups,
-  selectLedgerGroupsError,
   selectLedgerStatus,
   selectLedgers,
 } from '@/Store/Slices/ledgerSlice'
@@ -84,11 +84,6 @@ import LedgerForm from './LedgerForm'
  * only stops the page spinning for ever if the reply never comes.
  */
 const SYNC_TIMEOUT_MS = 5 * 60 * 1000
-
-/** A browser-console line about Sync Now (ENV.DEBUG_LOGS). */
-const syncLog = (...args) => {
-  if (ENV.DEBUG_LOGS) console.log('[Ledger Sync]', ...args)
-}
 
 /** "0" is a real credit period; only a missing value becomes a dash. */
 const creditPeriod = (days) =>
@@ -116,7 +111,10 @@ export default function LedgerDetails() {
   const status = useSelector(selectLedgerStatus)
   const error = useSelector(selectLedgerError)
   const groups = useSelector(selectLedgerGroups)
-  const groupsError = useSelector(selectLedgerGroupsError)
+  // The ERP's group endpoint - null until the profile has arrived.
+  const groupSource = useSelector(selectLedgerGroupSource)
+  // Tally only: the company the groups are for (null for Intelligere).
+  const groupCompanyId = useSelector(selectLedgerGroupCompanyId)
 
   /* The Bank Name dropdown on the form is filled from the bank list - the
      SAME store the Bank Details page reads, so whichever page the user opens
@@ -169,7 +167,6 @@ export default function LedgerDetails() {
     clearTimeout(syncTimerRef.current)
     syncTimerRef.current = null
 
-    syncLog('Refreshing Ledger API after stop_loader')
     const result = await dispatch(fetchLedgers({ companyId: companyIdRef.current, force: true }))
 
     // `meta.condition` means the request was skipped (one already running),
@@ -196,8 +193,6 @@ export default function LedgerDetails() {
       // Not a sync this page started (or already finished): ignore it.
       const phase = syncPhaseRef.current
       if (phase !== 'waiting' && phase !== 'sending') return
-
-      syncLog('WebSocket response:', data)
 
       // Several replies can arrive; only stop_loader ends the Tally part.
       if (reply.action_status !== 'stop_loader') return
@@ -234,7 +229,7 @@ export default function LedgerDetails() {
 
   /** Sync Now. A click while a sync is running is ignored. */
   const handleSync = async () => {
-    if (syncPhaseRef.current !== 'idle') return
+    if (!isTally || syncPhaseRef.current !== 'idle') return
 
     const companyName = activeCompanyName?.trim()
     if (!companyName) {
@@ -244,7 +239,6 @@ export default function LedgerDetails() {
 
     syncPhaseRef.current = 'sending'
     setSyncing(true)
-    syncLog('Sync started', { company_name: companyName })
 
     const delivered = await send(buildFetchLedgerMessage(companyName))
 
@@ -272,11 +266,25 @@ export default function LedgerDetails() {
     if (companyStatus !== 'succeeded' || !companyId) return
 
     dispatch(fetchLedgers({ companyId }))
-    dispatch(fetchLedgerGroups())
     // Reference data shared with Bank Details; its condition means this is a
     // no-op if that page has already loaded it this session.
     dispatch(fetchBankOptions())
   }, [dispatch, companyStatus, companyId])
+
+  /* The groups follow the ERP (and, for Tally, the active company), so they
+     wait for both: a new source or company loads them once, the same one is
+     a no-op (the thunk's `condition`).
+     A failure is a toast - only for a request that really ran, so a skipped
+     duplicate never shows it twice. */
+  useEffect(() => {
+    if (!groupSource) return
+
+    dispatch(fetchLedgerGroups()).then((result) => {
+      if (fetchLedgerGroups.rejected.match(result) && !result.meta.condition) {
+        toast.error(result.payload || 'Ledger groups could not be loaded.')
+      }
+    })
+  }, [dispatch, groupSource, groupCompanyId])
 
   /** One controlled reload - the Refresh button, and after every save. */
   const reload = () => dispatch(fetchLedgers({ companyId, force: true }))
@@ -352,6 +360,18 @@ export default function LedgerDetails() {
 
   /* ---------------- What fills the list card ---------------- */
   const renderList = () => {
+    // Sync Now first: the whole list area is the loader until the reloaded
+    // ledgers are in - never "No ledgers found" in between.
+    if (syncing) {
+      return (
+        <Loader
+          variant="page"
+          label={`Syncing ledgers from Tally for ${activeCompanyName}...`}
+          description="The ledger list will appear as soon as the sync finishes."
+        />
+      )
+    }
+
     if (companyStatus === 'failed') {
       return (
         <StateMessage
@@ -503,6 +523,8 @@ export default function LedgerDetails() {
             bankNames={bankNames}
             onSaved={handleSaved}
             onCancel={() => setEditing(null)}
+            isTally={isTally}
+            onRefresh={reload}
           />
         </div>
 
@@ -522,7 +544,7 @@ export default function LedgerDetails() {
                   size="sm"
                   tooltip="Delete all ledgers for this company"
                   onClick={() => setConfirming('all')} // Set to 'all' to trigger the modal
-                  disabled={loading || ledgers.length === 0}
+                  disabled={loading || syncing || ledgers.length === 0}
                   aria-label="Delete all ledgers"
                 >
                   <Trash2 className="w-3.5 h-3.5" /> 
@@ -536,7 +558,7 @@ export default function LedgerDetails() {
                   variant="default"
                   size="sm"
                   onClick={reload}
-                  disabled={loading|| !companyId}
+                  disabled={loading || syncing || !companyId}
                   aria-label="Refresh ledger list"
                 >
                   <RefreshCw className={cn(loading)} />
@@ -561,33 +583,8 @@ export default function LedgerDetails() {
               </div>
             }
           >
-            {/* The groups could not be loaded. The ledgers are still perfectly
-                readable without them - the Group column comes with each row;
-                only the form's Ledger Group dropdown is affected - so this is
-                a line above the table rather than something that replaces it. */}
-            {groupsError ? (
-              <InlineAlert
-                action={
-                  <RetryButton onClick={() => dispatch(fetchLedgerGroups({ force: true }))} />
-                }
-              >
-                Ledger groups could not be loaded. {groupsError}
-              </InlineAlert>
-            ) : null}
-
-            {/* Sync Now in progress - on until the reloaded list is here. */}
-            {syncing ? (
-              <div
-                role="status"
-                className="mb-3 flex items-center gap-2 rounded-md border border-brand/30 bg-brand-soft/60 px-2.5 py-2 text-xs text-brand"
-              >
-                <Spinner size="xs" />
-                Syncing ledgers from Tally for {activeCompanyName}...
-              </div>
-            ) : null}
-
             {/* A failed refresh with rows still on screen. */}
-            {status === 'failed' && ledgers.length > 0 ? (
+            {!syncing && status === 'failed' && ledgers.length > 0 ? (
               <InlineAlert action={<RetryButton onClick={reload} />}>{error}</InlineAlert>
             ) : null}
 

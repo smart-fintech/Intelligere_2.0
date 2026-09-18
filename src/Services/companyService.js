@@ -429,7 +429,7 @@ export const COMPANY_SOCKET_MODULE = 'fetch_tally_company'
 // export const buildActiveCompanyMessage = (company) => ({
 export const buildActiveCompanyMessage = () => ({
   payload: {
-    module: COMPANY_SOCKET_MODULE,
+    module_name: COMPANY_SOCKET_MODULE,
     email: getEmail(),
     // company_id: company?.company_id != null ? String(company.company_id) : '',
     // company_name: company?.comp_name || '',

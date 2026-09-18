@@ -36,7 +36,9 @@ import { getEmail, getERP } from '@/Library/secureStorage'
 import { api } from '@/Services/authService'
 
 const LEDGER_URL = 'tally/create-ledger/'
+const LEDGER_DELETEALL_URL = 'tally/delete_all_ledger/'
 const GROUP_LIST_URL = 'tally/intelligere_group_list/'
+const TALLY_GROUP_LIST_URL = 'tally/ledger_groups/'
 
 /**
  * Both endpoints answer with a bare array today. Being wrapped in
@@ -91,17 +93,38 @@ export const getLedgers = async (companyId) => {
   return toList(await api.post(LEDGER_URL, { company_id: companyId }))
 }
 
+/** Where the ledger groups come from - one endpoint per ERP, never both. */
+export const LEDGER_GROUP_SOURCE = Object.freeze({
+  INTELLIGERE: 'intelligere',
+  TALLY: 'tally',
+})
+
 /**
  * Every group a ledger can belong to:
  *
  *   { id: 5, user_show_group: "Bank" }
  *
- * The groups are the same for every company, so this takes no company id.
+ *   Intelligere   GET  tally/intelligere_group_list/   the same for every
+ *                                                     company; used as it comes
+ *   Tally         POST tally/ledger_groups/            { company_id } ->
+ *                 [{ id, group_name }] - `group_name` is copied to
+ *                 `user_show_group`, the field the form reads, so the UI
+ *                 needs no change. No company, no request.
  *
  * They fill the Ledger Group dropdown on the form. (The table does not need
  * them: each ledger row arrives with its own `ledeger_group_name`.)
  */
-export const getLedgerGroups = async () => toList(await api.get(GROUP_LIST_URL))
+export const getLedgerGroups = async (source = LEDGER_GROUP_SOURCE.INTELLIGERE, companyId = null) => {
+  if (source === LEDGER_GROUP_SOURCE.TALLY) {
+    if (!companyId) return []
+
+    return toList(await api.post(TALLY_GROUP_LIST_URL, { company_id: companyId }))
+      .filter((group) => group && group.id != null)
+      .map((group) => ({ ...group, user_show_group: group.user_show_group ?? group.group_name }))
+  }
+
+  return toList(await api.get(GROUP_LIST_URL))
+}
 
 /* ------------------------------------------------------------------ */
 /* Writing                                                            */
@@ -161,7 +184,7 @@ export const deleteLedger = (id, companyId) =>
 
 
 export const deleteAllLedgers = (companyId) =>
-  api.delete(LEDGER_URL, {
+  api.delete(LEDGER_DELETEALL_URL, {
     data: { company_id: companyId }
   })
 
@@ -189,3 +212,58 @@ export const buildFetchLedgerMessage = (companyName) => ({
     company_name: companyName,
   },
 })
+
+/* ------------------------------------------------------------------ */
+/* Tally: creating and changing a ledger over the WebSocket            */
+/* ------------------------------------------------------------------ */
+
+/** Tally ERP only - Intelligere keeps createLedger / updateLedger above. */
+export const TALLY_LEDGER_CREATE_MODULE = 'tally_ledger_create'
+export const TALLY_LEDGER_ALTER_MODULE = 'tally_ledger_alter'
+
+/** The ledger fields Tally takes, in the `data` of its payload. */
+const TALLY_LEDGER_FIELDS = [
+  'ledeger_group_name',
+  'ledeger_name',
+  'ledeger_state',
+  'ledger_gst_reg_type',
+  'ledeger_address',
+  'ledeger_email',
+  'ledeger_phone',
+  'ledeger_gstin',
+  'ledeger_website',
+  'ledger_sac',
+  'ledger_bank',
+  'ledger_ifsc',
+  'ledger_accno',
+  'ledger_pincode',
+  'gst_rate',
+]
+
+/**
+ * The Tally create / alter payload - the same shape for both, only
+ * `module_name` differs:
+ *
+ *   { "payload": { "module_name": "tally_ledger_create" | "tally_ledger_alter",
+ *                  "company_name": "<active company>",
+ *                  "data": { ...the ledger fields, created_by, platform } } }
+ *
+ * `ledger` holds the form's values; `created_by` and `platform` are the
+ * session fields every ledger save sends (systemFields).
+ */
+export const buildTallyLedgerMessage = (moduleName, companyName, ledger) => {
+  const { created_by, platform } = systemFields()
+  const data = TALLY_LEDGER_FIELDS.reduce((built, field) => {
+    const value = ledger?.[field]
+    built[field] = value === null || value === undefined ? '' : String(value).trim()
+    return built
+  }, {})
+
+  return {
+    payload: {
+      module_name: moduleName,
+      company_name: companyName,
+      data: { ...data, created_by, platform },
+    },
+  }
+}

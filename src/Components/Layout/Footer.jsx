@@ -14,10 +14,14 @@ import {
   isActiveCompanyConnected,
   isFinalReply,
   readTallyConnectionReply,
+  resolveGoldTallyConnection,
   resolveTallyConnection,
   tallySocket,
 } from '@/Services/tallyConnectionService'
 import { useActiveCompany } from '@/Hooks/useActiveCompany'
+import { useSelector } from 'react-redux'
+import { selectIsGoldTally, selectIsTallyErp } from '@/Store/Slices/profileSlice'
+import { selectCompanyStatus } from '@/Store/Slices/companySlice'
 import { ENV } from '@/Config/env'
 import { Button } from '../ui/button'
 
@@ -108,7 +112,14 @@ const STATE_STYLES = {
  */
 export default function Footer() {
   // The company the app is working in - the one Tally should have open.
-  const { activeCompanyName } = useActiveCompany()
+  // Worked out centrally (companySlice): Silver = the is_active company,
+  // Gold = the company_id kept in secure storage, found in
+  // tally/user-companies-list/.
+  const { activeCompanyName, allCompanies } = useActiveCompany()
+  const isGoldTally = useSelector(selectIsGoldTally)
+  // The Tally check and its UI exist for Tally ERP users only.
+  const isTally = useSelector(selectIsTallyErp)
+  const companyStatus = useSelector(selectCompanyStatus)
 
   const [checking, setChecking] = useState(false)
   // null until the first check has finished.
@@ -123,10 +134,29 @@ export default function Footer() {
   const settleTimerRef = useRef(null)
   const timeoutRef = useRef(null)
   const companyNameRef = useRef(activeCompanyName)
+  const isGoldRef = useRef(isGoldTally)
+  const companyCountRef = useRef(allCompanies.length)
+  const companyStatusRef = useRef(companyStatus)
 
   useEffect(() => {
     companyNameRef.current = activeCompanyName
-  }, [activeCompanyName])
+    isGoldRef.current = isGoldTally
+    companyCountRef.current = allCompanies.length
+    companyStatusRef.current = companyStatus
+  }, [activeCompanyName, isGoldTally, allCompanies, companyStatus])
+
+  /**
+   * Every reply of one check against the active company. Gold is strict:
+   * Connected only for its stored company, otherwise Disconnected. Silver
+   * keeps its connected / mismatch / disconnected answer.
+   */
+  const resolveOutcome = (replies) =>
+    isGoldRef.current
+      ? resolveGoldTallyConnection(replies, {
+          activeCompanyName: companyNameRef.current,
+          companyCount: companyCountRef.current,
+        })
+      : resolveTallyConnection(replies, companyNameRef.current)
 
   const clearTimers = () => {
     clearTimeout(settleTimerRef.current)
@@ -159,7 +189,7 @@ export default function Footer() {
       return
     }
 
-    const outcome = resolveTallyConnection(replies, companyNameRef.current)
+    const outcome = resolveOutcome(replies)
     debug('Result:', outcome.label, { activeCompany: companyNameRef.current, replies })
     setResult(outcome)
 
@@ -210,6 +240,16 @@ export default function Footer() {
   const startCheck = async ({ auto = false } = {}) => {
     if (runningRef.current) return
 
+    // Gold with the company list loaded but no valid active company (no
+    // companies, or the stored company_id is not among them): nothing Tally
+    // could report would make it Connected, so the check is not sent.
+    if (isGoldRef.current && companyStatusRef.current === 'succeeded' && !companyNameRef.current) {
+      const outcome = resolveOutcome([])
+      setResult(outcome)
+      if (!auto || TOAST_ON_AUTO_CHECK) toast.error(outcome.message)
+      return
+    }
+
     runningRef.current = true
     autoRef.current = auto
     repliesRef.current = []
@@ -222,6 +262,7 @@ export default function Footer() {
     if (!runningRef.current) return
 
     if (!delivered) {
+      console.error('[Footer Tally] WebSocket error:', 'the tally_check_connection request could not be sent')
       runningRef.current = false
       clearTimers()
       setChecking(false)
@@ -253,6 +294,10 @@ export default function Footer() {
     let cancelled = false
     let sent = false
 
+    // Not Tally (or the profile has not arrived yet): no socket, no check.
+    // Runs again once the profile says Tally.
+    if (!isTally) return undefined
+
     const timer = setTimeout(() => {
       tallySocket.ensureConnected()
 
@@ -275,7 +320,7 @@ export default function Footer() {
     // startCheck is a plain function recreated each render; only a new URL
     // should restart this.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathname])
+  }, [pathname, isTally])
 
   // Timers must not outlive the footer, and a check in flight is abandoned.
   useEffect(
@@ -326,40 +371,42 @@ export default function Footer() {
       </div>
 
       {/* ---------------- Right ---------------- */}
-      <div className="flex items-center gap-0">
-        {/* TODO: point this at the Tally settings page once it is built. */}
-        <h2 className="text-sm font-medium text-primary">
-          Tally :
-        </h2>
-        {/* Asks every Tally agent on the network to report in. This is the
-            "keep listening until stop" call - replies arrive one PC at a
-            time and the list closes when the consumer sends stop_loader. */}
-        <Button
-          type="button"
-          variant="link"
-          title="Check Tally Connection"
-          aria-label="Check Tally Connection"
-          onClick={handleCheck}
-          disabled={checking}
-        >
-          {checking ? <Loader2 className="animate-spin" /> : <LinkIcon />}
-        </Button>
+      {isTally && (
+        <div className="flex items-center gap-0">
+          {/* TODO: point this at the Tally settings page once it is built. */}
+          <h2 className="text-sm font-medium text-primary">
+            Tally :
+          </h2>
+          {/* Asks every Tally agent on the network to report in. This is the
+              "keep listening until stop" call - replies arrive one PC at a
+              time and the list closes when the consumer sends stop_loader. */}
+          <Button
+            type="button"
+            variant="link"
+            title="Check Tally Connection"
+            aria-label="Check Tally Connection"
+            onClick={handleCheck}
+            disabled={checking}
+          >
+            {checking ? <Loader2 className="animate-spin" /> : <LinkIcon />}
+          </Button>
 
-        {/* Red for a problem the user has to act on, amber for Tally open on
-            the wrong company, green when all is well. */}
-        <span
-          role="status"
-          aria-live="polite"
-          title={statusTitle}
-          className={cn(
-            'max-w-64 truncate font-medium',
-            checking || !result ? 'text-muted-foreground' : STATE_STYLES[result.state],
-          )}
-        >
-          {statusLabel}
-        </span>
+          {/* Red for a problem the user has to act on, amber for Tally open on
+              the wrong company, green when all is well. */}
+          <span
+            role="status"
+            aria-live="polite"
+            title={statusTitle}
+            className={cn(
+              'max-w-64 truncate font-medium',
+              checking || !result ? 'text-muted-foreground' : STATE_STYLES[result.state],
+            )}
+          >
+            {statusLabel}
+          </span>
 
-      </div>
+        </div>
+      )}
     </footer>
   )
 }
