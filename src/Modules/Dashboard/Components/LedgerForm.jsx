@@ -75,6 +75,7 @@ const TALLY_SAVE_TIMEOUT_MS = 2 * 60 * 1000
  * form with nothing renamed on the way out.
  */
 const EMPTY_FORM = {
+  ledeger_guid: '',
   ledeger_name: '',
   ledger_gst_reg_type: 'Regular',
   ledeger_group_name: '',
@@ -407,7 +408,6 @@ export default function LedgerForm({
 
       if (editing) {
         const payload = buildEditPayload()
-
         if (!payload) {
           toast.info('Nothing has been changed.')
           setSubmitting(false)

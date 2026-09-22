@@ -48,8 +48,20 @@ export const ROUTES = {
   // per-module line here to keep in step with that list.
   PRODUCT_MODULES: '/modules',
 
-  // ---- Account pages in the sidebar (placeholders for now) ----
+  // ---- Account pages in the sidebar ----
   PAYMENT: '/payment',
+
+  // Where Cashfree sends the user back after a checkout, with
+  // ?order_id=... on the end. PAYMENT_SUCCESS is the backend's `return_url`
+  // (/paymentsuccess/?order_id=...); PAYMENT_STATUS is the same page, used
+  // by the app's own links. Both confirm the order.
+  PAYMENT_SUCCESS: '/paymentsuccess',
+  PAYMENT_STATUS: '/payment/status',
+
+  // Premium feature recharge (E-Invoice, E-Way Bill ...), reached from the
+  // Premium Features card on the Dashboard. Separate from the package payment.
+  PREMIUM_PAYMENT: '/payment/premium-feature',
+
   CREATE_SUB_USER: '/sub-users/create',
 
   // Opened from the profile icon in the header.

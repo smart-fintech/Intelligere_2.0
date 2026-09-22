@@ -41,6 +41,17 @@ if (!rawWsUrl && import.meta.env.DEV) {
   console.error('[env] VITE_API_WEBSOCKET_URL is not set.')
 }
 
+// Cashfree's v2 checkout SDK - one script per environment. See CASHFREE_ENV below.
+const CASHFREE_SDK_URLS = {
+  sandbox: 'https://sdk.cashfree.com/js/ui/2.0.0/cashfree.sandbox.js',
+  production: 'https://sdk.cashfree.com/js/ui/2.0.0/cashfree.prod.js',
+}
+
+const cashfreeEnv =
+  String(import.meta.env.REACT_APP_CASHFREE_ENV || '').trim().toLowerCase() === 'production'
+    ? 'production'
+    : 'sandbox'
+
 export const ENV = {
   // Base URL every API request is built on top of.
   API_BASE_URL: withTrailingSlash(rawBaseUrl || '/'),
@@ -98,6 +109,21 @@ export const ENV = {
       : 'get',
 
   GST_SUBSCRIPTION_KEY: import.meta.env.VITE_GST_SUBSCRIPTION_KEY || '',
+
+  /* ---- Cashfree checkout ----
+     REACT_APP_CASHFREE_ENV in .env picks the environment:
+
+       REACT_APP_CASHFREE_ENV=sandbox       testing (also the default)
+       REACT_APP_CASHFREE_ENV=production    live
+
+     Cashfree's v2 SDK has one script per environment - the script itself
+     decides where checkout goes - so the environment is simply which URL
+     below is loaded (by Services/cashfreeService, only when a payment
+     starts). Only an explicit "production" goes live; anything else,
+     including a missing value, stays on sandbox. The backend's Cashfree keys
+     must be for the same environment. */
+  CASHFREE_ENV: cashfreeEnv,
+  CASHFREE_SDK_URL: CASHFREE_SDK_URLS[cashfreeEnv],
 
   // True while running `npm run dev`.
   IS_DEV: import.meta.env.DEV,

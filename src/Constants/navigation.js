@@ -57,7 +57,7 @@ export const PAYMENT_LINK = {
   icon: CreditCard,
   path: ROUTES.PAYMENT,
   ready: true,
-  comingSoon: true,
+  comingSoon: false,
 }
 
 export const CREATE_SUB_USER_LINK = {

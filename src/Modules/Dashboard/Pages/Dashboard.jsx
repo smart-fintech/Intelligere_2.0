@@ -1,3 +1,7 @@
+import { Clock, Sparkles, Zap } from 'lucide-react'
+import { Link } from 'react-router-dom'
+
+import { Button } from '@/Components/ui/button'
 import { Card } from '@/Components/ui/card'
 import { Tooltip } from '@/Components/ui/tooltip'
 import {
@@ -5,7 +9,9 @@ import {
   PRODUCT_MODULES,
   findModule,
 } from '@/Constants/dashboardModules'
+import { ROUTES } from '@/Constants/routes'
 import ModuleLayout from '@/Modules/Dashboard/Components/ModuleLayout'
+import { COMING_SOON_FEATURES } from '@/Modules/Payment/premiumFeatures'
 import { cn } from '@/Library/utils'
 
 /**
@@ -72,6 +78,51 @@ function FeatureCard({ module }) {
   )
 }
 
+/**
+ * The Premium Features row under the module grid: what is coming, and the
+ * way into the premium recharge page (ROUTES.PREMIUM_PAYMENT) - which is
+ * separate from the package payment in the sidebar.
+ *
+ * The Coming Soon names are the recharge page's own list
+ * (Modules/Payment/premiumFeatures), so the two never disagree; nothing
+ * here can be paid for.
+ */
+function PremiumFeaturesCard() {
+  return (
+    <Card className="mt-6 flex-row flex-wrap items-center gap-4 border-border/70 bg-gradient-to-r from-brand-soft to-card p-4 sm:p-5">
+      <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-brand text-brand-foreground">
+        <Sparkles className="size-5" />
+      </span>
+
+      <div className="min-w-0 flex-1">
+        <h2 className="font-semibold text-brand">Premium Features</h2>
+        <p className="text-sm text-muted-foreground">
+          Recharge E-Invoice, E-Way Bill, GST filings and more for your company.
+        </p>
+        {COMING_SOON_FEATURES.length ? (
+          <ul className="mt-2 flex flex-wrap gap-2">
+            {COMING_SOON_FEATURES.map((feature) => (
+              <li
+                key={feature.name}
+                className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-400"
+              >
+                <Clock className="size-3" />
+                {feature.name} · Coming Soon
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+
+      <Button asChild className="w-full sm:w-auto">
+        <Link to={ROUTES.PREMIUM_PAYMENT}>
+          <Zap /> Recharge Premium
+        </Link>
+      </Button>
+    </Card>
+  )
+}
+
 export default function Dashboard() {
   const page = findModule('home')
 
@@ -82,6 +133,8 @@ export default function Dashboard() {
           <FeatureCard key={module.key} module={module} />
         ))}
       </div>
+
+      <PremiumFeaturesCard />
     </ModuleLayout>
   )
 }

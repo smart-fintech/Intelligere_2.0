@@ -113,7 +113,7 @@ const notConnected = (replies, message) => {
   const explained = replies.find((reply) => reply.msg)
   return {
     state: 'disconnected',
-    label: 'Tally Not Connected',
+    label: 'Not Connected',
     message: message || explained?.msg || 'Tally is not connected. Please open Tally and try again.',
     reply: explained ?? replies[replies.length - 1] ?? null,
   }
@@ -121,7 +121,7 @@ const notConnected = (replies, message) => {
 
 const connectedTo = (match) => ({
   state: 'connected',
-  label: 'Tally Connected',
+  label: 'Connected',
   message: match.msg || 'Tally connection successful',
   reply: match,
 })
@@ -141,7 +141,9 @@ export const resolveTallyConnection = (replies, activeCompanyName) => {
   const connected = replies.filter(isConnectedReply)
   const companies = mergeConnectedCompanies(replies)
   const hasActive = typeof activeCompanyName === 'string' && activeCompanyName.trim() !== ''
-
+  if (!hasActive) {
+    return notConnected(replies, 'No active company selected. Please select a company and try again.')
+  }
   const match = hasActive
     ? companies.find(({ name }) => sameName(name, activeCompanyName))?.reply
     : connected[0]

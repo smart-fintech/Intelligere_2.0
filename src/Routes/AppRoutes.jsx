@@ -37,7 +37,10 @@
  *   /dashboard/inventory-details -> ModulePlaceholder    (inside the shell)
  *   /modules/<key>     ->  one per PRODUCT_MODULES entry; its real page, or
  *                          ComingSoonPage until built    (inside the shell)
- *   /payment           ->  ComingSoonPage               (inside the shell)
+ *   /payment           ->  PaymentPage                  (inside the shell)
+ *   /paymentsuccess    ->  PaymentStatusPage - Cashfree's return_url   (inside the shell)
+ *   /payment/status    ->  PaymentStatusPage, the same page            (inside the shell)
+ *   /payment/premium-feature -> PremiumRechargePage, from the Dashboard (inside the shell)
  *   /sub-users/create  ->  CreateSubUser                (inside the shell)
  *   /profile           ->  Profile.jsx                  (inside the shell)
  *   /issue             ->  ReportIssue.jsx              (inside the shell)
@@ -73,6 +76,9 @@ import BankDetailsPage from '@/Modules/Dashboard/Pages/BankDetailsPage'
 import CompanyDetailsPage from '@/Modules/Dashboard/Pages/CompanyDetailsPage'
 import LedgerDetailsPage from '@/Modules/Dashboard/Pages/LedgerDetailsPage'
 import ModulePlaceholder from '@/Modules/Dashboard/Pages/ModulePlaceholder'
+import PaymentPage from '@/Modules/Payment/Pages/PaymentPage'
+import PaymentStatusPage from '@/Modules/Payment/Pages/PaymentStatusPage'
+import PremiumRechargePage from '@/Modules/Payment/Pages/PremiumRechargePage'
 import Profile from '@/Modules/Profile/Pages/Profile'
 import ComingSoonPage from '@/Modules/Misc/Pages/ComingSoonPage'
 import CreateSubUser from '@/Modules/SubUser/Pages/CreateSubUser'
@@ -156,11 +162,11 @@ export default function AppRoutes() {
           )
         })}
 
-        {/* ---- Account pages - placeholders until they are built ---- */}
-        <Route
-          path={PAYMENT_LINK.path}
-          element={<ComingSoonPage title={PAYMENT_LINK.label} icon={PAYMENT_LINK.icon} />}
-        />
+        {/* ---- Account pages ---- */}
+        <Route path={PAYMENT_LINK.path} element={<PaymentPage />} />
+        <Route path={ROUTES.PAYMENT_SUCCESS} element={<PaymentStatusPage />} />
+        <Route path={ROUTES.PAYMENT_STATUS} element={<PaymentStatusPage />} />
+        <Route path={ROUTES.PREMIUM_PAYMENT} element={<PremiumRechargePage />} />
         <Route path={CREATE_SUB_USER_LINK.path} element={<CreateSubUser />} />
 
         <Route path={ROUTES.PROFILE} element={<Profile />} />

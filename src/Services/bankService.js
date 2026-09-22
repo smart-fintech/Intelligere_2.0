@@ -64,10 +64,10 @@ const toList = (response) => {
  * falls back to the session (authService also sends the selected company as
  * the `activecompanyid` header for the user types that work that way).
  */
-export const getBankDetails = async () =>
+export const getBankDetails = async (companyId) =>
   toList(
-    await api.get(BANK_DETAILS_URL),
-    // await api.get(BANK_DETAILS_URL, companyId ? { params: { comp_id: companyId } } : undefined),
+    // await api.get(BANK_DETAILS_URL),
+    await api.post(BANK_DETAILS_URL, { company_id: companyId } ),
   )
 
 /**

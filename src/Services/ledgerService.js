@@ -223,6 +223,7 @@ export const TALLY_LEDGER_ALTER_MODULE = 'tally_ledger_alter'
 
 /** The ledger fields Tally takes, in the `data` of its payload. */
 const TALLY_LEDGER_FIELDS = [
+  'ledeger_guid',
   'ledeger_group_name',
   'ledeger_name',
   'ledeger_state',

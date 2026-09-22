@@ -23,6 +23,16 @@ export default defineConfig(({ mode }) => {
       }
     },
 
+    /**
+     * Vite only hands VITE_-prefixed variables to the browser. The Cashfree
+     * environment keeps the name REACT_APP_CASHFREE_ENV (sandbox | production),
+     * so that ONE variable is passed through here - read in Config/env.js.
+     * Nothing else with the REACT_APP_ prefix reaches the bundle.
+     */
+    define: {
+      'import.meta.env.REACT_APP_CASHFREE_ENV': JSON.stringify(env.REACT_APP_CASHFREE_ENV ?? ''),
+    },
+
     /* -------------------------------------------------------------- */
     /* Dev-only proxies                                               */
     /* -------------------------------------------------------------- */
