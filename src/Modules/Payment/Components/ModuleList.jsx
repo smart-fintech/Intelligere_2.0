@@ -63,9 +63,36 @@ function OptionModule({ module, checked, choice, onChoose, onClear }) {
             </>
           }
         >
+          <div className="w-full">
+            <h4 className="mb-2 font-semibold text-gray-800 m-0 p-0">
+              Typical Procurement Categories
+            </h4>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-1 ">
+              {[
+                "Raw materials",
+                "Packaging materials",
+                "Engineering consumables",
+                "Job work and subcontracting",
+                "Transportation and logistics",
+                "Capital equipment",
+                "Maintenance and repair items",
+                "Annual rate contracts",
+              ].map((category, index) => (
+                <div
+                  key={index}
+                  className="flex items-start gap-2 text-sm text-gray-700"
+                >
+                  <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-brand" />
+                  <span>{category}</span>
+                </div>
+              ))}
+            </div>
+          </div>
           <div role="radiogroup" aria-label={`${module.name} plan`} className="grid grid-cols-2 gap-x-3 gap-y-10 pt-8 md:grid-cols-3 lg:grid-cols-5">
             {module.options.map((option) => {
               const selected = checked && option.key === choice
+
               return (
                 <button
                   key={option.key}
@@ -76,7 +103,9 @@ function OptionModule({ module, checked, choice, onChoose, onClear }) {
                   className={cn(
                     'relative cursor-pointer rounded-md border px-3 pt-10 pb-4 text-center shadow-sm transition-colors outline-none',
                     'focus-visible:ring-[3px] focus-visible:ring-ring/50',
-                    selected ? 'border-brand bg-brand-soft' : 'border-border/60 bg-card hover:border-brand',
+                    selected
+                      ? 'border-brand bg-brand-soft'
+                      : 'border-border/60 bg-card hover:border-brand',
                   )}
                 >
                   <CountBadge selected={selected}>
@@ -88,9 +117,22 @@ function OptionModule({ module, checked, choice, onChoose, onClear }) {
                       <span className="text-xs">{option.label}</span>
                     )}
                   </CountBadge>
-                  <span className="block text-lg text-brand">{option.label}</span>
-                  <span className="mt-2 block border-t border-brand pt-2 text-xs text-muted-foreground">
+
+                  <span className="block text-lg text-brand">
+                    {option.label}
+                  </span>
+
+                  <span className="mt-2 block border-t border-brand pt-2 text-sm font-semibold text-foreground">
                     {formatINR(option.amount)}
+                  </span>
+                  <span className="mt-1 block text-xs text-muted-foreground">
+                    {option.quantity !== null ?
+                      <>
+                        {formatINR(option.amount / option.quantity)}  per procurement event
+                      </> :
+                      <>
+                        Enjoy Unlimited procurement event
+                      </>}
                   </span>
                 </button>
               )

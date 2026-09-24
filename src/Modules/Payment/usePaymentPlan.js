@@ -34,6 +34,7 @@ import {
 } from '@/Store/Slices/profileSlice'
 
 import {
+  MSME_INCLUDED_COMPANIES,
   PACKAGE_MODE,
   PLAN_STRUCTURE,
   buildCatalog,
@@ -183,7 +184,16 @@ export function usePaymentPlan() {
 
   const lockedMode = lockedModeFor(subscription)
 
-  const minQuantity = Math.max(1, subscription?.pastQuantity ?? 0)
+  /*
+   * THE SMALLEST COMPANY COUNT
+   *
+   * On the MSME (quantity) plan the price covers MSME_INCLUDED_COMPANIES (3)
+   * companies, so 3 is both the default and the floor: the counter starts
+   * there and its minus button stops there. A user who already pays for more
+   * cannot go below what they hold, as before.
+   */
+  const quantityFloor = catalog?.structure === PLAN_STRUCTURE.QUANTITY ? MSME_INCLUDED_COMPANIES : 1
+  const minQuantity = Math.max(quantityFloor, subscription?.pastQuantity ?? 0)
 
   // ---- The selection: the user's choice, or the default ----
   // Defaults: the package type already held, else Premium when it is

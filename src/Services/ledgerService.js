@@ -268,3 +268,97 @@ export const buildTallyLedgerMessage = (moduleName, companyName, ledger) => {
     },
   }
 }
+
+/* ------------------------------------------------------------------ */
+/* Importing ledgers from a CSV                                        */
+/* ------------------------------------------------------------------ */
+
+const LEDGER_CSV_IMPORT_URL = 'tally/LedgerCSVImportTally/'
+
+/**
+ * The blank CSV the user fills in, kept with the app's other static files in
+ * Assets/format - the folder every format template goes in (a product or
+ * vendor one later sits beside it and is imported the same way).
+ *
+ * `?raw` is Vite's "give me the contents, not a link". The alternative,
+ * `?url`, gives a built file named LedgerFormat-a1b2c3.csv - and since a
+ * browser saves a download under the name in the URL, that hash would end up
+ * in the file on the user's disk. The contents come through the bundle
+ * instead, and Download Format writes them out under the name below (see
+ * downloadTextFile in Utils/fileDownload). The file is one line, so this
+ * costs the bundle nothing worth measuring.
+ */
+export const LEDGER_CSV_FORMAT_FILE = 'LedgerFormat.csv'
+export { default as LEDGER_CSV_FORMAT_CONTENT } from '@/Assets/format/LedgerFormat.csv?raw'
+
+/**
+ * Sends the filled-in CSV up.
+ *
+ *   POST tally/LedgerCSVImportTally/   multipart: company_id, user_erp_type, file
+ *
+ * ONE ENDPOINT, TWO ANSWERS - the ERP the caller declares decides which:
+ *
+ *   intelligere   the ledgers are created there and then, and the reply is
+ *                 { msg: "5 ledger created successfully" }
+ *   tally         nothing is created yet: the reply is the parsed rows,
+ *                 [{ ledeger_name, ledeger_group, ... }], which the screen
+ *                 then sends to Tally over the WebSocket (see below).
+ *
+ * `erpType` is 'tally' or 'intelligere', read by the screen from the profile
+ * in the store - never from here, so there is one ERP answer in the app.
+ *
+ * The Content-Type is set for this one call: the shared axios instance sends
+ * JSON by default, and with that header axios would quietly turn the
+ * FormData - file and all - into a JSON body. Naming multipart here stops
+ * that; the browser then replaces it with the real boundary.
+ */
+export const importLedgerCsv = ({ companyId, erpType, file }) => {
+  const body = new FormData()
+
+  body.append('company_id', companyId)
+  body.append('user_erp_type', erpType)
+  body.append('file', file)
+
+  return api.post(LEDGER_CSV_IMPORT_URL, body, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+}
+
+/* Tally only: the import's second half, the one that reaches Tally. */
+export const BULK_LEDGER_CREATE_MODULE = 'bulk_ledger_create'
+
+/**
+ * The two fields the import reply carries that the WebSocket payload does
+ * not: the company is named once at the top of the payload, so repeating it
+ * inside every ledger would only be a second copy to disagree with it.
+ */
+const BULK_LEDGER_OMITTED_FIELDS = ['company', 'company_name']
+
+/**
+ * The bulk create payload:
+ *
+ *   { "payload": { "module_name": "bulk_ledger_create",
+ *                  "company_name": "<active company>",
+ *                  "data": [ { ...ledger }, { ...ledger } ] } }
+ *
+ * `ledgers` is the import endpoint's reply, used as it came - the backend
+ * has already parsed and named the fields, so nothing is rebuilt here.
+ *
+ * Only `company` and `company_name` are dropped from each row: the company
+ * is named once, at the top of the payload, and Tally does not take it again
+ * inside every ledger. Every other field is passed through untouched,
+ * misspellings and all, because that is what Tally expects.
+ */
+export const buildBulkLedgerMessage = (companyName, ledgers) => ({
+  payload: {
+    module_name: BULK_LEDGER_CREATE_MODULE,
+    company_name: companyName,
+    data: (Array.isArray(ledgers) ? ledgers : []).map((ledger) =>
+      Object.fromEntries(
+        Object.entries(ledger ?? {}).filter(
+          ([field]) => !BULK_LEDGER_OMITTED_FIELDS.includes(field),
+        ),
+      ),
+    ),
+  },
+})

@@ -182,8 +182,20 @@ export const getPaymentHistory = async (email = getEmail()) => {
   return toList(await api.post(PAYMENT_ENDPOINTS.HISTORY, { email }))
 }
 
-/** Premium-feature payments of one company, by its name. */
+/**
+ * One company's premium features - what it holds, not a list of payments:
+ *
+ *   {
+ *     "E-Invoice": { used: 0, total: 100 },   one entry per counted feature
+ *     "GSTR 1":    { used: 20, total: 100 },  the company actually has
+ *     features: ["quotation", "challan", ...] the other features it holds
+ *     receipt_file: "https://.../receipt.pdf" optional
+ *   }
+ *
+ * Handed back as it came: a feature the company has not paid for is simply
+ * not in it, and the screen shows only what is there.
+ */
 export const getPremiumHistory = async (companyName) => {
-  if (!companyName) return []
-  return toList(await api.post(PAYMENT_ENDPOINTS.PREMIUM_HISTORY, { comp_name: companyName }))
+  if (!companyName) return null
+  return toRecord(await api.post(PAYMENT_ENDPOINTS.PREMIUM_HISTORY, { company_name: companyName }))
 }

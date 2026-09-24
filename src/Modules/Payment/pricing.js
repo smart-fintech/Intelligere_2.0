@@ -39,7 +39,9 @@
  *   flat module       once per package             x companies chosen
  *   options module    the chosen option, once      the chosen option, once
  *
- * MSME Premium also keeps the old multi-company rule: every company after
+ * On the MSME (quantity) plan a price covers the first
+ * MSME_INCLUDED_COMPANIES companies; only companies above that are charged,
+ * and each of those keeps the old multi-company rule - every company after
  * the first is ADDITIONAL_COMPANY_DISCOUNT_PERCENT cheaper (an item may
  * override it with `additional_company_discount`).
  *
@@ -80,6 +82,14 @@ export const DEFAULT_GST_PERCENT = 18
 
 /** The old MSME Premium rule: each company after the first costs this much less. */
 export const ADDITIONAL_COMPANY_DISCOUNT_PERCENT = 20
+
+/**
+ * How many companies one MSME price covers. 1, 2 or 3 companies cost the
+ * same; the 4th onwards is charged as an additional company, by the rule
+ * above. Accounting Professional tiers are unaffected - their price already
+ * names its company count.
+ */
+export const MSME_INCLUDED_COMPANIES = 3
 
 /**
  * Display names of the Accounting Professional tiers, from the old screen.
@@ -445,9 +455,9 @@ export const parseSubscription = (raw) => {
 }
 
 /**
- * The old screen's upgrade discount (`renewDisc` in checkPaymentDate): the
- * share of the PREVIOUS payment credited against an upgrade, by how many
- * months ago it was made. An amount, in paise - not a percentage.
+ * The upgrade discount (`renewDisc` in the old checkPaymentDate): the share
+ * of the PREVIOUS payment credited against an upgrade, by how many months ago
+ * it was made. An amount, in paise - not a percentage.
  *
  *   0-1 months    100% of the previous amount
  *   2-3 months     70%
@@ -455,7 +465,7 @@ export const parseSubscription = (raw) => {
  *   7-9 months     25%
  *   10+ months    none - parseSubscription already treats it as a new payment
  *
- * MSME users get none, as before.
+ * The same table for every user type: Accounting Professional and MSME alike.
  */
 const RENEWAL_CREDIT_PERCENT = [
   { upToMonths: 1, percent: 100 },
@@ -464,8 +474,8 @@ const RENEWAL_CREDIT_PERCENT = [
   { upToMonths: 9, percent: 25 },
 ]
 
-export const renewalCredit = (subscription, userType) => {
-  if (!subscription || normalizeKey(userType) === 'msme') return 0
+export const renewalCredit = (subscription) => {
+  if (!subscription) return 0
   const step = RENEWAL_CREDIT_PERCENT.find((entry) => subscription.monthsSincePayment <= entry.upToMonths)
   return step ? percentOf(subscription.pastAmount, step.percent) : 0
 }
@@ -524,6 +534,26 @@ export const isPricedPerCompany = (item, structure) =>
 const companiesText = (count) => `${count} ${count === 1 ? 'company' : 'companies'}`
 
 /**
+ * How many times a per-company price is charged for `companies` companies.
+ *
+ *   quantity plan (MSME)   1 up to MSME_INCLUDED_COMPANIES, then one more
+ *                          per extra company: 1,1,1,2,3,4 ...
+ *   anything else          once per company, as before
+ */
+const billableCompanies = (companies, structure) => {
+  if (structure !== PLAN_STRUCTURE.QUANTITY) return companies
+  if (companies <= 0) return 0
+  return companies <= MSME_INCLUDED_COMPANIES ? 1 : companies - MSME_INCLUDED_COMPANIES + 1
+}
+
+/** "₹8,000 × 3 (first 3 companies included)" - what a per-company line charges. */
+const perCompanyDetail = (unitPrice, companies, units, structure) => {
+  if (structure !== PLAN_STRUCTURE.QUANTITY) return `${formatINR(unitPrice)} × ${companiesText(units)}`
+  if (companies <= MSME_INCLUDED_COMPANIES) return `up to ${MSME_INCLUDED_COMPANIES} companies`
+  return `${formatINR(unitPrice)} × ${units} (first ${MSME_INCLUDED_COMPANIES} companies included)`
+}
+
+/**
  * The live price of one selection.
  *
  *   input   { catalog, mode, tierKey, quantity, selectedKeys, optionChoices,
@@ -570,12 +600,14 @@ export const calculateQuote = ({
       issues.push('A Premium Package is not offered for this plan.')
     } else {
       const perCompany = effectiveBasis(bundle, structure) === BASIS.PER_COMPANY
-      const units = perCompany ? companies : 1
+      // MSME: the price covers the first MSME_INCLUDED_COMPANIES companies,
+      // so 1, 2 and 3 companies all cost the same.
+      const units = perCompany ? billableCompanies(companies, structure) : 1
       lines.push({
         key: bundle.key,
         label: 'All modules',
         detail: perCompany
-          ? `${formatINR(bundle.amount)} × ${companiesText(companies)}`
+          ? perCompanyDetail(bundle.amount, companies, units, structure)
           : `${companiesText(companies)} package`,
         amount: bundle.amount * units,
         owned: false,
@@ -617,18 +649,21 @@ export const calculateQuote = ({
       }
 
       const perCompany = effectiveBasis(module, structure) === BASIS.PER_COMPANY
+      // What this module is charged for, before anything already paid for:
+      // MSME counts the companies above the included ones (billableCompanies).
+      const billable = billableCompanies(companies, structure)
       // Already paid for: only the companies added on top are charged (per
       // company), or nothing at all on the same package (per package).
       const units = perCompany
-        ? owned ? Math.max(0, companies - pastQuantity) : companies
+        ? owned ? Math.max(0, billable - billableCompanies(pastQuantity, structure)) : billable
         : owned && pastQuantity === companies ? 0 : 1
 
       lines.push({
         key: module.key,
         label: module.name,
-        detail: perCompany ? `${formatINR(module.amount)} × ${companiesText(units)}` : 'per package',
+        detail: perCompany ? perCompanyDetail(module.amount, companies, units, structure) : 'per package',
         amount: module.amount * units,
-        owned: owned && units < (perCompany ? companies : 1),
+        owned: owned && units < (perCompany ? billable : 1),
       })
     })
   }
@@ -642,7 +677,7 @@ export const calculateQuote = ({
     ...finishQuote({
       lines,
       discount,
-      upgradeDiscount: !offer && upgrade ? renewalCredit(subscription, catalog?.userType) : 0,
+      upgradeDiscount: !offer && upgrade ? renewalCredit(subscription) : 0,
       offer,
       gstPercent,
       issues,

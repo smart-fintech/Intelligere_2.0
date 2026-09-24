@@ -161,12 +161,17 @@ export const calculateRechargeQuote = ({ catalog, counts = {}, addOnKeys = [], o
  *     "<company name>": [{ id, count, feature }, ...]
  *   }
  *
- * Every counted feature of RECHARGE_FEATURES is listed, 0 where none was
- * bought, as the old screen sent it. Ticked add-ons follow, with the old
- * screen's empty count and - for an option-priced one - the option chosen.
+ * ONLY what the user chose: a counted feature is in the payload when its
+ * quantity is above 0, and an add-on when it is ticked. Nothing the user did
+ * not pick is sent, so choosing E-Invoice alone sends that one row.
+ * An add-on carries the old screen's empty count and, when it is priced by
+ * option, the option chosen.
  */
 export const buildRechargePayload = ({ quote, companyName, counts = {}, catalog, addOnKeys = [], optionChoices = {}, productType }) => {
-  const rows = RECHARGE_FEATURES.map(({ id, feature }) => ({ id, count: counts[id] ?? 0, feature }))
+  const rows = RECHARGE_FEATURES
+    .map(({ id, feature }) => ({ id, count: counts[id] ?? 0, feature }))
+    // A quantity of 0 was not bought - it is left out of the payload.
+    .filter((row) => row.count > 0)
 
   catalog.addOns
     .filter((item) => addOnKeys.includes(item.key))

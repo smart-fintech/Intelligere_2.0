@@ -1,29 +1,40 @@
 import { useEffect, useRef, useState } from 'react'
-import { AlertCircle, Building2, CalendarClock, CalendarDays, FileText, Package, Receipt, Sparkles } from 'lucide-react'
+import { AlertCircle, Building2, ChevronDown, Download, Package, Receipt, Sparkles } from 'lucide-react'
 import { useDispatch, useSelector } from 'react-redux'
 import { useSearchParams } from 'react-router-dom'
 
 import { RetryButton, StateMessage } from '@/Components/Common/DataList'
-import { Loader } from '@/Components/Common/Loader'
+import { Loader, ProgressBar, toPercent } from '@/Components/Common/Loader'
 import { Button } from '@/Components/ui/button'
 import { ENV } from '@/Config/env'
 import { useActiveCompany } from '@/Hooks/useActiveCompany'
 import { getEmail } from '@/Library/secureStorage'
+import { toast } from '@/Library/toast'
 import { cn } from '@/Library/utils'
 import { getPaymentHistory, getPremiumHistory } from '@/Services/paymentService'
 import { fetchProfile, selectProfile, selectProfileDetails, selectProfileStatus } from '@/Store/Slices/profileSlice'
 import { compareToToday, formatLongDate } from '@/Utils/date'
+import { orDash } from '@/Utils/display'
 
 import { formatINR, toPaise } from '../pricing'
 
 /*
- * WHAT A HISTORY CARD SHOWS
+ * WHAT IS SHOWN
  *
  * The history endpoints return the whole payment record, including gateway
- * credentials (appId, secretKey) and internal ids. Only the fields named in
- * this file are ever read; everything else is ignored, so nothing internal
- * can reach the screen by accident.
+ * credentials (appId, secretKey) and internal ids. Only the fields read in
+ * this file reach the screen; everything else is ignored.
  */
+
+/*
+ * HOW WIDE A PAYMENT CARD IS
+ *
+ * One card per row, as before - but on a desktop it stops at about half the
+ * content area instead of stretching across it. The floor keeps the two
+ * columns inside it readable, and below `lg` the card simply fills the width
+ * it has: roomier on a tablet, full width on a phone.
+ */
+const CARD_LIST = 'w-full space-y-4 lg:w-1/2 lg:min-w-[30rem] mx-auto'
 
 const KINDS = [
   { key: 'normal', label: 'Normal Payments', icon: Package },
@@ -32,7 +43,11 @@ const KINDS = [
 
 /* ---- Small readers ---- */
 
-/** A receipt path from the backend -> a link that opens it, or null. */
+/**
+ * The receipt link, exactly as the backend gave it: `receipt_file` is used
+ * as-is when it is a URL. A bare path (older records) is still joined to the
+ * media folder, as before. No link at all when the field is empty.
+ */
 const receiptUrl = (path) => {
   const text = String(path ?? '').trim()
   if (!text) return null
@@ -60,9 +75,9 @@ const STATUS_STYLE = {
 }
 
 /**
- * Paid / Pending / Failed / Expired, from the record's own fields:
- * a payment status word when there is one, else is_paid; a paid plan whose
- * renewal date has passed is Expired.
+ * Paid / Pending / Failed / Expired, from the record's own fields: a payment
+ * status word when there is one, else is_paid; a paid plan whose renewal date
+ * has passed is Expired.
  */
 const paymentStatus = (payment) => {
   const word = String(payment.payment_status ?? payment.order_status ?? '').toUpperCase()
@@ -75,124 +90,298 @@ const paymentStatus = (payment) => {
   return renewal !== null && renewal < 0 ? 'Expired' : 'Paid'
 }
 
-/* ---- One payment ---- */
+/** "Download Receipt" - opens the backend's own `receipt_file`. */
+function ReceiptButton({ file, size = 'sm', iconOnly = false }) {
+  const url = receiptUrl(file)
+  if (!url) return iconOnly ? <span className="text-muted-foreground">--</span> : null
 
-function Fact({ icon: Icon, label, value }) {
   return (
-    <div className="flex items-start gap-2">
-      <Icon className="mt-0.5 size-4 shrink-0 text-brand/70" />
-      <div className="min-w-0">
-        <dt className="text-xs text-muted-foreground">{label}</dt>
-        <dd className="font-medium text-foreground">{value}</dd>
-      </div>
-    </div>
+    <Button asChild size={iconOnly ? 'icon-sm' : size} variant="default" tooltip="Download Receipt">
+      <a href={url} target="_blank" rel="noopener noreferrer" download aria-label="Download Receipt">
+        <Download />
+        {iconOnly ? null : 'Download Receipt'}
+      </a>
+    </Button>
   )
 }
 
-function HistoryCard({ payment, kind }) {
+/* ---- Normal payments ---- */
+
+/** One "Label: value" line of the card's two columns. */
+function Line({ label, value }) {
+  return (
+    <p className="text-sm">
+      <span className="text-brand">{label}:</span> <span className="font-medium text-foreground">{value}</span>
+    </p>
+  )
+}
+
+/**
+ * What was bought, from whichever field the record carries:
+ *
+ *   premium_features  [{ feature, count }]  a premium payment
+ *   module_names      ["Bank Statement"]    a main-product payment
+ *
+ * A count is only shown when there is one to show: "E-Invoice - 10", but
+ * plain "Proforma" when the backend sent an empty count.
+ */
+const readBought = (payment) => {
+  if (Array.isArray(payment.premium_features)) {
+    return {
+      label: 'Premium Features',
+      items: payment.premium_features
+        .filter((entry) => entry && entry.feature)
+        .map((entry) => {
+          const count = Number(entry.count)
+          return Number.isFinite(count) && count > 0 ? `${entry.feature} - ${count}` : String(entry.feature)
+        }),
+    }
+  }
+
+  return {
+    label: 'Modules',
+    items: Array.isArray(payment.module_names) ? payment.module_names.filter(Boolean) : [],
+  }
+}
+
+/**
+ * ONE payment, main-product or premium feature - the same card for both, in
+ * the layout of the payment-history design: the invoice details in two
+ * columns, then a small table with the company package and the receipt.
+ */
+function PaymentCard({ payment, includedFeatures = [] }) {
   const status = paymentStatus(payment)
-  const receipt = receiptUrl(payment.receipt_file)
-  const modules = Array.isArray(payment.module_names) ? payment.module_names.filter(Boolean) : []
+  const bought = readBought(payment)
   const amount = toPaise(payment.amount)
   const gst = toPaise(payment.gstamount)
-  const total = amount === null ? null : amount + (gst ?? 0)
-  const invoice = String(payment.invoice_number ?? '').trim()
-  const premium = kind === 'premium'
-
-  const heading =
-    status === 'Paid' || status === 'Expired'
-      ? premium
-        ? 'Premium Feature Purchase'
-        : 'Payment Successful'
-      : status === 'Failed'
-        ? 'Payment Failed'
-        : 'Payment Pending'
 
   return (
-    <li className="flex flex-col overflow-hidden rounded-xl border border-border/70 bg-card shadow-sm">
-      {/* Header: what it was, its status, and what was paid. */}
-      <div className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
-        <div className="min-w-0">
-          <p className="font-semibold text-foreground">{heading}</p>
+    <li className="rounded-md border border-border/70 bg-card p-4 shadow-sm sm:p-5">
+      <div className="grid gap-x-10 gap-y-2.5 sm:grid-cols-2">
+        <Line label="Invoice Number" value={orDash(payment.invoice_number)} />
+        <Line label="Order ID" value={orDash(String(payment.orderId ?? payment.order_id ?? '').replace(/^orderid_/, ''))} />
+        <Line
+          label="Payment Type"
+          value={titleCase(payment.package_type) || titleCase(payment.product_type) || '--'}
+        />
+        <Line label="Taxable Amount" value={money(payment.amount)} />
+        <Line label="Payment Date" value={formatLongDate(payment.transaction_date)} />
+        <Line label="GST Amount" value={money(payment.gstamount)} />
+        <Line label="Renew Date" value={formatLongDate(payment.renew_date)} />
+        {payment.company_name ? <Line label="Company" value={payment.company_name} /> : null}
+        <Line
+          label="Total Paid"
+          value={amount === null ? '--' : formatINR(amount + (gst ?? 0))}
+        />
+      </div>
+
+      <table className="mt-4 w-full table-fixed border-collapse text-center text-sm">
+        <thead>
+          <tr className="bg-muted/60 text-muted-foreground">
+            <th className="border border-border px-3 py-2 font-medium">Company Package</th>
+            <th className="border border-border px-3 py-2 font-medium">Receipt</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr className="bg-muted/30">
+            <td className="border border-border px-3 py-2.5 text-brand">{orDash(payment.company_package)}</td>
+            <td className="border border-border px-3 py-2.5">
+              <div className="flex justify-center">
+                <ReceiptButton file={payment.receipt_file} iconOnly />
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        {/* A payment that is not simply "Paid" says so - the rest of the card
+            already reads as a completed payment. */}
+        {status !== 'Paid' ? (
+          <span className={cn('rounded-full px-2.5 py-0.5 text-xs font-medium', STATUS_STYLE[status])}>{status}</span>
+        ) : null}
+
+        {bought.items.length ? (
           <p className="text-xs text-muted-foreground">
-            {formatLongDate(payment.transaction_date)}
-            {invoice ? ` · Invoice ${invoice}` : ''}
+            <span className="text-brand">{bought.label}:</span> {bought.items.join(', ')}
           </p>
+        ) : null}
+      </div>
+
+      {/* The features this company holds - the same list the Included
+          Features section above is drawn from. Nothing is shown when there
+          are none. */}
+      {includedFeatures.length ? (
+        <div className="mt-2">
+          <p className="mb-1.5 text-xs text-brand">Included Features:</p>
+          <ul className="flex flex-wrap gap-1.5">
+            {includedFeatures.map((feature) => (
+              <li key={feature} className="rounded-full bg-brand-soft px-2.5 py-0.5 text-xs text-brand capitalize">
+                {feature}
+              </li>
+            ))}
+          </ul>
         </div>
-        <span className={cn('shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium', STATUS_STYLE[status])}>
-          {status}
-        </span>
-      </div>
-
-      <div className="flex-1 space-y-4 px-4 py-4">
-        <dl className="grid grid-cols-2 gap-3 text-sm">
-          {!premium || payment.package_type ? (
-            <Fact icon={Package} label="Package" value={titleCase(payment.package_type) || '--'} />
-          ) : null}
-          {!premium || payment.company_package ? (
-            <Fact icon={Building2} label="Companies" value={payment.company_package ?? '--'} />
-          ) : null}
-          <Fact icon={CalendarDays} label="Payment date" value={formatLongDate(payment.transaction_date)} />
-          <Fact icon={CalendarClock} label="Renews on" value={formatLongDate(payment.renew_date)} />
-        </dl>
-
-        {modules.length ? (
-          <div>
-            <p className="mb-1.5 text-xs text-muted-foreground">{premium ? 'Features' : 'Modules'}</p>
-            <ul className="flex flex-wrap gap-1.5">
-              {modules.map((name) => (
-                <li key={name} className="rounded-full bg-brand-soft px-2.5 py-0.5 text-xs text-brand">
-                  {name}
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-      </div>
-
-      {/* Footer: the money, and the receipt when there is one. */}
-      <div className="flex flex-wrap items-end justify-between gap-3 border-t border-border bg-muted/40 px-4 py-3">
-        <dl className="flex gap-5 text-sm">
-          <div>
-            <dt className="text-xs text-muted-foreground">Amount</dt>
-            <dd className="font-medium tabular-nums">{money(payment.amount)}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-muted-foreground">GST</dt>
-            <dd className="font-medium tabular-nums">{money(payment.gstamount)}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-muted-foreground">{status === 'Paid' || status === 'Expired' ? 'Total paid' : 'Total'}</dt>
-            <dd className="font-bold text-brand tabular-nums">{total === null ? '--' : formatINR(total)}</dd>
-          </div>
-        </dl>
-
-        {receipt ? (
-          <Button asChild size="sm" variant="outline">
-            <a href={receipt} target="_blank" rel="noopener noreferrer">
-              <FileText /> View Receipt
-            </a>
-          </Button>
-        ) : null}
-      </div>
+      ) : null}
     </li>
   )
 }
 
-/* ---- One list (normal or premium) ---- */
+/* ---- Premium features ---- */
 
 /**
- * Loads one history and draws it. `load` is the request; `blocked` is a
- * reason it cannot be made yet (no company picked), shown instead; `waiting`
- * holds the request back until what it depends on has settled.
+ * The premium reply -> what to draw:
  *
- * ONE REQUEST per list and key: the ref remembers the key (and attempt)
- * already asked for, so StrictMode's second effect run in development and
- * ordinary re-renders do not ask again - a `cancelled` flag only ignored the
- * second ANSWER. Retry (a new attempt) or a new key (another company) still does.
+ *   { used: { "E-Invoice": { used, total }, features: [...] }, payment: [...] }
+ *
+ * usage     every entry of `used` that is a { used, total } pair, in the
+ *           order sent. A feature the company has not paid for is not in the
+ *           reply, so it is not drawn - nothing is ever filled in for it.
+ * features  `used.features`, as sent (never a hardcoded list)
+ * payments  `payment`, every record of it
+ *
+ * A reply that still carries the usage at the top level (the older shape) is
+ * read the same way, and so is a feature the backend adds later.
  */
-function HistoryList({ kind, load, loadKey, blocked, waiting }) {
-  const [state, setState] = useState({ status: 'loading', payments: [], error: null, forKey: null })
+const readPremium = (data) => {
+  const record = data && typeof data === 'object' && !Array.isArray(data) ? data : {}
+  const used = record.used && typeof record.used === 'object' && !Array.isArray(record.used) ? record.used : record
+
+  const usage = Object.entries(used)
+    .filter(([, value]) => value && typeof value === 'object' && !Array.isArray(value))
+    .map(([name, value]) => ({
+      name,
+      used: Number(value.used) || 0,
+      total: Number(value.total),
+    }))
+    .filter((entry) => Number.isFinite(entry.total))
+
+  return {
+    usage,
+    features: Array.isArray(used.features) ? used.features.filter(Boolean) : [],
+    payments: Array.isArray(record.payment) ? record.payment : [],
+  }
+}
+
+/** One counted feature: what is left of what was bought. */
+function UsageCard({ entry }) {
+  const percent = entry.total > 0 ? toPercent(entry.used, entry.total) : 0
+  // const left = Math.max(0, entry.total - entry.used)
+
+  return (
+    <li className="rounded-lg border border-border/70 bg-card p-3">
+      <div className="flex items-baseline justify-between gap-2">
+        <p className="truncate text-sm font-semibold text-brand">{entry.name}</p>
+        <p className="shrink-0 text-sm tabular-nums">
+          <span className="font-semibold text-foreground">{entry.used}</span>
+          <span className="text-muted-foreground"> / {entry.total} used</span>
+        </p>
+      </div>
+      <ProgressBar percent={percent} className="mt-2" />
+      {/* <p className="mt-1.5 text-xs text-muted-foreground">{left} remaining</p> */}
+    </li>
+  )
+}
+
+/**
+ * The premium tab's body, in this order: the current usage, the features
+ * held, then every premium payment - drawn with the same PaymentCard as the
+ * Normal Payments tab.
+ *
+ * The payment history opens and closes and starts closed; the usage above it
+ * never does. That open/closed state is this component's own - nothing else
+ * needs to know it.
+ */
+function PremiumPanel({ data }) {
+  const { usage, features, payments } = readPremium(data)
+  const [showPayments, setShowPayments] = useState(false)
+
+  if (!usage.length && !features.length && !payments.length) {
+    return (
+      <StateMessage icon={Sparkles} title="No premium features yet.">
+        Premium features you buy for this company will appear here.
+      </StateMessage>
+    )
+  }
+
+  return (
+    <div className="space-y-5">
+      {usage.length ? (
+        <section>
+          <h3 className="mb-2 text-sm font-semibold text-brand">Feature usage</h3>
+          <ul className="grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
+            {usage.map((entry) => (
+              <UsageCard key={entry.name} entry={entry} />
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      <section className='grid w-full place-items-center'>
+        {/* The whole row opens and closes the list, not just the arrow. */}
+        <button
+          type="button"
+          aria-expanded={showPayments}
+          aria-controls="premium-payment-history"
+          onClick={() => setShowPayments((open) => !open)}
+          className={cn(
+            'flex cursor-pointer items-center justify-between gap-3 rounded-md border border-border/70 bg-card px-4 py-3 text-left transition-colors outline-none',
+            'hover:border-brand/50 focus-visible:ring-[3px] focus-visible:ring-ring/50',
+          )}
+        >
+          <span className="text-sm font-semibold text-brand">
+            Premium payment history
+            {payments.length ? <span className="font-normal text-muted-foreground"> ({payments.length})</span> : null}
+          </span>
+          <ChevronDown
+            aria-hidden="true"
+            className={cn('size-4 shrink-0 text-brand transition-transform duration-200', showPayments && 'rotate-180')}
+          />
+        </button>
+
+        {showPayments ? (
+          <div id="premium-payment-history" className="mt-3 animate-in fade-in-0 slide-in-from-top-1 duration-200">
+            {payments.length ? (
+              <ul className={CARD_LIST}>
+                {payments.map((payment, index) => (
+                  <PaymentCard
+                    key={payment.id ?? payment.orderId ?? index}
+                    payment={payment}
+                    includedFeatures={features}
+                  />
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-muted-foreground">No premium payments yet.</p>
+            )}
+          </div>
+        ) : null}
+      </section>
+    </div>
+  )
+}
+
+/* ---- Loading one history ---- */
+
+/**
+ * Loads one history and hands it to `children`. `blocked` is a reason it
+ * cannot be asked for (no company picked), shown instead; `waiting` holds the
+ * request back until what it depends on has settled; `isEmpty` says when the
+ * reply has nothing to show.
+ *
+ * When the request FAILS: `onError` is called once with the backend's own
+ * message (the shared axios setup puts its `msg` on the error), and
+ * `showErrorState` decides whether the failure is also drawn. A caller that
+ * reports the failure as a toast passes `showErrorState={false}`, so nothing
+ * of that section is rendered - never an empty or default one.
+ *
+ * ONE REQUEST per key: the ref remembers the key (and attempt) already asked
+ * for, so StrictMode's second effect run in development and ordinary
+ * re-renders do not ask again - a `cancelled` flag only ignored the second
+ * ANSWER. Retry, or a new key (another company), still asks.
+ */
+function HistoryLoader({ load, loadKey, blocked, waiting, isEmpty, empty, onError, showErrorState = true, children }) {
+  const [state, setState] = useState({ status: 'loading', data: null, error: null, forKey: null })
   const [attempt, setAttempt] = useState(0)
   const historyRequest = useRef(null)
 
@@ -203,13 +392,15 @@ function HistoryList({ kind, load, loadKey, blocked, waiting }) {
     historyRequest.current = requestKey
 
     load()
-      .then((payments) => {
-        if (historyRequest.current === requestKey) setState({ status: 'ready', payments, error: null, forKey: loadKey })
+      .then((data) => {
+        if (historyRequest.current === requestKey) setState({ status: 'ready', data, error: null, forKey: loadKey })
       })
       .catch((error) => {
-        if (historyRequest.current === requestKey) {
-          setState({ status: 'failed', payments: [], error: error.message, forKey: loadKey })
-        }
+        if (historyRequest.current !== requestKey) return
+        // In the catch, not in render: one report per failed request, so
+        // StrictMode's second run and re-renders cannot repeat it.
+        onError?.(error.message)
+        setState({ status: 'failed', data: null, error: error.message, forKey: loadKey })
       })
     // `load` is rebuilt every render; `loadKey` says when it really changed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -231,6 +422,9 @@ function HistoryList({ kind, load, loadKey, blocked, waiting }) {
   }
 
   if (current.status === 'failed') {
+    // Reported another way (a toast): show nothing at all for this section.
+    if (!showErrorState) return null
+
     return (
       <StateMessage
         icon={AlertCircle}
@@ -250,29 +444,23 @@ function HistoryList({ kind, load, loadKey, blocked, waiting }) {
     )
   }
 
-  if (!current.payments.length) {
+  if (isEmpty(current.data)) {
     return (
       <StateMessage icon={Receipt} title="No payment history found.">
-        Your completed payments will appear here.
+        {empty}
       </StateMessage>
     )
   }
 
-  return (
-    <ul className="grid gap-4 lg:grid-cols-2">
-      {current.payments.map((payment, index) => (
-        <HistoryCard key={payment.id ?? index} payment={payment} kind={kind} />
-      ))}
-    </ul>
-  )
+  return children(current.data)
 }
 
 /* ---- The tab ---- */
 
 /**
- * Payment History: main-product payments (by the user's email) and premium
- * feature payments (by the active company's name), each in its own sub-tab.
- * The open one is kept in the address as ?history=premium.
+ * Payment History: main-product payments (by the user's email) and the
+ * premium features of the active company, each in its own sub-tab. The open
+ * one is kept in the address as ?history=premium.
  */
 export function PaymentHistory() {
   const dispatch = useDispatch()
@@ -316,9 +504,7 @@ export function PaymentHistory() {
               className={cn(
                 '-mb-px flex cursor-pointer items-center gap-2 border-b-2 px-4 py-2 text-sm font-medium transition-colors outline-none',
                 'focus-visible:ring-[3px] focus-visible:ring-ring/50',
-                selected
-                  ? 'border-brand text-brand'
-                  : 'border-transparent text-muted-foreground hover:text-brand',
+                selected ? 'border-brand text-brand' : 'border-transparent text-muted-foreground hover:text-brand',
               )}
             >
               <Icon className="size-4" />
@@ -331,25 +517,42 @@ export function PaymentHistory() {
       <div role="tabpanel">
         {active === 'premium' ? (
           <>
-            {activeCompanyName ? (
+            {/* {activeCompanyName ? (
               <p className="mb-3 text-sm text-muted-foreground">
-                Premium features bought for <span className="font-medium text-foreground">{activeCompanyName}</span>
+                Premium features of <span className="font-medium text-foreground">{activeCompanyName}</span>
               </p>
-            ) : null}
-            <HistoryList
-              kind="premium"
+            ) : null} */}
+
+            <HistoryLoader
               loadKey={`premium:${activeCompanyName}`}
               load={() => getPremiumHistory(activeCompanyName)}
-              blocked={activeCompanyName ? null : 'Select a company in the header to see its premium feature payments.'}
-            />
+              blocked={activeCompanyName ? null : 'Select a company in the header to see its premium features.'}
+              isEmpty={(data) => !data}
+              empty="Premium features you buy for this company will appear here."
+              // A failed premium history is reported as a toast and nothing is
+              // drawn - no empty cards, no default figures.
+              onError={(message) => toast.error(message || 'Could not load premium features.')}
+              showErrorState={false}
+            >
+              {(data) => <PremiumPanel data={data} />}
+            </HistoryLoader>
           </>
         ) : (
-          <HistoryList
-            kind="normal"
+          <HistoryLoader
             loadKey={`normal:${email}`}
             load={() => getPaymentHistory(email)}
             waiting={!profileSettled}
-          />
+            isEmpty={(payments) => !payments?.length}
+            empty="Your completed payments will appear here."
+          >
+            {(payments) => (
+              <ul className={CARD_LIST}>
+                {payments.map((payment, index) => (
+                  <PaymentCard key={payment.id ?? index} payment={payment} />
+                ))}
+              </ul>
+            )}
+          </HistoryLoader>
         )}
       </div>
     </div>

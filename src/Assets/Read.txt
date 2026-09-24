@@ -2,3 +2,17 @@ The Assets folder stores static files like images, icons, and fonts, keeping the
 
 Centralizes all media and static resources in one place.
 Makes it easy to locate, manage, and update assets.
+
+format/
+    The blank CSV templates the user downloads, fills in and uploads back -
+    LedgerFormat.csv today, ProductFormat.csv / VendorFormat.csv and the rest
+    as they are added. One folder for all of them, never one per module.
+
+    They are imported, not served from public/, so the build tracks them:
+
+        import format from '@/Assets/format/LedgerFormat.csv?raw'
+
+    `?raw` gives the contents, which is what the download needs - it is saved
+    under a name the code chooses (downloadTextFile in Utils/fileDownload).
+    `?url` would give a link to a file the build has renamed with a hash, and
+    the browser would save it under that hashed name.

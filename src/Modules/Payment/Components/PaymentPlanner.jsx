@@ -7,7 +7,7 @@ import { Loader } from '@/Components/Common/Loader'
 import { useActiveCompany } from '@/Hooks/useActiveCompany'
 import { fetchCompanies } from '@/Store/Slices/companySlice'
 
-import { PACKAGE_MODE, PLAN_STRUCTURE, formatINR } from '../pricing'
+import { PLAN_STRUCTURE, formatINR } from '../pricing'
 import { usePaymentPlan } from '../usePaymentPlan'
 import { CompanyCounter } from './CompanyCounter'
 import { CompanySelectDialog } from './CompanySelectDialog'
@@ -56,19 +56,13 @@ export function PaymentPlanner() {
 
   const { catalog, quote, selection, subscription } = plan
   const tiered = catalog.structure === PLAN_STRUCTURE.TIERS
-  const premium = selection.mode === PACKAGE_MODE.PREMIUM
   const premiumAvailable = tiered ? catalog.tiers.some((tier) => tier.bundle) : Boolean(catalog.plan.bundle)
   const waitingForOffer = plan.offerStatus === 'loading' ? 'Checking available offers...' : null
 
-  // The price under the MSME company card, as the old page showed it: the
-  // Premium package per company (without add-ons such as Procurement, which
-  // are charged on top), or the Custom total per year.
-  const packageLine = quote.lines.find((line) => line.key === plan.plan?.bundle?.key)
-  const counterPrice = premium
-    ? formatINR(quote.companies && packageLine ? Math.round((packageLine.amount - quote.discount) / quote.companies) : 0)
-    : quote.subtotal > 0
-      ? formatINR(quote.subtotal)
-      : ''
+  // The price under the MSME company card: what the chosen number of
+  // companies costs for the year - the base price for the first three, plus
+  // the additional companies above them (pricing.calculateQuote).
+  const counterPrice = formatINR(quote.subtotal)
 
   // Payment: with companies, ask which to remove first (the dialog's
   // Continue calls checkout with those ids -> remove_company). With none,
@@ -112,7 +106,8 @@ export function PaymentPlanner() {
               onChange={plan.setQuantity}
               min={plan.minQuantity}
               price={counterPrice}
-              unit={premium ? '/ Company / Year' : '/ Year'}
+              unit="/ Year"
+            // caption="Company / Year"
             />
           )}
 

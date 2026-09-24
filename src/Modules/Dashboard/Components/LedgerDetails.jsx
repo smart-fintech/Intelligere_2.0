@@ -76,6 +76,7 @@ import {
   selectLedgers,
 } from '@/Store/Slices/ledgerSlice'
 import { orDash } from '@/Utils/display'
+import LedgerCsvUpload from './LedgerCsvUpload'
 import LedgerForm from './LedgerForm'
 
 /**
@@ -510,7 +511,17 @@ export default function LedgerDetails() {
           is the part with seven columns in it. They stack on anything
           narrower than `lg`, form first. */}
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
-        <div className="w-full shrink-0 lg:w-[32%]">
+        <div className="w-full shrink-0 space-y-4 lg:w-[32%]">
+          {/* Many ledgers at once, from a filled-in CSV - the form below is
+              still the way to add or edit one. It reloads the list through
+              the same `reload` a save uses. */}
+          <LedgerCsvUpload
+            companyId={companyId}
+            companyName={company?.comp_name}
+            isTally={isTally}
+            onImported={reload}
+          />
+
           {/* `key` is what fills the form in when a different row is chosen
               for editing: React remounts it, so its initialiser runs again
               with the new row. No effect, and no request. */}
