@@ -6,6 +6,7 @@ import { Button } from '@/Components/ui/button'
 import IconAction from '@/Components/Layout/IconAction'
 import Logo from '@/Components/Layout/Logo'
 import CompanySwitcher from '@/Modules/Company/Components/CompanySwitcher'
+import LedgerActions from '@/Modules/Dashboard/Components/LedgerActions'
 import { ENV } from '@/Config/env'
 import { ROUTES } from '@/Constants/routes'
 // import { STORAGE_KEYS, getItem } from '@/Library/secureStorage'
@@ -390,6 +391,14 @@ export default function Header({ onToggleSidebar }) {
             draws itself only for Intelligere and Tally Gold users - see
             CompanySwitcher, which holds that rule so this bar does not. */}
         <CompanySwitcher />
+
+        {/* "Add Ledger", and the two modals it opens. Here rather than on the
+            Ledger page so a ledger can be added from wherever the user is,
+            and because the header is mounted once by AppLayout, that is also
+            what keeps it to ONE copy of each modal for the whole app.
+            Which options it offers, and everything that happens after one is
+            chosen, are its own - see LedgerActions. */}
+        <LedgerActions />
 
         {/* Refresh is for everybody. It asks the backend to re-read the
             company the user is working in, which every ERP has - and an

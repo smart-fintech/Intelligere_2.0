@@ -12,14 +12,21 @@
  * React remounts it and no effect is needed to copy the row in.
  *
  * ------------------------------------------------------------------
- * IT FETCHES NOTHING BY ITSELF
+ * WHAT IT READS, AND THE ONE THING IT ASKS FOR
  * ------------------------------------------------------------------
  * The Ledger Group and Bank Name dropdowns are read from the store - the
  * groups from ledgerSlice, the banks from bankSlice, which is the SAME data
  * the Bank Details page uses. Neither is fetched here, so opening this form,
  * editing, or typing in it never causes a request.
  *
- * The one request this form can make is the GSTIN lookup, and only when the
+ * The Country / State / City dropdowns are read from the store too
+ * (locationSlice), but this form is what asks for that list, once on mount:
+ * unlike the groups and the banks it is needed wherever the form is shown,
+ * including the header's Add Ledger modal on a page that has no ledger data
+ * at all. The thunk's `condition` makes every call after the first a no-op,
+ * so it is one request per session however often the form is opened.
+ *
+ * The other request this form can make is the GSTIN lookup, and only when the
  * user asks for it - see runGstLookup below.
  *
  * Props:
@@ -33,9 +40,13 @@
  *   isTally     Tally ERP: create / update go over the WebSocket
  *               (tally_ledger_create / tally_ledger_alter) instead of the API
  *   onRefresh() reloads the ledger list - after a Tally save that failed
+ *   framed      true (the default) draws the form in its titled card, as the
+ *               Ledger page does. false leaves the card off, for a dialog
+ *               that already has a heading of its own - see LedgerActions.
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useDispatch, useSelector } from 'react-redux'
 import { Search } from 'lucide-react'
 
 import {
@@ -49,11 +60,11 @@ import {
 import { Panel } from '@/Components/Common/Panel'
 import { Button } from '@/Components/ui/button'
 import { GST_RATES, GST_REGISTRATION_TYPES } from '@/Constants/gst'
-import { INDIAN_STATES } from '@/Constants/indianStates'
 import { useGstLookup } from '@/Hooks/useGstLookup'
 import { useWebSocket } from '@/Hooks/useWebSocket'
 import { toast } from '@/Library/toast'
 import { isValidGstNumber } from '@/Services/gstService'
+import { DEFAULT_COUNTRY, getCities, getCountries, getStates } from '@/Services/locationService'
 import {
   TALLY_LEDGER_ALTER_MODULE,
   TALLY_LEDGER_CREATE_MODULE,
@@ -62,6 +73,11 @@ import {
   getLedgerId,
   updateLedger,
 } from '@/Services/ledgerService'
+import {
+  fetchCountries,
+  selectCountryData,
+  selectCountryStatus,
+} from '@/Store/Slices/locationSlice'
 
 /**
  * Tally save safety net: the longest the button waits for Tally's
@@ -86,6 +102,10 @@ const EMPTY_FORM = {
   ledeger_website: '',
   ledeger_gstin: '',
   ledeger_state: '',
+  // Country and city sit either side of the state, and are saved under the
+  // names the backend uses for them.
+  ledger_country: DEFAULT_COUNTRY,
+  ledger_city: '',
   ledger_pincode: '',
   gst_rate: '',
   ledger_bank: '',
@@ -104,6 +124,7 @@ export default function LedgerForm({
   onCancel,
   isTally = false,
   onRefresh,
+  framed = true,
 }) {
   const editing = Boolean(ledger)
 
@@ -127,6 +148,13 @@ export default function LedgerForm({
     // carries is the fallback.
     const group = groups.find((entry) => entry.id === ledger.ledeger_group)
     filled.ledeger_group_name = group?.user_show_group ?? filled.ledeger_group_name
+
+    /* A ledger saved before the form had a country field has a state but no
+       country, and a state dropdown with no country would have nothing in it
+       - so the state that IS saved would look empty and be lost on the next
+       save. Falling back to the default keeps that row's state on screen and
+       selectable. A row that does carry a country keeps its own. */
+    if (!filled.ledger_country) filled.ledger_country = DEFAULT_COUNTRY
 
     return filled
   })
@@ -153,6 +181,75 @@ export default function LedgerForm({
   const setField = (field, value) => {
     setForm((previous) => ({ ...previous, [field]: value }))
     setErrors((previous) => ({ ...previous, [field]: undefined }))
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* Country -> State -> City                                         */
+  /* ---------------------------------------------------------------- */
+
+  /**
+   * All three dropdowns are one list from tally/country_list/, held in the
+   * store and fetched once for the whole session (Store/Slices/locationSlice).
+   * The states are the chosen country's, the cities the chosen state's, so
+   * nothing about places is written down in this file.
+   *
+   * This is the one piece of reference data the form asks for itself, because
+   * unlike the groups and the banks it is needed wherever the form is shown -
+   * beside the list, and in the header's Add Ledger modal on any page. The
+   * thunk's `condition` makes every call after the first a no-op, so it costs
+   * one request per session however many times the form is opened.
+   */
+  const dispatch = useDispatch()
+  /* The raw list, which is ONE reference that only changes when the data
+     does. The three lists below are worked out from it here rather than
+     inside useSelector, because each of them builds a new array: a selector
+     that returns a new array every time never matches the last one, so the
+     component would re-render on every change to any part of the store (the
+     hazard written up at the foot of profileSlice). */
+  const countryData = useSelector(selectCountryData)
+  const countryStatus = useSelector(selectCountryStatus)
+  const countriesLoading = countryStatus === 'loading' || countryStatus === 'idle'
+
+  const countries = useMemo(() => getCountries(countryData), [countryData])
+  const states = useMemo(
+    () => getStates(countryData, form.ledger_country),
+    [countryData, form.ledger_country],
+  )
+  const cities = useMemo(
+    () => getCities(countryData, form.ledger_country, form.ledeger_state),
+    [countryData, form.ledger_country, form.ledeger_state],
+  )
+
+  useEffect(() => {
+    dispatch(fetchCountries()).then((result) => {
+      // Only a request that really ran can fail; a skipped duplicate is not
+      // an error. The form stays usable either way - every other field works
+      // without this list.
+      if (fetchCountries.rejected.match(result) && !result.meta.condition) {
+        toast.error(result.payload || 'The country list could not be loaded.')
+      }
+    })
+  }, [dispatch])
+
+  /**
+   * A new country's states are not the old one's, so the state goes - and
+   * with it the city, which belonged to that state. Anything else would
+   * leave the form claiming Gujarat is in Afghanistan.
+   */
+  const handleCountryChange = (value) => {
+    setForm((previous) => ({
+      ...previous,
+      ledger_country: value,
+      ledeger_state: '',
+      ledger_city: '',
+    }))
+    setErrors((previous) => ({ ...previous, ledeger_state: undefined }))
+  }
+
+  /** Same reasoning one level down: a new state, so the city goes. */
+  const handleStateChange = (value) => {
+    setForm((previous) => ({ ...previous, ledeger_state: value, ledger_city: '' }))
+    setErrors((previous) => ({ ...previous, ledeger_state: undefined }))
   }
 
   /* ---------------------------------------------------------------- */
@@ -286,6 +383,14 @@ export default function LedgerForm({
         previous.ledeger_address,
       ledger_pincode: details.pincode || previous.ledger_pincode,
       ledeger_state: details.state || previous.ledeger_state,
+      // A GSTIN is an Indian registration, so its state belongs to India -
+      // and a city chosen under the previous state does not belong to this
+      // one, so it goes. (Nothing is lost: the record carries no city, which
+      // is why the district goes on the address line above.)
+      ledger_country: DEFAULT_COUNTRY,
+      ledger_city: details.state && details.state !== previous.ledeger_state
+        ? ''
+        : previous.ledger_city,
       // Only taken when it is one of the values the dropdown offers -
       // otherwise the select would hold something it cannot show.
       ledger_gst_reg_type: GST_REGISTRATION_TYPES.includes(details.registrationType)
@@ -445,19 +550,20 @@ export default function LedgerForm({
 
   const busy = submitting || looking
 
-  return (
-    <Panel
-      title={editing ? 'Edit Ledger' : 'Ledger Form'}
-      actions={
-        <SwitchField
-          id="fill-from-gstin"
-          label="Fill from GSTIN"
-          checked={gstMode}
-          disabled={busy}
-          onCheckedChange={toggleGstMode}
-        />
-      }
-    >
+  /* The "Fill from GSTIN" switch, which sits wherever the form's heading is -
+     in the card's header strip when the form has one, and above the fields
+     when it does not. Written once, used by both. */
+  const gstSwitch = (
+    <SwitchField
+      id="fill-from-gstin"
+      label="Fill from GSTIN"
+      checked={gstMode}
+      disabled={busy}
+      onCheckedChange={toggleGstMode}
+    />
+  )
+
+  const content = (
       <form onSubmit={handleSubmit} noValidate className="space-y-3">
         {gstMode ? (
           /* ---------------- GSTIN mode ----------------
@@ -602,15 +708,61 @@ export default function LedgerForm({
                 onChange={(e) => setField('ledeger_gstin', e.target.value.toUpperCase())}
               />
 
-              {/* ---- Row 6: State | Pincode ---- */}
+              {/* ---- Row 6: Country | State ----
+                  Country, State and City are one chain: the states offered
+                  are the chosen country's, and the cities the chosen state's.
+                  All three come from tally/country_list/ (Store/Slices/
+                  locationSlice) - no list of places is written down here. */}
+              <SelectField
+                id="ledger_country"
+                label="Country"
+                searchable
+                searchPlaceholder="Search country"
+                placeholder={countriesLoading ? 'Loading...' : 'Select Country'}
+                value={form.ledger_country}
+                disabled={submitting || countries.length === 0}
+                onValueChange={handleCountryChange}
+                options={countries.map((name) => ({ value: name, label: name }))}
+              />
+
               <SelectField
                 id="ledeger_state"
                 label="State"
-                placeholder="Select State"
+                searchable
+                searchPlaceholder="Search state"
+                placeholder={
+                  countriesLoading
+                    ? 'Loading...'
+                    : !form.ledger_country
+                      ? 'Select a country first'
+                      : 'Select State'
+                }
                 value={form.ledeger_state}
-                disabled={submitting}
-                onValueChange={(value) => setField('ledeger_state', value)}
-                options={INDIAN_STATES.map((state) => ({ value: state.name, label: state.name }))}
+                disabled={submitting || states.length === 0}
+                onValueChange={handleStateChange}
+                options={states.map((name) => ({ value: name, label: name }))}
+              />
+
+              {/* ---- Row 7: City | Pincode ----
+                  A state with no cities is a real answer from the backend,
+                  not a failure - it sends `{ "Geta": [] }` - so the box says
+                  so plainly instead of opening on nothing. */}
+              <SelectField
+                id="ledger_city"
+                label="City"
+                searchable
+                searchPlaceholder="Search city"
+                placeholder={
+                  !form.ledeger_state
+                    ? 'Select a state first'
+                    : cities.length === 0
+                      ? 'No cities available for this state'
+                      : 'Select City'
+                }
+                value={form.ledger_city}
+                disabled={submitting || cities.length === 0}
+                onValueChange={(value) => setField('ledger_city', value)}
+                options={cities.map((name) => ({ value: name, label: name }))}
               />
 
               <Field
@@ -709,6 +861,24 @@ export default function LedgerForm({
           )}
         </FormActions>
       </form>
+  )
+
+  /* Unframed: inside a dialog that has its own heading and its own X, so a
+     second titled card around the fields would be a box within a box saying
+     the same thing twice. The switch keeps its place at the top right, where
+     the card's header strip would have put it. */
+  if (!framed) {
+    return (
+      <div className="space-y-3">
+        <div className="flex justify-end">{gstSwitch}</div>
+        {content}
+      </div>
+    )
+  }
+
+  return (
+    <Panel title={editing ? 'Edit Ledger' : 'Ledger Form'} actions={gstSwitch}>
+      {content}
     </Panel>
   )
 }

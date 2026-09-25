@@ -227,6 +227,10 @@ const TALLY_LEDGER_FIELDS = [
   'ledeger_group_name',
   'ledeger_name',
   'ledeger_state',
+  // The country and city either side of the state, under the names the
+  // backend uses for them - see the Ledger Form's location fields.
+  'ledger_country',
+  'ledger_city',
   'ledger_gst_reg_type',
   'ledeger_address',
   'ledeger_email',
@@ -268,6 +272,46 @@ export const buildTallyLedgerMessage = (moduleName, companyName, ledger) => {
     },
   }
 }
+
+/* ------------------------------------------------------------------ */
+/* Tally: creating a ledger GROUP over the WebSocket                   */
+/* ------------------------------------------------------------------ */
+
+/** Tally only - Intelligere's groups are a fixed list from the API. */
+export const LEDGER_GROUP_CREATE_MODULE = 'ledger_group_create'
+
+/**
+ * The new group's payload.
+ *
+ * NOT the { payload: { module_name, ... } } envelope the ledger messages
+ * above use: this one is flat, says `module` rather than `module_name`, and
+ * capitalises `Name` and `Under`. That is what the backend reads for this
+ * job, so it is written here exactly as it goes out - and written HERE, so
+ * no screen has to know the shape is different:
+ *
+ *   { company_id, Name, Under, erp, created_by,
+ *     module: "ledger_group_create", company_name }
+ *
+ * `Name` is the group being created and `Under` the existing group it sits
+ * beneath, both from the form. The company comes from the store and the
+ * session fields from storage, as everywhere else - see systemFields, whose
+ * `erp` is lower-cased for the REST API; this endpoint takes it as saved
+ * ("Tally"), so it is read straight from storage instead.
+ *
+ * The reply comes back under `return_module_name: "ledger_group_create"`.
+ */
+export const buildLedgerGroupCreateMessage = ({  companyName, name, under }) => ({
+  payload: {
+    module_name: LEDGER_GROUP_CREATE_MODULE,
+    company_name: companyName,
+    data: {
+      Name: String(name ?? '').trim(),
+      Under: String(under ?? '').trim(),
+      erp: getERP() || 'Tally',
+      created_by: getEmail() || '',
+    }
+  }
+})
 
 /* ------------------------------------------------------------------ */
 /* Importing ledgers from a CSV                                        */

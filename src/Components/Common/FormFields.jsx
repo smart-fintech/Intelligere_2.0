@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Eye, EyeOff, Lock } from 'lucide-react'
 
 import { Input } from '@/Components/ui/input'
@@ -250,13 +250,41 @@ export function SelectField({
   searchPlaceholder,
   className,
 }) {
+  /* What is typed in the search box, and the options left after it.
+     ----------------------------------------------------------------
+     The filtering is done HERE, on `options`, because this is where the
+     choices exist as data: a plain case-insensitive "contains" on what the
+     user sees, with the value as the fallback for an option that has no
+     label. The box itself is drawn by SelectContent, which is handed the
+     text and the already-filtered list - it does not inspect anything.
+
+     The search is emptied whenever the list closes, so opening it again
+     always starts on the full set rather than on the last search. */
+  const [search, setSearch] = useState('')
+
+  const term = searchable ? search.trim().toLowerCase() : ''
+
+  const visibleOptions = useMemo(() => {
+    if (!term) return options
+    return options.filter((option) =>
+      String(option.label ?? option.value ?? '').toLowerCase().includes(term),
+    )
+  }, [options, term])
+
   return (
     <div className={cn('space-y-1.5', className)}>
       <FieldLabel htmlFor={id} required={required}>
         {label}
       </FieldLabel>
 
-      <Select value={value} onValueChange={onValueChange} disabled={disabled}>
+      <Select
+        value={value}
+        onValueChange={onValueChange}
+        disabled={disabled}
+        onOpenChange={(open) => {
+          if (!open) setSearch('')
+        }}
+      >
         {/* The icon goes INSIDE the trigger rather than absolutely on top of
             it, so the chosen value is laid out beside it and never sits
             underneath. */}
@@ -266,12 +294,24 @@ export function SelectField({
           <SelectValue placeholder={placeholder} />
         </SelectTrigger>
 
-        <SelectContent searchable={searchable} searchPlaceholder={searchPlaceholder}>
-          {options.map((option) => (
+        <SelectContent
+          searchable={searchable}
+          searchPlaceholder={searchPlaceholder}
+          searchValue={search}
+          onSearchChange={setSearch}
+        >
+          {visibleOptions.map((option) => (
             <SelectItem key={option.value} value={option.value}>
               {option.label}
             </SelectItem>
           ))}
+
+          {/* An empty list with no word of explanation reads as broken. */}
+          {searchable && visibleOptions.length === 0 ? (
+            <p className="px-2 py-3 text-center text-sm text-muted-foreground">
+              No matches for &ldquo;{search.trim()}&rdquo;
+            </p>
+          ) : null}
         </SelectContent>
       </Select>
 

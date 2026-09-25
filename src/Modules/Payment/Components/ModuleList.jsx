@@ -22,7 +22,7 @@ function Cell({ className, children }) {
  * old page it is a title you click; the options open in a dialog as circle
  * cards, and the one chosen is shown under the title.
  */
-function OptionModule({ module, checked, choice, onChoose, onClear }) {
+function OptionModule({ module, checked, choice, owned, onChoose, onClear }) {
   const [open, setOpen] = useState(false)
   const chosen = module.options.find((option) => option.key === choice)
 
@@ -36,7 +36,13 @@ function OptionModule({ module, checked, choice, onChoose, onClear }) {
         {module.name}
       </button>
       <span className="block text-xs text-muted-foreground">
-        {checked && chosen ? `${chosen.label} · ${formatINR(chosen.amount)}` : 'Click to choose a plan'}
+        {checked && chosen
+          ? `${chosen.label} · ${formatINR(chosen.amount)}`
+          : // Already in the plan the user holds: nothing to choose again,
+            // though a bigger plan can still be picked here.
+            owned
+            ? 'Already purchased'
+            : 'Click to choose a plan'}
       </span>
 
       {open ? (
@@ -186,6 +192,7 @@ export function ModuleList({ modules, mode, selectedKeys, optionChoices, onToggl
                   module={module}
                   checked={checked}
                   choice={optionChoices[module.key]}
+                  owned={isLocked(module)}
                   onChoose={(optionKey) => onChooseOption(module, optionKey)}
                   onClear={() => {
                     if (checked) onToggle(module)

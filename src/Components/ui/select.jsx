@@ -90,33 +90,78 @@ function SelectContent({
   align = "start",
   searchable = false,
   searchPlaceholder = "Search...",
+  searchValue = "",
+  onSearchChange,
   ...props
 }) {
-  const [search, setSearch] = React.useState("")
+  /* This draws the search box; it does NOT decide what the box does to the
+     list. The filtering belongs to whoever owns the options - SelectField in
+     Components/Common/FormFields - because that is where the options exist as
+     data. Picking rendered children apart to guess which ones match (reading
+     `child.type` and `child.props.children`) quietly kept anything it did not
+     recognise, which showed the whole list as though nothing had been typed. */
+  /* ----------------------------------------------------------------
+     Keeping the cursor in the search box
+     ----------------------------------------------------------------
+     Radix moves focus to the selected option whenever the set of options
+     changes - its own effect, in @radix-ui/react-select:
 
-  const filteredChildren = React.useMemo(() => {
-    if (!searchable || !search.trim()) {
-      return children
-    }
+       const focusSelectedItem = useCallback(
+         () => focusFirst([selectedItem, content]),
+         [focusFirst, selectedItem, content])
+       useEffect(() => { if (isPositioned) focusSelectedItem() },
+         [isPositioned, focusSelectedItem])
 
-    const searchValue = search.toLowerCase()
+     Filtering unmounts and remounts items, so `selectedItem` becomes a
+     different node, the callback is rebuilt, the effect runs again and it
+     calls .focus() on an option - taking the cursor out of the box the user
+     is typing in. That is why one character used to arrive and then nothing.
 
-    return React.Children.toArray(children).filter((child) => {
-      if (!React.isValidElement(child)) return true
+     Radix's effect runs before this one (React runs a child's effects before
+     its parent's), so putting the cursor back afterwards settles it. It is
+     done only when the options have just been filtered, never on every
+     render, so moving to the list with the arrow keys still works. */
+  const searchInputRef = React.useRef(null)
 
-      // Handle SelectItem
-      if (child.type === SelectItem) {
-        const text =
-          typeof child.props.children === "string"
-            ? child.props.children
-            : String(child.props.value || "")
+  const keepSearchFocused = React.useCallback(() => {
+    const input = searchInputRef.current
+    if (input && document.activeElement !== input) input.focus()
+  }, [])
 
-        return text.toLowerCase().includes(searchValue)
-      }
+  /* Twice: now, and again on the next frame.
+     ----------------------------------------------------------------
+     The second one is what actually matters, and only for a list that has
+     something selected - which is why a Country box (India by default) lost
+     the cursor while State and City, with nothing chosen yet, did not.
 
-      return true
-    })
-  }, [children, search, searchable])
+     Radix records the selected option through a REF CALLBACK:
+
+       setSelectedItem(node)      // @radix-ui/react-select
+
+     A ref callback runs after the commit that remounted the options, and the
+     state it sets schedules ANOTHER commit. `focusSelectedItem` is rebuilt in
+     that later commit and its effect steals the focus there - after this
+     effect has already run for the keystroke. So the cursor is put back on
+     the next frame as well, by which time that has happened.
+
+     Nothing here runs unless the filter text changed, so moving into the list
+     with the arrow keys is untouched. */
+  React.useEffect(() => {
+    if (!searchable) return undefined
+
+    keepSearchFocused()
+    const frame = requestAnimationFrame(keepSearchFocused)
+    return () => cancelAnimationFrame(frame)
+  }, [searchable, searchValue, keepSearchFocused])
+
+  /* The keys the LIST needs, which must reach Radix: moving through the
+     options, choosing one, and leaving. Everything else is the user typing,
+     and must not reach Radix's own type-ahead - that jumps to an option and
+     takes the focus with it, which is the same problem by another route. */
+  const handleSearchKeyDown = (event) => {
+    const forList = ["ArrowDown", "ArrowUp", "Home", "End", "Enter", "Escape", "Tab"]
+    if (!forList.includes(event.key)) event.stopPropagation()
+  }
 
   return (
     <SelectPrimitive.Portal>
@@ -144,26 +189,19 @@ function SelectContent({
         align={align}
         {...props}
       >
+        {/* No key handling on the wrapper below: it would catch what the
+            input deliberately lets through on its way up to the list. */}
         {searchable && (
-          <div
-            className="sticky top-0 z-10 bg-popover p-2"
-            onKeyDown={(e) => {
-              e.stopPropagation()
-            }}
-          >
+          <div className="sticky top-0 z-10 bg-popover p-2">
             <input
+              ref={searchInputRef}
               type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              value={searchValue}
+              onChange={(e) => onSearchChange?.(e.target.value)}
               placeholder={searchPlaceholder}
+              aria-label={searchPlaceholder}
               className="h-9 w-full rounded-md border border-input bg-card px-3 text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/30"
-              onKeyDown={(e) => {
-                e.stopPropagation()
-
-                if (e.key === "Escape") {
-                  e.currentTarget.blur()
-                }
-              }}
+              onKeyDown={handleSearchKeyDown}
             />
           </div>
         )}
@@ -174,7 +212,7 @@ function SelectContent({
             "max-h-[300px] overflow-y-auto"
           )}
         >
-          {filteredChildren}
+          {children}
         </SelectPrimitive.Viewport>
       </SelectPrimitive.Content>
     </SelectPrimitive.Portal>

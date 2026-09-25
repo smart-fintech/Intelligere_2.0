@@ -14,6 +14,8 @@ export default function LedgerDetailsPage() {
   const page = findModule('ledger')
 
   return (
+    /* No `actions` here: "Add Ledger" lives in the app's header now, so it
+       is one button on every page rather than one more on this one. */
     <ModuleLayout title={page.label}>
       <LedgerDetails />
     </ModuleLayout>

@@ -32,6 +32,8 @@ import { cn } from '@/Library/utils'
  *   showCloseButton       the X in the corner            (default true)
  *   closeOnBackdropClick  clicking outside closes it     (default true)
  *   closeOnEsc            the Escape key closes it       (default true)
+ *   autoFocus             put the cursor in the first field on open
+ *                                                        (default true)
  *   scrollable            long content scrolls inside it (default true)
  *   className             extra classes on the box itself
  *
@@ -79,6 +81,7 @@ export function Modal({
   showCloseButton = true,
   closeOnBackdropClick = true,
   closeOnEsc = true,
+  autoFocus = true,
   scrollable = true,
   className,
   ...props
@@ -123,6 +126,24 @@ export function Modal({
           }}
           onEscapeKeyDown={(event) => {
             if (!closeOnEsc) event.preventDefault()
+          }}
+          /**
+           * On opening, Radix puts the cursor in the first thing that can
+           * take it - normally the right thing, and what every modal gets
+           * unless it asks otherwise.
+           *
+           * `autoFocus={false}` is for a modal whose first field is one the
+           * user did not come here to type in - a read-only value, say,
+           * which would open with its text selected as though it were
+           * waiting to be overwritten. Focus then goes to the dialog box
+           * itself, which Radix makes focusable for exactly this: nothing is
+           * highlighted, Escape still closes, Tab still runs through the
+           * fields, and focus is still trapped inside the modal.
+           */
+          onOpenAutoFocus={(event) => {
+            if (autoFocus) return
+            event.preventDefault()
+            event.currentTarget?.focus?.()
           }}
           // Radix warns when a dialog has no description. This says "there is
           // none, on purpose". When there IS one, DialogDescription wires the

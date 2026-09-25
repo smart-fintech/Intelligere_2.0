@@ -24,6 +24,7 @@ import { configureStore } from '@reduxjs/toolkit'
 import bankReducer from '@/Store/Slices/bankSlice'
 import companyReducer from '@/Store/Slices/companySlice'
 import ledgerReducer from '@/Store/Slices/ledgerSlice'
+import locationReducer from '@/Store/Slices/locationSlice'
 import profileReducer from '@/Store/Slices/profileSlice'
 import referralReducer from '@/Store/Slices/referralSlice'
 
@@ -33,6 +34,7 @@ export const store = configureStore({
     bank: bankReducer,
     company: companyReducer,
     ledger: ledgerReducer,
+    location: locationReducer,
     profile: profileReducer,
     referral: referralReducer,
   },

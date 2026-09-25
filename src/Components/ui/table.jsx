@@ -130,7 +130,8 @@ function TableCell({ className, width, wrap, style, title, children, ...props })
     <td
       data-slot="table-cell"
       className={cn(
-        "p-3 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0",
+        "p-3 align-middle [&:has([role=checkbox])]:pr-0",
+        // "p-3 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0",
         wrap && "whitespace-normal break-words",
         className
       )}

@@ -641,6 +641,28 @@ export const calculateQuote = ({
       if (module.kind === 'options') {
         const option = module.options.find((entry) => entry.key === optionChoices[module.key])
         if (!option) {
+          /*
+           * ALREADY BOUGHT, SO NOTHING TO CHOOSE
+           *
+           * A renewing Custom user starts with the modules of their last
+           * payment ticked (payment/userPaymentData/ `module`, which carries
+           * e.g. "Procurement Automation"). That payment says nothing about
+           * WHICH plan was taken, so asking for one again - and blocking the
+           * payment until it is given - is wrong: it is already paid for, and
+           * is carried over at no charge. Picking a plan in the dialog is
+           * still how the user moves to a bigger one, and that is charged.
+           */
+          if (owned) {
+            lines.push({
+              key: module.key,
+              label: module.name,
+              detail: 'in your current plan',
+              amount: 0,
+              owned: true,
+            })
+            return
+          }
+
           issues.push(`Choose a plan for ${module.name}.`)
           return
         }

@@ -162,8 +162,15 @@ export default function LedgerDetails() {
     toast.error(message)
   }
 
-  /** stop_loader arrived: reload the ledgers, loader still on until done. */
-  const reloadAfterSync = async () => {
+  /**
+   * stop_loader arrived: reload the ledgers, loader still on until done.
+   *
+   * `succeeded` is whether Tally's reply was a success. It decides only
+   * whether the GROUPS are read back afterwards: a sync that failed has
+   * changed nothing to read, while the ledgers are reloaded either way -
+   * a failure part of the way through still leaves the list out of date.
+   */
+  const reloadAfterSync = async (succeeded) => {
     syncPhaseRef.current = 'reloading'
     clearTimeout(syncTimerRef.current)
     syncTimerRef.current = null
@@ -176,6 +183,21 @@ export default function LedgerDetails() {
     if (fetchLedgers.rejected.match(result) && !result.meta.condition) {
       console.error('[Ledger Sync] Ledger API error:', result.payload ?? result.error)
       toast.error(result.payload || 'Could not reload the ledgers.')
+    }
+
+    /* A sync brings Tally's GROUPS over as well as its ledgers, so the list
+       the form and the Add Ledger Group modal offer is out of date the
+       moment the sync finishes. Read back once, here, after the ledgers and
+       only on a sync that worked - the same thunk the page already uses, so
+       there is one group list in the app and this only refills it. `force`
+       is what gets past its "we already have these" condition. */
+    if (succeeded) {
+      const groups = await dispatch(fetchLedgerGroups({ force: true }))
+
+      if (fetchLedgerGroups.rejected.match(groups) && !groups.meta.condition) {
+        console.error('[Ledger Sync] Ledger groups API error:', groups.payload ?? groups.error)
+        toast.error(groups.payload || 'Ledger groups could not be reloaded.')
+      }
     }
 
     endSync()
@@ -204,7 +226,9 @@ export default function LedgerDetails() {
         else toast.info(reply.msg)
       }
 
-      reloadAfterSync()
+      // Only an outright failure stops the groups being read back - a reply
+      // that names no status is treated as it is above, as not an error.
+      reloadAfterSync(reply.status !== 'error')
     },
   })
 
