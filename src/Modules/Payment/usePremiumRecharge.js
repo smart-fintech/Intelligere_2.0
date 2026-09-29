@@ -4,11 +4,21 @@
  *   const recharge = usePremiumRecharge()
  *
  *   recharge.status / error / retry   loading the price list
- *   recharge.catalog                  { recharge, addOns, comingSoon } (./premiumFeatures)
+ *   recharge.catalog                  { recharge, groups, packages, addOns }
+ *                                       (./premiumFeatures)
  *   recharge.companies, company, setCompanyId
  *                                     who it is bought for - the active
  *                                     company unless the user picks another
  *   recharge.counts, setCount         units per counted feature
+ *   recharge.groupKeys, toggleGroupItem, toggleWholeGroup
+ *                                     the members of a group (Biz Doxs)
+ *                                     that are ticked
+ *   recharge.packageChoices, choosePackage, clearPackage
+ *                                     the package taken for a packaged
+ *                                     module (Inventory Management)
+ *   recharge.includedKeys             { [group key]: [members the chosen
+ *                                     package already covers] } - shown
+ *                                     ticked, never charged again
  *   recharge.addOnKeys, toggleAddOn, optionChoices, chooseOption
  *   recharge.quote                    the live price
  *   recharge.checkout()               product_type 'premium_feature' -> Cashfree
@@ -27,7 +37,14 @@ import { PRODUCT_TYPE, getPriceList } from '@/Services/paymentService'
 import { fetchCompanies } from '@/Store/Slices/companySlice'
 
 import { startCheckout } from './checkout'
-import { buildRechargeCatalog, buildRechargePayload, calculateRechargeQuote } from './premiumFeatures'
+import {
+  buildRechargeCatalog,
+  buildRechargePayload,
+  calculateRechargeQuote,
+  groupItemKeys,
+  includedGroupKeys,
+  isWholeGroup,
+} from './premiumFeatures'
 import { parsePremiumFeatures } from './pricing'
 
 export function usePremiumRecharge() {
@@ -38,6 +55,8 @@ export function usePremiumRecharge() {
   const [attempt, setAttempt] = useState(0)
   const [companyChoice, setCompanyId] = useState(null)
   const [counts, setCounts] = useState({})
+  const [groupKeys, setGroupKeys] = useState({})
+  const [packageChoices, setPackageChoices] = useState({})
   const [addOnKeys, setAddOnKeys] = useState([])
   const [optionChoices, setOptionChoices] = useState({})
   const [paying, setPaying] = useState(false)
@@ -80,15 +99,59 @@ export function usePremiumRecharge() {
 
   const quote = useMemo(() => {
     if (!catalog) return null
-    const base = calculateRechargeQuote({ catalog, counts, addOnKeys, optionChoices, gstPercent })
+    const base = calculateRechargeQuote({
+      catalog,
+      counts,
+      groupKeys,
+      packageChoices,
+      addOnKeys,
+      optionChoices,
+      gstPercent,
+    })
     // No payload is ever built without a company - its name is the payload key.
     return company?.comp_name
       ? base
       : { ...base, issues: ['Select the company to recharge.', ...base.issues] }
-  }, [catalog, counts, addOnKeys, optionChoices, gstPercent, company])
+  }, [catalog, counts, groupKeys, packageChoices, addOnKeys, optionChoices, gstPercent, company])
+
+  // What the chosen package already covers (Basic: Challan; Standard: all
+  // nine). The price uses the same function, so screen and price agree.
+  const includedKeys = useMemo(
+    () => (catalog ? includedGroupKeys(catalog, packageChoices) : {}),
+    [catalog, packageChoices],
+  )
 
   const setCount = useCallback((featureId, value) => {
     setCounts((current) => ({ ...current, [featureId]: value }))
+  }, [])
+
+  /** One member of a group in or out - "All" follows from them all being in. */
+  const toggleGroupItem = useCallback((group, item) => {
+    setGroupKeys((current) => {
+      const keys = current[group.key] ?? []
+      return {
+        ...current,
+        [group.key]: keys.includes(item.key) ? keys.filter((key) => key !== item.key) : [...keys, item.key],
+      }
+    })
+  }, [])
+
+  /** "All <group>": every member at once, or none of them. */
+  const toggleWholeGroup = useCallback((group) => {
+    setGroupKeys((current) => ({
+      ...current,
+      [group.key]: isWholeGroup(group, current[group.key] ?? []) ? [] : groupItemKeys(group),
+    }))
+  }, [])
+
+  const choosePackage = useCallback((item, packageKey) => {
+    setPackageChoices((current) => ({ ...current, [item.key]: packageKey }))
+  }, [])
+
+  const clearPackage = useCallback((item) => {
+    setPackageChoices((current) =>
+      Object.fromEntries(Object.entries(current).filter(([key]) => key !== item.key)),
+    )
   }, [])
 
   const toggleAddOn = useCallback((item) => {
@@ -111,6 +174,8 @@ export function usePremiumRecharge() {
           companyName: company.comp_name,
           counts,
           catalog,
+          groupKeys,
+          packageChoices,
           addOnKeys,
           optionChoices,
           productType: PRODUCT_TYPE.PREMIUM_FEATURE,
@@ -120,7 +185,7 @@ export function usePremiumRecharge() {
       toast.error(error.message || 'The payment could not be started.')
       setPaying(false)
     }
-  }, [quote, paying, company, counts, catalog, addOnKeys, optionChoices])
+  }, [quote, paying, company, counts, catalog, groupKeys, packageChoices, addOnKeys, optionChoices])
 
   const retry = useCallback(() => {
     setLoad({ status: 'loading', response: null, error: null })
@@ -137,6 +202,13 @@ export function usePremiumRecharge() {
     setCompanyId,
     counts,
     setCount,
+    groupKeys,
+    includedKeys,
+    toggleGroupItem,
+    toggleWholeGroup,
+    packageChoices,
+    choosePackage,
+    clearPackage,
     addOnKeys,
     toggleAddOn,
     optionChoices,

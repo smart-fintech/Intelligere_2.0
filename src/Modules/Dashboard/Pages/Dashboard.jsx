@@ -1,4 +1,4 @@
-import { Clock, Sparkles, Zap } from 'lucide-react'
+import { Sparkles, Zap } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 import { Button } from '@/Components/ui/button'
@@ -11,7 +11,6 @@ import {
 } from '@/Constants/dashboardModules'
 import { ROUTES } from '@/Constants/routes'
 import ModuleLayout from '@/Modules/Dashboard/Components/ModuleLayout'
-import { COMING_SOON_FEATURES } from '@/Modules/Payment/premiumFeatures'
 import { cn } from '@/Library/utils'
 
 /**
@@ -79,13 +78,9 @@ function FeatureCard({ module }) {
 }
 
 /**
- * The Premium Features row under the module grid: what is coming, and the
- * way into the premium recharge page (ROUTES.PREMIUM_PAYMENT) - which is
- * separate from the package payment in the sidebar.
- *
- * The Coming Soon names are the recharge page's own list
- * (Modules/Payment/premiumFeatures), so the two never disagree; nothing
- * here can be paid for.
+ * The Premium Features row under the module grid: the way into the premium
+ * recharge page (ROUTES.PREMIUM_PAYMENT), which is separate from the package
+ * payment in the sidebar. What is on sale there is the price list's.
  */
 function PremiumFeaturesCard() {
   return (
@@ -99,19 +94,6 @@ function PremiumFeaturesCard() {
         <p className="text-sm text-muted-foreground">
           Recharge E-Invoice, E-Way Bill, GST filings and more for your company.
         </p>
-        {COMING_SOON_FEATURES.length ? (
-          <ul className="mt-2 flex flex-wrap gap-2">
-            {COMING_SOON_FEATURES.map((feature) => (
-              <li
-                key={feature.name}
-                className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-400"
-              >
-                <Clock className="size-3" />
-                {feature.name} · Coming Soon
-              </li>
-            ))}
-          </ul>
-        ) : null}
       </div>
 
       <Button asChild className="w-full sm:w-auto">

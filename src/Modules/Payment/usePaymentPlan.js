@@ -7,7 +7,12 @@
  *   plan.error           the message to show when failed; plan.retry() tries again
  *   plan.catalog         what can be bought (see pricing.buildCatalog)
  *   plan.subscription    the plan already held, or null for a new payment
- *   plan.selection       { mode, tierKey, quantity, selectedKeys, optionChoices }
+ *   plan.procurementUsage  what the Procurement Automation plan has been
+ *                        used for (payment/userPaymentData/
+ *                        `procurement_used`); empty when there is none
+ *   plan.selection       { mode, tierKey, quantity, selectedKeys, optionChoices,
+ *                        sections } - `sections` is the MSME page's
+ *                        { [section key]: true | '<plan key>' }
  *   plan.offer           the offer being applied (./offer), or null
  *   plan.offerStatus     'loading' while payment/checkOffer is on its way
  *   plan.quote           the live price of that selection (pricing.calculateQuote)
@@ -38,13 +43,17 @@ import {
   PACKAGE_MODE,
   PLAN_STRUCTURE,
   buildCatalog,
+  buildPackagePayload,
   buildPaymentPayload,
+  calculatePackageQuote,
   calculateQuote,
+  conflictingSections,
   getPlan,
   isTierPurchasable,
   locatePriceList,
   lockedModeFor,
   normalizeKey,
+  parseProcurementUsage,
   parseSubscription,
 } from './pricing'
 import { startCheckout } from './checkout'
@@ -52,13 +61,6 @@ import { parseOffer } from './offer'
 
 /** A sanity ceiling for the company counter - not a business limit. */
 export const MAX_COMPANY_QUANTITY = 10000
-
-/**
- * The first tier the user may buy (pricing.isTierPurchasable - upgrades
- * only), or null when they already hold the largest one.
- */
-const firstOpenTier = (catalog, subscription) =>
-  catalog.tiers.find((tier) => isTierPurchasable(tier, subscription))?.key ?? null
 
 /** The option whose number matches the company count, when there is one. */
 const matchingOption = (module, companies) =>
@@ -73,6 +75,8 @@ export function usePaymentPlan() {
 
   const [priceList, setPriceList] = useState(null)
   const [subscription, setSubscription] = useState(null)
+  // Shown in the Procurement Automation dialog; it never changes a price.
+  const [procurementUsage, setProcurementUsage] = useState([])
   const [loadState, setLoadState] = useState({ status: 'loading', error: null })
   const [attempt, setAttempt] = useState(0)
   const [offerState, setOfferState] = useState({ status: 'loading', raw: null, forEmail: null })
@@ -84,6 +88,9 @@ export function usePaymentPlan() {
   const [quantityChoice, setQuantityChoice] = useState(null)
   const [selectedChoice, setSelectedChoice] = useState(null)
   const [optionChoices, setOptionChoices] = useState({})
+  // The MSME page's plans: { [section key]: true | '<package or plan key>' }.
+  // Nothing is taken until the user says so, so it starts empty.
+  const [sectionChoices, setSectionChoices] = useState({})
   const [paying, setPaying] = useState(false)
 
   // The profile is shared app-wide; this is a no-op when it is already loaded.
@@ -118,6 +125,7 @@ export function usePaymentPlan() {
         if (priceRequest.current !== attempt) return
         setPriceList(prices)
         setSubscription(parseSubscription(current))
+        setProcurementUsage(parseProcurementUsage(current))
         setLoadState({ status: 'ready', error: null })
       })
       .catch((error) => {
@@ -187,19 +195,30 @@ export function usePaymentPlan() {
   /*
    * THE SMALLEST COMPANY COUNT
    *
-   * On the MSME (quantity) plan the price covers MSME_INCLUDED_COMPANIES (3)
+   * On either MSME price list the price covers MSME_INCLUDED_COMPANIES (3)
    * companies, so 3 is both the default and the floor: the counter starts
-   * there and its minus button stops there. A user who already pays for more
-   * cannot go below what they hold, as before.
+   * there and its minus button stops there - below it nothing would change
+   * but the number, since 1, 2 and 3 companies all cost the same. A user who
+   * already pays for more cannot go below what they hold, as before.
    */
-  const quantityFloor = catalog?.structure === PLAN_STRUCTURE.QUANTITY ? MSME_INCLUDED_COMPANIES : 1
+  const msmeCounts =
+    catalog?.structure === PLAN_STRUCTURE.QUANTITY || catalog?.structure === PLAN_STRUCTURE.PACKAGES
+  const quantityFloor = msmeCounts ? MSME_INCLUDED_COMPANIES : 1
   const minQuantity = Math.max(quantityFloor, subscription?.pastQuantity ?? 0)
 
-  // ---- The selection: the user's choice, or the default ----
-  // Defaults: the package type already held, else Premium when it is
-  // offered; the first tier they may buy; at least as many companies as they
-  // already pay for; and - for a renewing Custom user - the modules they
-  // already own ticked, otherwise nothing ticked.
+  /* ---- The selection: the user's choice, or the default ----
+   *
+   * THE PACKAGE TYPE HAS A DEFAULT; THE COMPANY PACKAGE HAS NOT
+   *
+   * The page opens on Premium, because most users want the whole package and
+   * it is the cheaper way to buy it - but on NO company package. Buying 50
+   * companies is a decision, not a default the user has to notice and undo,
+   * so the quote says what is still missing and Payment stays disabled until
+   * a company package is chosen.
+   *
+   * On a renewal the package type already held is still the only one
+   * offered (lockedMode), as before.
+   */
   const tiered = catalog?.structure === PLAN_STRUCTURE.TIERS
   const offersPremium = tiered ? catalog.tiers.some((tier) => tier.bundle) : Boolean(catalog?.plan?.bundle)
   const defaultMode = offersPremium ? PACKAGE_MODE.PREMIUM : PACKAGE_MODE.CUSTOM
@@ -207,11 +226,10 @@ export function usePaymentPlan() {
   const mode = catalog ? lockedMode ?? modeChoice ?? defaultMode : null
   // The user's pick only while it can still be bought - a purchased package
   // can never end up selected, so it can never reach the payment payload.
-  const tierKey = tiered
-    ? catalog.tiers.some((tier) => tier.key === tierChoice && isTierPurchasable(tier, subscription))
+  const tierKey =
+    tiered && catalog.tiers.some((tier) => tier.key === tierChoice && isTierPurchasable(tier, subscription))
       ? tierChoice
-      : firstOpenTier(catalog, subscription)
-    : null
+      : null
   const quantity = Math.max(minQuantity, quantityChoice ?? minQuantity)
   const selectedKeys = useMemo(
     () =>
@@ -220,14 +238,23 @@ export function usePaymentPlan() {
     [selectedChoice, lockedMode, subscription],
   )
   const plan = getPlan(catalog, tierKey)
+  const packaged = catalog?.structure === PLAN_STRUCTURE.PACKAGES
 
-  const quote = useMemo(
-    () =>
-      catalog && mode
-        ? calculateQuote({ catalog, mode, tierKey, quantity, selectedKeys, optionChoices, subscription, offer })
-        : null,
-    [catalog, mode, tierKey, quantity, selectedKeys, optionChoices, subscription, offer],
-  )
+  /*
+   * TWO SHAPES OF PRICE LIST, TWO QUOTES
+   *
+   * A price list of whole plans (MSME: Accounts Automation, Inventory
+   * Management, Procurement) is priced by what the user took, with no
+   * company count and no modules to tick. Everything else - the Accounting
+   * Professional tiers, and the older MSME module list - is priced as before.
+   */
+  const quote = useMemo(() => {
+    if (!catalog) return null
+    if (packaged) return calculatePackageQuote({ catalog, selection: sectionChoices, companies: quantity, offer })
+    // Priced even before a package type is chosen: the quote is then empty
+    // and says what is missing, which is what disables Payment.
+    return calculateQuote({ catalog, mode, tierKey, quantity, selectedKeys, optionChoices, subscription, offer })
+  }, [catalog, packaged, sectionChoices, mode, tierKey, quantity, selectedKeys, optionChoices, subscription, offer])
 
   /* ---- Changes the page can make ---- */
 
@@ -289,6 +316,48 @@ export function usePaymentPlan() {
     [plan, isLockedModule],
   )
 
+  /*
+   * TAKING A SECTION LETS GO OF THE ONES IT EXCLUDES
+   *
+   * Accounts Automation and Inventory Management cannot be bought together
+   * (pricing.conflictingSections). Taking one drops the other by itself,
+   * rather than refusing the click and telling the user off, and everything
+   * else already taken - Procurement in particular - is left as it was.
+   */
+  const takeSection = useCallback(
+    (section, value) => {
+      setSectionChoices((current) => {
+        const next = { ...current, [section.key]: value }
+        if (value) {
+          conflictingSections(catalog?.sections, section).forEach((other) => {
+            next[other.key] = null
+          })
+        }
+        return next
+      })
+    },
+    [catalog],
+  )
+
+  /** A whole plan with one price (Accounts Automation): taken, or not. */
+  const toggleSection = useCallback(
+    (section) => {
+      takeSection(section, sectionChoices[section.key] ? null : true)
+    },
+    [takeSection, sectionChoices],
+  )
+
+  /**
+   * One plan of a section. Only one can be held at a time, so choosing
+   * another simply replaces it; choosing the one already held lets it go.
+   */
+  const choosePlan = useCallback(
+    (section, planKey) => {
+      takeSection(section, sectionChoices[section.key] === planKey ? null : planKey)
+    },
+    [takeSection, sectionChoices],
+  )
+
   /**
    * Creates the order for the companies chosen and hands over to Cashfree.
    * `paying` stays on after success: the page is on its way to Cashfree, and
@@ -302,17 +371,25 @@ export function usePaymentPlan() {
       setPaying(true)
 
       try {
-        const payload = buildPaymentPayload({
-          catalog,
-          quote,
-          mode,
-          tierKey,
-          selectedKeys,
-          optionChoices,
-          subscription,
-          removeCompanies,
-          productType: PRODUCT_TYPE.MAIN,
-        })
+        const payload = packaged
+          ? buildPackagePayload({
+              catalog,
+              quote,
+              selection: sectionChoices,
+              companies: quantity,
+              productType: PRODUCT_TYPE.MAIN,
+            })
+          : buildPaymentPayload({
+              catalog,
+              quote,
+              mode,
+              tierKey,
+              selectedKeys,
+              optionChoices,
+              subscription,
+              removeCompanies,
+              productType: PRODUCT_TYPE.MAIN,
+            })
         // The offer whose discount is IN this order (quote.offer is null when
         // none applied). Once the order exists - so it was created with the
         // discount still open - it is marked used with PUT payment/checkOffer/,
@@ -328,7 +405,20 @@ export function usePaymentPlan() {
         return false
       }
     },
-    [catalog, quote, mode, tierKey, selectedKeys, optionChoices, subscription, paying, offerStatus],
+    [
+      catalog,
+      quote,
+      packaged,
+      sectionChoices,
+      quantity,
+      mode,
+      tierKey,
+      selectedKeys,
+      optionChoices,
+      subscription,
+      paying,
+      offerStatus,
+    ],
   )
 
   /** Ask again after a failure - a new attempt number, so the guard lets it. */
@@ -354,7 +444,9 @@ export function usePaymentPlan() {
   } else if (catalogError) {
     status = 'failed'
     error = catalogError
-  } else if (loadState.status === 'loading' || !catalog || !mode) {
+    // A tiered price list opens with no package type chosen, which is a
+    // ready page waiting for the user - not one still loading.
+  } else if (loadState.status === 'loading' || !catalog || (!mode && !packaged && !tiered)) {
     status = 'loading'
   }
 
@@ -367,12 +459,15 @@ export function usePaymentPlan() {
     offerStatus,
     catalog,
     subscription,
+    procurementUsage,
     lockedMode,
     plan,
     quote,
     paying,
     minQuantity,
-    selection: { mode, tierKey, quantity, selectedKeys, optionChoices },
+    selection: { mode, tierKey, quantity, selectedKeys, optionChoices, sections: sectionChoices },
+    toggleSection,
+    choosePlan,
     setMode,
     setTierKey: setTierChoice,
     setQuantity,

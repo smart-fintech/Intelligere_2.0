@@ -7,12 +7,14 @@ import { Loader } from '@/Components/Common/Loader'
 import { useActiveCompany } from '@/Hooks/useActiveCompany'
 import { fetchCompanies } from '@/Store/Slices/companySlice'
 
-import { PLAN_STRUCTURE, formatINR } from '../pricing'
+import { PACKAGE_MODE, PLAN_STRUCTURE, formatINR, isTierPurchasable } from '../pricing'
 import { usePaymentPlan } from '../usePaymentPlan'
 import { CompanyCounter } from './CompanyCounter'
 import { CompanySelectDialog } from './CompanySelectDialog'
 import { ModuleList } from './ModuleList'
 import { OfferBanner } from './OfferBanner'
+import { PaymentDetailsDialog } from './PaymentDetailsDialog'
+import { PackagePlans } from './PackagePlans'
 import { PackageModeSwitch } from './PackageModeSwitch'
 import { PaymentSummary } from './PaymentSummary'
 import { TierCards } from './TierCards'
@@ -31,6 +33,8 @@ export function PaymentPlanner() {
   const plan = usePaymentPlan()
   const { allCompanies } = useActiveCompany()
   const [pickingCompanies, setPickingCompanies] = useState(false)
+  // The plans page reviews the order before paying; this is that dialog.
+  const [showDetails, setShowDetails] = useState(false)
 
   // The shell loads the company list; this only makes sure it is there.
   useEffect(() => {
@@ -56,7 +60,8 @@ export function PaymentPlanner() {
 
   const { catalog, quote, selection, subscription } = plan
   const tiered = catalog.structure === PLAN_STRUCTURE.TIERS
-  const premiumAvailable = tiered ? catalog.tiers.some((tier) => tier.bundle) : Boolean(catalog.plan.bundle)
+  const packaged = catalog.structure === PLAN_STRUCTURE.PACKAGES
+  // const premiumAvailable = tiered ? catalog.tiers.some((tier) => tier.bundle) : Boolean(catalog.plan.bundle)
   const waitingForOffer = plan.offerStatus === 'loading' ? 'Checking available offers...' : null
 
   // The price under the MSME company card: what the chosen number of
@@ -64,12 +69,77 @@ export function PaymentPlanner() {
   // the additional companies above them (pricing.calculateQuote).
   const counterPrice = formatINR(quote.subtotal)
 
+  /*
+   * The modules to draw. Normally the chosen package's (plan.plan); before a
+   * company capacity is chosen there is none, so the first capacity that can
+   * be bought stands in - every capacity lists the same modules, only at its
+   * own prices. Only what is DRAWN comes from it: the price and the payload
+   * still come from the capacity the user actually picks.
+   */
+  const shownPlan =
+    plan.plan ?? (tiered ? catalog.tiers.find((tier) => isTierPurchasable(tier, subscription)) ?? null : null)
+
   // Payment: with companies, ask which to remove first (the dialog's
   // Continue calls checkout with those ids -> remove_company). With none,
   // straight to payment, removing nothing.
   const pay = () => {
     if (!allCompanies.length) plan.checkout([])
     else setPickingCompanies(true)
+  }
+
+  /*
+   * THE PLANS PAGE (MSME)
+   *
+   * A price list of whole plans has no package type to switch and no modules
+   * to tick: the sections ARE the choice, three cards of the same width, with
+   * the company count and Pay Now under them. Payment goes straight through:
+   * there are no companies to remove here.
+   *
+   * PAY NOW ONLY OPENS THE DETAILS. The page shows what is on sale, not a
+   * running bill; the figures are read in the dialog, and the order is
+   * created only when Pay Now is pressed there. It refuses to open while the
+   * quote has anything to say (nothing chosen, or two packages that cannot
+   * go together), which is the same test the payment itself makes.
+   */
+  if (packaged) {
+    const blocked = quote.issues.length > 0 || Boolean(waitingForOffer)
+
+    return (
+      <div className="space-y-10">
+        <OfferBanner offer={plan.offer} status={plan.offerStatus} />
+
+        <PackagePlans
+          sections={catalog.sections}
+          selection={selection.sections}
+          companies={selection.quantity}
+          minCompanies={plan.minQuantity}
+          onCompaniesChange={plan.setQuantity}
+          onToggleSection={plan.toggleSection}
+          onChoosePlan={plan.choosePlan}
+          procurementUsage={plan.procurementUsage}
+          onPay={() => setShowDetails(true)}
+          paying={plan.paying}
+          payBlocked={blocked}
+          payLabel={waitingForOffer ? 'Checking offers...' : 'Pay Now'}
+          // The quote's own words for what is still missing, said under the
+          // Company Count row - the one place they are shown.
+          issues={quote.issues}
+        />
+
+        <PaymentDetailsDialog
+          open={showDetails && !blocked}
+          onOpenChange={setShowDetails}
+          quote={quote}
+          facts={[
+            ['Companies', `${quote.companies} ${quote.companies === 1 ? 'company' : 'companies'}`],
+            ['Plans selected', String(quote.lines.length)],
+          ]}
+          paying={plan.paying}
+          waiting={waitingForOffer}
+          onConfirm={() => plan.checkout([])}
+        />
+      </div>
+    )
   }
 
   return (
@@ -82,24 +152,32 @@ export function PaymentPlanner() {
             value={selection.mode}
             onChange={plan.setMode}
             lockedMode={plan.lockedMode}
-            premiumAvailable={premiumAvailable}
+            // premiumAvailable={premiumAvailable}
           />
 
-          {tiered && subscription && !selection.tierKey ? (
+          {/* Only when there is genuinely nothing left to upgrade to - not
+              merely because the user has yet to pick a package. */}
+          {tiered && subscription && !catalog.tiers.some((tier) => isTierPurchasable(tier, subscription)) ? (
             <p className="text-center text-sm text-brand">
               You already have the largest package - there is no upgrade to buy.
             </p>
           ) : null}
 
+          {/* Nothing here is chosen for the user: the slabs all start empty,
+              whichever purchase type the page opened on. */}
           {tiered ? (
-            <TierCards
-              tiers={catalog.tiers}
-              value={selection.tierKey}
-              onChange={plan.setTierKey}
-              mode={selection.mode}
-              subscription={subscription}
-              subtotal={quote.subtotal}
-            />
+            selection.mode ? (
+              <section>
+                <TierCards
+                  tiers={catalog.tiers}
+                  value={selection.tierKey}
+                  onChange={plan.setTierKey}
+                  mode={selection.mode}
+                  subscription={subscription}
+                  subtotal={quote.subtotal}
+                />
+              </section>
+            ) : null
           ) : (
             <CompanyCounter
               value={selection.quantity}
@@ -111,16 +189,27 @@ export function PaymentPlanner() {
             />
           )}
 
-          {plan.plan ? (
-            <ModuleList
-              modules={plan.plan.modules}
-              mode={selection.mode}
-              selectedKeys={selection.selectedKeys}
-              optionChoices={selection.optionChoices}
-              onToggle={plan.toggleModule}
-              onChooseOption={plan.chooseOption}
-              isLocked={plan.isLockedModule}
-            />
+          {/* THE MODULES ARE ALWAYS ON SCREEN
+              Waiting for a company package before showing them hides what
+              is being bought until after the decision. The list is the same
+              modules in every package, so before one is chosen it is drawn
+              from the first that can be bought, and the note says the prices
+              follow the capacity. Ticks are kept by module, so they carry
+              over when the capacity is picked. */}
+          {shownPlan ? (
+            <>
+              <ModuleList
+                modules={shownPlan.modules}
+                mode={selection.mode}
+                selectedKeys={selection.selectedKeys}
+                optionChoices={selection.optionChoices}
+                onToggle={plan.toggleModule}
+                onChooseOption={plan.chooseOption}
+                isLocked={plan.isLockedModule}
+                procurementUsage={plan.procurementUsage}
+                title={selection.mode === PACKAGE_MODE.CUSTOM ? 'Select Modules' : 'Included Modules'}
+              />
+            </>
           ) : null}
         </div>
 
