@@ -26,9 +26,12 @@ import {
   ADDITIONAL_COMPANY_PRICE_PERCENT,
   MSME_INCLUDED_COMPANIES,
   formatINR,
+  heldPackageFor,
+  normalizeKey,
   isProcurementModule,
   packagePriceFor,
   percentOf,
+  planChargeFor,
 } from '../pricing'
 import { NumberStepper } from './NumberStepper'
 import { ProcurementUsage } from './ProcurementUsage'
@@ -94,7 +97,7 @@ function IncludedList({ title, items, chips = false }) {
   const hidden = items.length - shown.length
 
   return (
-    <div className="mt-4">
+    <div className="mt-3">
       <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
         {title}
       </p>
@@ -175,7 +178,7 @@ function FeatureCards({ title = 'Features', items }) {
   if (!items?.length) return null
 
   return (
-    <div className="mt-4">
+    <div className="mt-0">
       <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{title}</p>
 
       <ul className="mt-2 grid grid-cols-2 gap-2">
@@ -253,7 +256,7 @@ function PriceNote({ amount, companies }) {
  * The recommendation is not drawn here either: it belongs to a plan inside
  * the card, and is drawn on that plan's tile.
  */
-function PackageCard({ step, title, subtitle, amount, companies, selected, action, children, footer, className }) {
+function PackageCard({ step, title, subtitle, amount, companies, charge, selected, action, children, footer, className }) {
   return (
     <div className={cn('relative h-full', className)}>
       <section
@@ -277,16 +280,21 @@ function PackageCard({ step, title, subtitle, amount, companies, selected, actio
                 <CheckCircle2 className="size-3.5" /> Selected
               </span>
             ) : null}
+            {/* What this user pays for the plan being read: the price less
+                what their existing package credits. Only the figure - how it
+                was reached is read in the Payment Summary, never here. */}
             <p className="text-2xl tabular-nums text-brand sm:text-3xl">
-              {formatINR(packagePriceFor(amount, companies))}
+              {formatINR(charge ? charge.payable : packagePriceFor(amount, companies))}
             </p>
             <p className="text-[11px] text-muted-foreground">/ Year +GST</p>
-          {action ? <div>{action}</div> : null}
+            {action ? <div>{action}</div> : null}
           </div>
         </header>
 
         <div className="flex-1">
-          <PriceNote amount={amount} companies={companies} />
+          {/* How the company count reaches that price. The full working of an
+              upgrade belongs to the Payment Summary, not to a card. */}
+          {charge?.credit > 0 ? null : <PriceNote amount={amount} companies={companies} />}
           {children}
         </div>
 
@@ -332,6 +340,42 @@ function SelectButton({ selected, label, onClick }) {
 }
 
 /**
+ * WHERE A PLAN STANDS AGAINST THE ONE ALREADY HELD
+ *
+ * The plans of a package arrive cheapest first, so their order IS the ladder:
+ *
+ *   below the one held   not for sale - buying down is not a payment the page
+ *                        offers, and it would otherwise be bought by accident
+ *   the one held         the current plan: shown ticked, and not payable
+ *                        again (nothing to buy - see the quote's own rule)
+ *   above the one held   an upgrade, and the only thing that can be chosen
+ *
+ * Nothing is held, or the plan held is no longer in the price list, and every
+ * plan is simply on sale - a user is never left unable to buy anything because
+ * a plan was renamed.
+ *
+ * -> { locked, current, note } for each plan, and nothing else: which plan is
+ * SELECTED stays the page's business, and what an upgrade costs stays the
+ * quote's.
+ */
+const planStanding = (plans, held) => {
+  const heldIndex = held?.planKey
+    ? plans.findIndex((plan) => normalizeKey(plan.name) === held.planKey)
+    : -1
+
+  return (plan, index) => {
+    if (heldIndex < 0) return { locked: false, current: false, note: null }
+    if (index < heldIndex) return { locked: true, current: false, note: 'Not available' }
+    if (index === heldIndex) {
+      // Ticked, and still the user's to keep or let go: keeping it costs
+      // nothing, and it is what more companies are added on top of.
+      return { locked: false, current: true, note: 'Current plan · paid' }
+    }
+    return { locked: false, current: false, note: 'Upgrade' }
+  }
+}
+
+/**
  * ONE PLAN TO CHOOSE FROM - Basic, or Growth.
  *
  * A plan INSIDE a package, never a package of its own, so it carries no
@@ -344,17 +388,22 @@ function SelectButton({ selected, label, onClick }) {
  * The Select line is a span, not a button - the tile itself is the button,
  * and a button inside a button is not allowed.
  */
-function PlanTile({ id, name, label, price, caption, selected, popular, onSelect }) {
+function PlanTile({ id, name, label, price, caption, selected, popular, current, locked, note, onSelect }) {
   // `name` may be drawn as an icon (the Unlimited plan), so the tick box
   // needs words of its own for screen readers.
   const text = label ?? (typeof name === 'string' ? name : 'Plan')
+  // A plan BELOW the one held cannot be chosen (planStanding); the plan held
+  // itself can - keeping it costs nothing, and it is what extra companies are
+  // added on top of, so it must stay tickable.
+  const fixed = locked
+  const ticked = selected
 
   return (
     <div className="relative h-full">
       {/* On the tile's top-right edge, outside it, so it takes no room from
           the plan and leaves every tile the same size. Drawn from which plan
           this is (popularPlanKey), never from whether it is ticked. */}
-      {popular ? (
+      {popular && !fixed ? (
         <span className="absolute -top-2.5 -right-2 z-10 inline-flex items-center gap-1 rounded-full bg-brand px-2 py-0.5 text-[10px] font-bold tracking-wide whitespace-nowrap text-brand-foreground uppercase shadow-md">
           <Star className="size-2.5 fill-current" />
           Most Popular
@@ -364,26 +413,58 @@ function PlanTile({ id, name, label, price, caption, selected, popular, onSelect
       <label
         htmlFor={id}
         className={cn(
-          'flex h-full cursor-pointer flex-col rounded-xl border p-3 text-left transition-colors',
-          selected
-            ? 'border-brand ring-1 ring-brand/40 bg-brand-soft/60'
-            : popular
-              ? 'border-brand/50 bg-card hover:border-brand'
-              : 'border-border/70 bg-card hover:border-brand/50',
+          'flex h-full flex-col rounded-xl border p-3 text-left transition-colors',
+          fixed ? 'cursor-default' : 'cursor-pointer',
+          current
+            ? 'border-brand/60 bg-muted/60'
+            : locked
+              ? 'border-border/60 bg-muted/30 opacity-60'
+              : selected
+                ? 'border-brand ring-1 ring-brand/40 bg-brand-soft/60'
+                : popular
+                  ? 'border-brand/50 bg-card hover:border-brand'
+                  : 'border-border/70 bg-card hover:border-brand/50',
         )}
       >
         <span className="flex items-center gap-2">
           {/* One plan at a time: ticking another lets the first go, which is
               the page's own rule (usePaymentPlan.choosePlan) - the box only
               asks for it. */}
-          <Checkbox id={id} checked={selected} onCheckedChange={onSelect} aria-label={text} />
+          <Checkbox
+            id={id}
+            checked={ticked}
+            disabled={fixed}
+            onCheckedChange={fixed ? undefined : onSelect}
+            aria-label={text}
+          />
 
-          <span className="truncate text-sm font-bold tracking-wide text-brand uppercase">{name}</span>
+          <span className={cn('truncate text-sm font-bold tracking-wide uppercase', locked ? 'text-muted-foreground' : 'text-brand')}>
+            {name}
+          </span>
         </span>
 
-        <span className="mt-1 block text-lg text-brand">{price}</span>
+        {/* What THIS user pays for this plan - the plan's price less what
+            their existing package credits (pricing.planChargeFor). The full
+            figure only: how it was reached is read in the Payment Summary. */}
+        <span className={cn('mt-1 block text-lg', locked ? 'text-muted-foreground' : 'text-brand')}>{price}</span>
 
         {caption ? <span className="block text-xs text-muted-foreground">{caption}</span> : null}
+
+        {/* Where this plan stands against the one held: the current plan, a
+            plan that can be upgraded to, or one below what is held and so
+            not for sale. Read from userPaymentData's msme_packages; it takes
+            no part in any price. */}
+        {note ? (
+          <span
+            className={cn(
+              'mt-1 inline-flex w-fit items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase',
+              current ? 'bg-brand text-brand-foreground' : 'bg-muted text-muted-foreground',
+            )}
+          >
+            {current ? <Check className="size-2.5" /> : null}
+            {note}
+          </span>
+        ) : null}
       </label>
     </div>
   )
@@ -400,7 +481,7 @@ function PlanTile({ id, name, label, price, caption, selected, popular, onSelect
  */
 function SelectedDetails({ features, lists }) {
   return (
-    <div className="mt-4 rounded-xl border border-border/70 bg-muted/30 p-4">
+    <div className="mt-2 rounded-xl border border-border/70 bg-muted/30 p-4">
       <FeatureCards items={features} />
 
       {/* Each list says which form it takes - modules the same ticked list
@@ -423,13 +504,24 @@ function SelectedDetails({ features, lists }) {
  * documents are the same chips the Inventory packages use, and its capability
  * cards the same as theirs.
  */
-function SinglePackage({ section, step, selected, companies, onToggle }) {
+function SinglePackage({ section, step, selected, companies, held, heldPackages, catalog, onToggle }) {
+  // `held` is THIS package's own record; `heldPackages` is every package the
+  // user holds, which is what planChargeFor needs - a package can be credited
+  // by another one it replaces.
+  const charge = planChargeFor({ catalog, section, plan: null, companies, held: heldPackages })
+  // Already bought: kept ticked and marked as the current package, but still
+  // the user's to keep or let go - keeping it is free, and more companies can
+  // be added on top of it.
+  const owned = Boolean(held)
+
   return (
     <PackageCard
       step={step}
       title={section.heading}
+      subtitle={owned ? 'Your current package · paid' : null}
       amount={section.amount}
       companies={companies}
+      charge={charge}
       selected={selected}
       // className="md:col-span-2 lg:col-span-1"
       // The button is read under the price now, not at the foot of the card:
@@ -437,7 +529,21 @@ function SinglePackage({ section, step, selected, companies, onToggle }) {
       //
       // Nothing to choose inside this package, so taking it IS the choice -
       // drawn under the price, where the other packages have their plans.
-      action={<SelectButton selected={selected} label="Select Package" onClick={() => onToggle(section)} />}
+      action={
+        <div className="space-y-1.5">
+          <SelectButton
+            selected={selected}
+            label={owned ? 'Keep this package' : 'Select Package'}
+            onClick={() => onToggle(section)}
+          />
+          {owned ? (
+            <p className="flex items-center justify-center gap-1 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">
+              <Check className="size-2.5" />
+              Current package · nothing more to pay
+            </p>
+          ) : null}
+        </div>
+      }
     >
       <FeatureCards items={section.features} />
       <IncludedList title="Included modules" items={section.modules} chips={false} />
@@ -458,7 +564,10 @@ function SinglePackage({ section, step, selected, companies, onToggle }) {
  * before picking anything. `preview` only remembers which panel to show
  * after a package is let go; what is charged is the page's own selection.
  */
-function PackagesPackage({ section, step, choice, companies, onChoose }) {
+function PackagesPackage({ section, step, choice, companies, held, heldPackages, catalog, onChoose }) {
+  // What each plan costs THIS user, from the one function the quote uses.
+  // It takes every package held, not just this one's.
+  const chargeFor = (plan) => planChargeFor({ catalog, section, plan, companies, held: heldPackages })
   const [preview, setPreview] = useState(choice ?? section.packages[0]?.key ?? null)
   const shown =
     section.packages.find((pack) => pack.key === (choice ?? preview)) ?? section.packages[0]
@@ -469,29 +578,51 @@ function PackagesPackage({ section, step, choice, companies, onChoose }) {
     onChoose(section, pack.key)
   }
 
+  const standing = planStanding(section.packages, held)
+  const heldPlan = held?.plan ?? null
+  // Nothing above what is held: the package is as far as it goes.
+  const fullyUpgraded = Boolean(heldPlan) && section.packages.every((pack, index) => !standing(pack, index).note?.startsWith('Upgrade'))
+
   return (
     <PackageCard
       step={step}
       title={section.heading}
-      subtitle={choice ? `${shown.name} selected` : 'Choose a plan'}
+      subtitle={
+        choice
+          ? `${shown.name} selected`
+          : fullyUpgraded
+            ? `${heldPlan} · your current plan`
+            : heldPlan
+              ? `On ${heldPlan} · choose a higher plan to upgrade`
+              : 'Choose a plan'
+      }
       amount={shown.amount}
       companies={companies}
+      charge={chargeFor(shown)}
       selected={Boolean(choice)}
     >
       {/* Three plans to a row inside one column of the row - the packages all
           share the same width, so this stays a small block. */}
       <div aria-label={section.heading} className="mt-5 grid grid-cols-1 gap-3 pt-2 sm:grid-cols-3">
-        {section.packages.map((pack) => (
-          <PlanTile
-            key={pack.key}
-            id={`plan-${section.key}-${pack.key}`}
-            name={pack.name}
-            price={formatINR(packagePriceFor(pack.amount, companies))}
-            selected={choice === pack.key}
-            popular={pack.key === popularPlanKey(section.packages)}
-            onSelect={() => take(pack)}
-          />
-        ))}
+        {section.packages.map((pack, index) => {
+          const { locked, current, note } = standing(pack, index)
+          const charge = chargeFor(pack)
+
+          return (
+            <PlanTile
+              key={pack.key}
+              id={`plan-${section.key}-${pack.key}`}
+              name={pack.name}
+              price={formatINR(charge.payable)}
+              selected={choice === pack.key}
+              popular={pack.key === popularPlanKey(section.packages)}
+              current={current}
+              locked={locked}
+              note={note}
+              onSelect={() => take(pack)}
+            />
+          )
+        })}
       </div>
 
       {/* What the package being read carries over from the one below it -
@@ -530,7 +661,8 @@ function PackagesPackage({ section, step, choice, companies, onChoose }) {
 }
 
 /** Procurement: Starter | Growth | Business | Unlimited, one of them taken. */
-function OptionsPackage({ section, step, choice, companies, onChoose }) {
+function OptionsPackage({ section, step, choice, companies, held, heldPackages, catalog, onChoose }) {
+  const chargeFor = (plan) => planChargeFor({ catalog, section, plan, companies, held: heldPackages })
   const [preview, setPreview] = useState(choice ?? section.plans[0]?.key ?? null)
   const shown = section.plans.find((plan) => plan.key === (choice ?? preview)) ?? section.plans[0]
   if (!shown) return null
@@ -540,30 +672,51 @@ function OptionsPackage({ section, step, choice, companies, onChoose }) {
     onChoose(section, plan.key)
   }
 
+  const standing = planStanding(section.plans, held)
+  const heldPlan = held?.plan ?? null
+  const fullyUpgraded = Boolean(heldPlan) && section.plans.every((plan, index) => !standing(plan, index).note?.startsWith('Upgrade'))
+
   return (
     <PackageCard
       step={step}
       title={section.heading}
-      subtitle={choice ? `${shown.name} selected` : 'Choose a plan'}
+      subtitle={
+        choice
+          ? `${shown.name} selected`
+          : fullyUpgraded
+            ? `${heldPlan} · your current plan`
+            : heldPlan
+              ? `On ${heldPlan} · choose a higher plan to upgrade`
+              : 'Choose a plan'
+      }
       amount={shown.amount}
       companies={companies}
+      charge={chargeFor(shown)}
       selected={Boolean(choice)}
     >
       {/* Two plans to a row, so four of them read as a small block inside
           this column rather than a strip across it. */}
       <div aria-label={section.heading} className="mt-5 grid grid-cols-1 gap-4 pt-2 sm:grid-cols-2">
-        {section.plans.map((plan) => (
-          <PlanTile
-            key={plan.key}
-            id={`plan-${section.key}-${plan.key}`}
-            name={plan.name}
-            price={formatINR(packagePriceFor(plan.amount, companies))}
-            caption={plan.limit === null ? 'Unlimited' : `Up to ${plan.limit}`}
-            selected={choice === plan.key}
-            popular={plan.key === popularPlanKey(section.plans)}
-            onSelect={() => take(plan)}
-          />
-        ))}
+        {section.plans.map((plan, index) => {
+          const { locked, current, note } = standing(plan, index)
+          const charge = chargeFor(plan)
+
+          return (
+            <PlanTile
+              key={plan.key}
+              id={`plan-${section.key}-${plan.key}`}
+              name={plan.name}
+              price={formatINR(charge.payable)}
+              caption={plan.limit === null ? (<><b className='text-brand'>Unlimited</b> Bid.</>) : (<>Up to <b className='text-brand'>{plan.limit}</b> Bid.</>)}
+              selected={choice === plan.key}
+              popular={plan.key === popularPlanKey(section.plans)}
+              current={current}
+              locked={locked}
+              note={note}
+              onSelect={() => take(plan)}
+            />
+          )
+        })}
       </div>
 
       {/* What the package holds, once. The plan taken is said by its own
@@ -675,6 +828,9 @@ function CompanyCount({ companies, min, onChange, onPay, paying, payBlocked, pay
  * and every figure comes from pricing, never from a sum done here.
  */
 export function PackagePlans({
+  // The whole catalog, so a card can ask what a plan costs this user
+  // (pricing.planChargeFor needs to know which packages exclude which).
+  catalog,
   sections,
   selection,
   companies,
@@ -683,6 +839,10 @@ export function PackagePlans({
   onToggleSection,
   onChoosePlan,
   procurementUsage = [],
+  // The packages already held (pricing.parseHeldPackages): which plan the
+  // user is on today, so its tile can say so. What that credits towards a
+  // dearer plan is the quote's business, not this component's.
+  heldPackages = [],
   onPay,
   paying,
   payBlocked,
@@ -724,6 +884,7 @@ export function PackagePlans({
         {sections.map((section, index) => {
           const step = `Package ${index + 1}`
           const choice = selection[section.key]
+          const held = heldPackageFor(heldPackages, section)
 
           if (section.kind === 'single') {
             return (
@@ -733,6 +894,9 @@ export function PackagePlans({
                 step={step}
                 selected={Boolean(choice)}
                 companies={companies}
+                held={held}
+                heldPackages={heldPackages}
+                catalog={catalog}
                 onToggle={onToggleSection}
               />
             )
@@ -746,6 +910,9 @@ export function PackagePlans({
                 step={step}
                 choice={choice}
                 companies={companies}
+                held={held}
+                heldPackages={heldPackages}
+                catalog={catalog}
                 onChoose={onChoosePlan}
               />
             )
@@ -757,7 +924,10 @@ export function PackagePlans({
               section={section}
               step={step}
               choice={choice}
+              held={held}
+              heldPackages={heldPackages}
               companies={companies}
+              catalog={catalog}
               onChoose={onChoosePlan}
             />
           )

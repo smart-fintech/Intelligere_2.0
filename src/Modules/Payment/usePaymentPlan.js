@@ -48,11 +48,13 @@ import {
   calculatePackageQuote,
   calculateQuote,
   conflictingSections,
+  defaultSectionChoices,
   getPlan,
   isTierPurchasable,
   locatePriceList,
   lockedModeFor,
   normalizeKey,
+  parseHeldPackages,
   parseProcurementUsage,
   parseSubscription,
 } from './pricing'
@@ -77,6 +79,9 @@ export function usePaymentPlan() {
   const [subscription, setSubscription] = useState(null)
   // Shown in the Procurement Automation dialog; it never changes a price.
   const [procurementUsage, setProcurementUsage] = useState([])
+  // The MSME packages already held, package by package (msme_packages): what
+  // credits towards a dearer plan of the same package.
+  const [heldPackages, setHeldPackages] = useState([])
   const [loadState, setLoadState] = useState({ status: 'loading', error: null })
   const [attempt, setAttempt] = useState(0)
   const [offerState, setOfferState] = useState({ status: 'loading', raw: null, forEmail: null })
@@ -88,9 +93,17 @@ export function usePaymentPlan() {
   const [quantityChoice, setQuantityChoice] = useState(null)
   const [selectedChoice, setSelectedChoice] = useState(null)
   const [optionChoices, setOptionChoices] = useState({})
-  // The MSME page's plans: { [section key]: true | '<package or plan key>' }.
-  // Nothing is taken until the user says so, so it starts empty.
+  /*
+   * The MSME page's plans: { [section key]: true | '<package or plan key>' }.
+   *
+   * Until the user touches one, the page opens on the packages they already
+   * hold (pricing.defaultSectionChoices) - their current entitlement, which
+   * the quote charges nothing for. `touched` keeps that default from coming
+   * back once they have made a choice of their own, including letting a
+   * package go.
+   */
   const [sectionChoices, setSectionChoices] = useState({})
+  const [sectionsTouched, setSectionsTouched] = useState(false)
   const [paying, setPaying] = useState(false)
 
   // The profile is shared app-wide; this is a no-op when it is already loaded.
@@ -125,6 +138,7 @@ export function usePaymentPlan() {
         if (priceRequest.current !== attempt) return
         setPriceList(prices)
         setSubscription(parseSubscription(current))
+        setHeldPackages(parseHeldPackages(current))
         setProcurementUsage(parseProcurementUsage(current))
         setLoadState({ status: 'ready', error: null })
       })
@@ -240,6 +254,14 @@ export function usePaymentPlan() {
   const plan = getPlan(catalog, tierKey)
   const packaged = catalog?.structure === PLAN_STRUCTURE.PACKAGES
 
+  // What the MSME page is working from: the user's own choices once they have
+  // made any, else the packages they already hold.
+  const sectionSelection = useMemo(
+    () =>
+      !packaged || sectionsTouched ? sectionChoices : defaultSectionChoices(catalog, heldPackages),
+    [packaged, sectionsTouched, sectionChoices, catalog, heldPackages],
+  )
+
   /*
    * TWO SHAPES OF PRICE LIST, TWO QUOTES
    *
@@ -250,11 +272,33 @@ export function usePaymentPlan() {
    */
   const quote = useMemo(() => {
     if (!catalog) return null
-    if (packaged) return calculatePackageQuote({ catalog, selection: sectionChoices, companies: quantity, offer })
+    if (packaged) {
+      // `held` is what each package already held credits towards a dearer
+      // plan of the same package - worked out one package at a time.
+      return calculatePackageQuote({
+        catalog,
+        selection: sectionSelection,
+        companies: quantity,
+        held: heldPackages,
+        offer,
+      })
+    }
     // Priced even before a package type is chosen: the quote is then empty
     // and says what is missing, which is what disables Payment.
     return calculateQuote({ catalog, mode, tierKey, quantity, selectedKeys, optionChoices, subscription, offer })
-  }, [catalog, packaged, sectionChoices, mode, tierKey, quantity, selectedKeys, optionChoices, subscription, offer])
+  }, [
+    catalog,
+    packaged,
+    sectionSelection,
+    heldPackages,
+    mode,
+    tierKey,
+    quantity,
+    selectedKeys,
+    optionChoices,
+    subscription,
+    offer,
+  ])
 
   /* ---- Changes the page can make ---- */
 
@@ -326,8 +370,10 @@ export function usePaymentPlan() {
    */
   const takeSection = useCallback(
     (section, value) => {
+      // From here on the page follows the user, not what they already hold.
+      setSectionsTouched(true)
       setSectionChoices((current) => {
-        const next = { ...current, [section.key]: value }
+        const next = { ...(sectionsTouched ? current : sectionSelection), [section.key]: value }
         if (value) {
           conflictingSections(catalog?.sections, section).forEach((other) => {
             next[other.key] = null
@@ -336,15 +382,15 @@ export function usePaymentPlan() {
         return next
       })
     },
-    [catalog],
+    [catalog, sectionsTouched, sectionSelection],
   )
 
   /** A whole plan with one price (Accounts Automation): taken, or not. */
   const toggleSection = useCallback(
     (section) => {
-      takeSection(section, sectionChoices[section.key] ? null : true)
+      takeSection(section, sectionSelection[section.key] ? null : true)
     },
-    [takeSection, sectionChoices],
+    [takeSection, sectionSelection],
   )
 
   /**
@@ -353,9 +399,9 @@ export function usePaymentPlan() {
    */
   const choosePlan = useCallback(
     (section, planKey) => {
-      takeSection(section, sectionChoices[section.key] === planKey ? null : planKey)
+      takeSection(section, sectionSelection[section.key] === planKey ? null : planKey)
     },
-    [takeSection, sectionChoices],
+    [takeSection, sectionSelection],
   )
 
   /**
@@ -373,23 +419,23 @@ export function usePaymentPlan() {
       try {
         const payload = packaged
           ? buildPackagePayload({
-              catalog,
-              quote,
-              selection: sectionChoices,
-              companies: quantity,
-              productType: PRODUCT_TYPE.MAIN,
-            })
+            catalog,
+            quote,
+            selection: sectionSelection,
+            companies: quantity,
+            productType: PRODUCT_TYPE.MAIN,
+          })
           : buildPaymentPayload({
-              catalog,
-              quote,
-              mode,
-              tierKey,
-              selectedKeys,
-              optionChoices,
-              subscription,
-              removeCompanies,
-              productType: PRODUCT_TYPE.MAIN,
-            })
+            catalog,
+            quote,
+            mode,
+            tierKey,
+            selectedKeys,
+            optionChoices,
+            subscription,
+            removeCompanies,
+            productType: PRODUCT_TYPE.MAIN,
+          })
         // The offer whose discount is IN this order (quote.offer is null when
         // none applied). Once the order exists - so it was created with the
         // discount still open - it is marked used with PUT payment/checkOffer/,
@@ -409,7 +455,7 @@ export function usePaymentPlan() {
       catalog,
       quote,
       packaged,
-      sectionChoices,
+      sectionSelection,
       quantity,
       mode,
       tierKey,
@@ -460,12 +506,13 @@ export function usePaymentPlan() {
     catalog,
     subscription,
     procurementUsage,
+    heldPackages,
     lockedMode,
     plan,
     quote,
     paying,
     minQuantity,
-    selection: { mode, tierKey, quantity, selectedKeys, optionChoices, sections: sectionChoices },
+    selection: { mode, tierKey, quantity, selectedKeys, optionChoices, sections: sectionSelection },
     toggleSection,
     choosePlan,
     setMode,

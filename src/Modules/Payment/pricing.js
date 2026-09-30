@@ -432,8 +432,13 @@ const parseSection = (raw) => {
     key: normalizeKey(name || modules[0]),
     name: name || modules[0],
     // "Procurement" is the package; "Procurement Automation" is what it is
-    // called on screen when the backend gives the module its own name.
-    heading: modules.length === 1 && modules[0] !== name ? modules[0] : name || modules[0],
+    // called on screen when the backend names the module itself, as a single
+    // word rather than a list - a package that lists its modules keeps its
+    // own name, however few it lists.
+    heading:
+      typeof raw.modules_name === 'string' && modules[0] && modules[0] !== name
+        ? modules[0]
+        : name || modules[0],
     moduleName: raw.modules_name ?? null,
     description: typeof raw.description === 'string' ? raw.description : '',
     raw,
@@ -768,6 +773,111 @@ export const renewalCredit = (subscription) => {
   return step ? percentOf(subscription.pastAmount, step.percent) : 0
 }
 
+/* ------------------------------------------------------------------ */
+/* The MSME packages already held, and what they credit               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * THE PACKAGES THE USER ALREADY HOLDS, ONE BY ONE
+ *
+ * payment/userPaymentData/ `msme_packages` (or `package_details`), which says
+ * for each package what plan is held, what was paid for THAT package and when
+ * it was bought:
+ *
+ *   [{ package_name: "Inventory Management", current_plan: "Basic",
+ *      current_amount: 40000, payment_date: "2026-09-30", end_date,
+ *      company_package, procurement_limit, procurement_used }]
+ *
+ * Read as OBJECTS, never by position: a package is matched to what is on sale
+ * by its own name, so adding, removing or reordering packages cannot pair the
+ * wrong plan with the wrong price. The combined `amount` of the old reply is
+ * not used for this - an upgrade is worked out package by package.
+ *
+ * Field names are read loosely (`current_plan` or `plan`, `current_amount`,
+ * `paid_amount` or `base_amount`), so an older reply still parses.
+ */
+export const parseHeldPackages = (raw) => {
+  const list = Array.isArray(raw?.msme_packages)
+    ? raw.msme_packages
+    : Array.isArray(raw?.package_details)
+      ? raw.package_details
+      : []
+
+  return list
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') return null
+
+      const name = String(entry.package_name ?? entry.name ?? '').trim()
+      const amount = toPaise(entry.current_amount ?? entry.paid_amount ?? entry.base_amount)
+      if (!name || amount === null || amount < 0) return null
+
+      const plan = entry.current_plan ?? entry.plan ?? null
+      const paymentDate = entry.payment_date ?? raw.payment_date ?? null
+      const limit = Number(entry.procurement_limit)
+      const used = Number(entry.procurement_used)
+
+      return {
+        key: normalizeKey(name),
+        name,
+        plan: plan ? String(plan).trim() : null,
+        planKey: plan ? normalizeKey(plan) : null,
+        amount,
+        rawAmount: entry.current_amount ?? entry.paid_amount ?? entry.base_amount,
+        paymentDate,
+        endDate: entry.end_date ?? null,
+        // How many companies this package is already paid for. The reply's
+        // own `company_package` stands in when the package does not say - it
+        // is the count that payment covered.
+        companyPackage: Number(entry.company_package ?? raw.company_package) || null,
+        procurementLimit: Number.isFinite(limit) && limit > 0 ? limit : null,
+        procurementUsed: Number.isFinite(used) && used > 0 ? used : 0,
+        // Counted from THIS package's own payment date, not the reply's.
+        monthsSincePayment: monthsSince(paymentDate),
+      }
+    })
+    .filter(Boolean)
+}
+
+/**
+ * WHAT A HELD PACKAGE CREDITS TOWARDS AN UPGRADE
+ *
+ * The same rule the old screen used, read from the package's own payment
+ * date and its own price - never from the combined amount of the reply:
+ *
+ *   0-1 months    the whole of what was paid for it
+ *   2-3 months    70%   (30% off the credit)
+ *   4-6 months    50%
+ *   7-12 months   25%
+ *   over a year   nothing - the plan has run its course
+ *
+ * The bands are RENEWAL_CREDIT_PERCENT's, with the last one running to a
+ * full year as the MSME rule states. An amount in paise, not a percentage.
+ */
+const PACKAGE_CREDIT_PERCENT = [
+  { upToMonths: 1, percent: 100 },
+  { upToMonths: 3, percent: 70 },
+  { upToMonths: 6, percent: 50 },
+  { upToMonths: 12, percent: 25 },
+]
+
+export const packageCreditPercent = (months) =>
+  months === null || months < 0 ? 0 : PACKAGE_CREDIT_PERCENT.find((step) => months <= step.upToMonths)?.percent ?? 0
+
+export const packageUpgradeCredit = (held) =>
+  held ? percentOf(held.amount, packageCreditPercent(held.monthsSincePayment)) : 0
+
+/**
+ * The held package that matches one on sale, by name - never by position.
+ *
+ * `held` is the whole list (parseHeldPackages), but a caller holding a single
+ * record is read as a list of one rather than throwing: a page must not go
+ * blank over the shape of an argument.
+ */
+export const heldPackageFor = (held, section) => {
+  const list = Array.isArray(held) ? held : held ? [held] : []
+  return list.find((entry) => entry.key === section?.key || entry.key === normalizeKey(section?.heading)) ?? null
+}
+
 /** True when this payment is an upgrade: a plan is held and the company count changes. */
 export const isUpgradePayment = (subscription, companies) =>
   Boolean(subscription) && companies !== subscription.pastQuantity
@@ -1060,22 +1170,192 @@ const chosenSectionPackage = (section, choice) =>
 const chosenSectionPlan = (section, choice) => section.plans.find((entry) => entry.key === choice) ?? null
 
 /**
+ * The plan a held package names, as the price list has it today - matched by
+ * NAME, since that is all userPaymentData gives ("Basic", "Starter") and the
+ * price list keys a Procurement plan by its limit. Null when the plan is no
+ * longer listed, or when the package has no plans at all.
+ */
+const heldPlanInSection = (section, heldPackage) => {
+  if (!heldPackage?.planKey) return null
+  const list = section.kind === 'packages' ? section.packages : section.kind === 'options' ? section.plans : []
+  return list.find((entry) => normalizeKey(entry.name) === heldPackage.planKey) ?? null
+}
+
+/**
+ * WHAT ONE PLAN ACTUALLY COSTS THIS USER
+ *
+ * The one place a package's price is worked out, used by the quote AND by the
+ * cards, so the figure on a card is the figure that is charged:
+ *
+ *   gross                    the plan's price for the companies chosen, by
+ *                            the ordinary company rule
+ *   credit                   what the user's existing package puts towards it
+ *   payable                  gross - credit: what they actually pay
+ *   packageUpgradeAmount     the part of it that is the change of plan
+ *   additionalCompanyAmount  the part that is companies added on top
+ *
+ * WHERE THE CREDIT COMES FROM
+ *
+ *   the same package         what was paid for it. On the SAME plan the whole
+ *                            entitlement stands, however long ago it was
+ *                            bought, so only companies added on top are owed.
+ *                            On a dearer plan the credit decays by the month
+ *                            table (packageUpgradeCredit).
+ *   a package this one       Accounts Automation and Inventory Management
+ *   replaces                 cannot be held together, so taking one ends the
+ *                            other: what was paid for it credits the new one,
+ *                            by the same month table.
+ *   anything else            nothing. Procurement sits alongside the other
+ *                            two, so it neither takes nor gives credit.
+ *
+ * A cheaper plan of the same package is not an upgrade and is charged as it
+ * is. No credit ever exceeds the gross, so nothing is ever negative.
+ */
+export const planChargeFor = ({ catalog, section, plan, companies = 1, held = [] }) => {
+  // Every package held, whatever shape the caller had at hand.
+  const heldList = Array.isArray(held) ? held : held ? [held] : []
+  const count = Math.max(1, Math.floor(companies) || 1)
+  const base = plan?.amount ?? section.amount
+  const gross = packagePriceFor(base, count)
+  const plain = {
+    gross,
+    credit: 0,
+    payable: gross,
+    packageUpgradeAmount: gross,
+    additionalCompanyAmount: 0,
+    samePlan: false,
+    replacing: null,
+    from: null,
+    paidCompanies: 0,
+    companies: count,
+    months: null,
+    percent: 0,
+  }
+
+  const own = heldPackageFor(heldList, section)
+  // The package this one would end, when it is not the same package.
+  const replaced = own
+    ? null
+    : conflictingSections(catalog?.sections ?? [], section)
+      .map((other) => heldPackageFor(heldList, other))
+      .find(Boolean) ?? null
+
+  const source = own ?? replaced
+  if (!source) return plain
+
+  const samePlan = own
+    ? (plan?.name ? normalizeKey(plan.name) : null) === (own.planKey || null)
+    : false
+
+  // What the companies already paid for would cost on the plan being taken;
+  // everything above that is companies newly added.
+  const paidCompanies = Math.max(0, source.companyPackage || 0)
+  const entitledCompanies = paidCompanies ? Math.min(count, paidCompanies) : 0
+  const entitled = entitledCompanies ? packagePriceFor(base, entitledCompanies) : 0
+  const additionalCompanyAmount = Math.max(0, gross - entitled)
+
+  // Plan against plan, from the price list, so a plan bought for many
+  // companies is still compared as a plan.
+  const heldPlan = own ? heldPlanInSection(section, own) : null
+  const dearer = own
+    ? samePlan
+      ? false
+      : heldPlan
+        ? base > heldPlan.amount
+        : gross > own.amount
+    : true
+
+  if (own && !samePlan && !dearer) return plain
+
+  const monthCredit = samePlan ? 0 : Math.min(entitled || gross, packageUpgradeCredit(source))
+  const credit = Math.min(gross, samePlan ? entitled : monthCredit)
+  const packageUpgradeAmount = samePlan ? 0 : Math.max(0, Math.min(entitled || gross, gross) - monthCredit)
+
+  return {
+    gross,
+    credit,
+    payable: Math.max(0, gross - credit),
+    packageUpgradeAmount,
+    additionalCompanyAmount,
+    samePlan,
+    replacing: own ? null : source.name,
+    from: source.plan || null,
+    paidBefore: source.amount,
+    paidCompanies,
+    companies: count,
+    months: source.monthsSincePayment,
+    percent: samePlan ? 100 : packageCreditPercent(source.monthsSincePayment),
+  }
+}
+
+/**
+ * WHAT THE PAGE OPENS ON
+ *
+ * The packages already held, ready selected: the plan the user is on is their
+ * current entitlement, so the page shows it taken and the quote then charges
+ * only what they change - nothing for what is already paid for. The user can
+ * still let a package go, or move up a plan.
+ *
+ * Two packages that cannot be held together (Accounts Automation and
+ * Inventory Management) would leave the page unable to pay for anything, so
+ * only the first of them is opened on; the other stays free to choose.
+ */
+export const defaultSectionChoices = (catalog, held = []) => {
+  const choices = {}
+  let exclusiveTaken = false
+
+    ; (catalog?.sections ?? []).forEach((section) => {
+      const heldPackage = heldPackageFor(held, section)
+      if (!heldPackage) return
+
+      if (EXCLUSIVE_KINDS.includes(section.kind)) {
+        if (exclusiveTaken) return
+        exclusiveTaken = true
+      }
+
+      if (section.kind === 'single') {
+        choices[section.key] = true
+        return
+      }
+
+      const plan = heldPlanInSection(section, heldPackage)
+      if (plan) choices[section.key] = plan.key
+    })
+
+  return choices
+}
+
+/**
  * The price of the plans the user has taken:
  *
  *   selection   { [section key]: true | '<package key>' | '<plan key>' }
  *   companies   how many companies they are bought for
+ *   held        the packages already held (parseHeldPackages)
  *
  * Each section is charged at most once - one Inventory package, one
  * Procurement plan - and a section left alone is not charged at all. Every
  * plan taken is priced for the SAME company count, by packagePriceFor: the
  * subtotal is never multiplied by the companies as a whole.
- * GST, offers and the total are the same finishQuote as everywhere else.
+ *
+ * MOVING UP A PLAN IS CREDITED, PACKAGE BY PACKAGE
+ *
+ * Taking a dearer plan of a package already held is an upgrade: what was
+ * paid for that package credits towards the new one, by its own payment date
+ * (packageUpgradeCredit). Inventory and Procurement are worked out
+ * separately and never from the reply's combined amount, so upgrading both
+ * credits both. A plan no dearer than the one held is not an upgrade and
+ * credits nothing, which is the behaviour the screen already had.
+ *
+ * `upgrades` says what was credited and why, for the summary to show.
+ * GST, offers and the total are the same finishQuote as everywhere else, so
+ * an offer still takes the place of the credit rather than joining it.
  */
-export const calculatePackageQuote = ({ catalog, selection = {}, companies = 1, offer = null }) => {
+export const calculatePackageQuote = ({ catalog, selection = {}, companies = 1, held = [], offer = null }) => {
   const gstPercent = catalog?.gstPercent ?? DEFAULT_GST_PERCENT
   const count = Math.max(1, Math.floor(companies) || 1)
   const lines = []
   const issues = []
+  const upgrades = []
 
   const priceLine = (key, label, amount) => ({
     key,
@@ -1085,26 +1365,75 @@ export const calculatePackageQuote = ({ catalog, selection = {}, companies = 1, 
     owned: false,
   })
 
-  ;(catalog?.sections ?? []).forEach((section) => {
-    const choice = selection[section.key]
-    if (!choice) return
+  /*
+   * What this section costs the user - planChargeFor decides, so the quote and
+   * the cards can never disagree. Nothing is credited here that was not
+   * credited there.
+   */
+  const settle = (section, line, plan) => {
+    const charge = planChargeFor({ catalog, section, plan, companies: count, held })
+    if (charge.credit <= 0) return
 
-    if (section.kind === 'single') {
-      lines.push(priceLine(section.key, section.heading, section.amount))
-      return
-    }
+    const extra = Math.max(0, count - charge.paidCompanies)
+    line.detail = [
+      charge.samePlan ? null : `upgrade from ${charge.from || charge.replacing || 'your current package'}`,
+      extra ? `${extra} more ${extra === 1 ? 'company' : 'companies'}` : null,
+      charge.samePlan && !extra ? 'already paid for' : null,
+    ]
+      .filter(Boolean)
+      .join(' · ') || line.detail
 
-    if (section.kind === 'packages') {
-      const pack = chosenSectionPackage(section, choice)
-      if (pack) lines.push(priceLine(section.key, `${section.heading} - ${pack.name}`, pack.amount))
-      return
-    }
+    upgrades.push({
+      key: section.key,
+      name: section.heading,
+      packageName: section.name,
+      samePlan: charge.samePlan,
+      replacing: charge.replacing,
+      from: charge.from,
+      to: plan?.name ?? null,
+      paidBefore: charge.paidBefore,
+      paidCompanies: charge.paidCompanies,
+      companies: count,
+      newAmount: line.amount,
+      months: charge.months,
+      percent: charge.percent,
+      credit: charge.credit,
+      packageUpgradeAmount: charge.packageUpgradeAmount,
+      additionalCompanyAmount: charge.additionalCompanyAmount,
+      upgradeAmount: charge.payable,
+    })
+  }
 
-    const plan = chosenSectionPlan(section, choice)
-    if (plan) lines.push(priceLine(section.key, `${section.heading} - ${plan.name}`, plan.amount))
-  })
+    ; (catalog?.sections ?? []).forEach((section) => {
+      const choice = selection[section.key]
+      if (!choice) return
 
-  if (!lines.length) issues.push('Select at least one plan.')
+      if (section.kind === 'single') {
+        const line = priceLine(section.key, section.heading, section.amount)
+        settle(section, line, null)
+        lines.push(line)
+        return
+      }
+
+      if (section.kind === 'packages') {
+        const pack = chosenSectionPackage(section, choice)
+        if (!pack) return
+        const line = priceLine(section.key, `${section.heading} - ${pack.name}`, pack.amount)
+        settle(section, line, pack)
+        lines.push(line)
+        return
+      }
+
+      const plan = chosenSectionPlan(section, choice)
+      if (!plan) return
+      const line = priceLine(section.key, `${section.heading} - ${plan.name}`, plan.amount)
+      settle(section, line, plan)
+      lines.push(line)
+    })
+
+  const upgradeCredit = upgrades.reduce((total, entry) => total + entry.credit, 0)
+
+  if (!lines.length) issues.push('Select at least one Package.')
 
   /*
    * The screen lets one of the two go as soon as the other is taken, so
@@ -1119,7 +1448,25 @@ export const calculatePackageQuote = ({ catalog, selection = {}, companies = 1, 
     issues.push(`${exclusive.map((section) => section.heading).join(' and ')} cannot be bought together.`)
   }
 
-  return { companies: count, upgrade: false, ...finishQuote({ lines, offer, gstPercent, issues }) }
+  return {
+    companies: count,
+    upgrade: upgradeCredit > 0,
+    // Package by package: what was held, what was taken, what it credited
+    // and what is left to pay for THAT package. Amounts in paise, like every
+    // other figure in a quote.
+    upgrades,
+    upgradeCredit,
+    upgradeAmount: upgrades.reduce((total, entry) => total + entry.upgradeAmount, 0),
+    ...finishQuote({
+      lines,
+      // One discount, never both: a valid offer takes the credit's place,
+      // exactly as it does on the package payment page.
+      upgradeDiscount: offer ? 0 : upgradeCredit,
+      offer,
+      gstPercent,
+      issues,
+    }),
+  }
 }
 
 /** Integer paise -> the plain number an API row carries: 16000, 110000.5. */
@@ -1156,23 +1503,46 @@ const without = (raw, fields) =>
  *   {
  *     currency, amount, gstamount, discount_per, discount_amount,
  *     user_type, product_type, company_count,
- *     "msme": [{ package_name, plan?, limit?, base_amount,
- *                calculated_amount, ...whatever else the price list put on
- *                the plan: modules_name, features, "Biz Dox", includes }]
+ *     data: {
+ *       "<companies>": [{ package_name, plan?, limit?, base_amount,
+ *                         calculated_amount, ...whatever else the price list
+ *                         put on the plan: modules_name, features,
+ *                         "Biz Doxs", includes }],
+ *       is_upgraded
+ *     }
  *   }
  *
- * The list is keyed by the user type. `base_amount` is the price list's own
+ * The plans are keyed by the company count they were bought for, as the
+ * package payment has always keyed them. `base_amount` is the price list's own
  * price and `calculated_amount` what it comes to for the companies chosen;
  * everything else on a row is copied from the reply, so a field the backend
  * adds tomorrow travels back with the plan it belongs to. Nothing the user
  * did not take is sent, and no other package of a section goes with the one
  * chosen.
+ *
+ * A row that moves up from a plan already held says so - `current_plan`,
+ * `current_amount` and `upgrade_credit` - so the backend can check the credit
+ * the user was shown for THAT package. `is_upgraded` is true when any row
+ * does. The backend re-prices the order either way.
  */
-export const buildPackagePayload = ({ catalog, quote, selection = {}, companies = 1, productType }) => {
+export const buildPackagePayload = ({ catalog, quote, selection = {}, companies = 1,
+  // productType
+}) => {
   const amount = toAmountString(quote.payable)
   const gstamount = toAmountString(quote.gst)
   const count = Math.max(1, Math.floor(companies) || 1)
   const rows = []
+
+  /** What the quote credited for this package, if anything (never re-worked). */
+  const upgradeFields = (section) => {
+    const credited = (quote.upgrades ?? []).find((entry) => entry.key === section.key)
+    if (!credited) return {}
+    return {
+      current_plan: credited.from,
+      current_amount: toRupees(credited.paidBefore),
+      upgrade_credit: toRupees(credited.credit),
+    }
+  }
 
   catalog.sections.forEach((section) => {
     const choice = selection[section.key]
@@ -1196,6 +1566,7 @@ export const buildPackagePayload = ({ catalog, quote, selection = {}, companies 
           plan: pack.name,
           base_amount: pack.source.amount,
           calculated_amount: toRupees(packagePriceFor(pack.amount, count)),
+          ...upgradeFields(section),
           ...without(pack.source, ['amount']),
         })
       }
@@ -1210,20 +1581,56 @@ export const buildPackagePayload = ({ catalog, quote, selection = {}, companies 
         limit: plan.limit ?? plan.key,
         base_amount: plan.rawAmount,
         calculated_amount: toRupees(packagePriceFor(plan.amount, count)),
+        ...upgradeFields(section),
         ...(section.moduleName ? { modules_name: section.moduleName } : {}),
       })
     }
   })
-
   return {
     currency: 'INR',
     amount,
     gstamount,
     ...offerFields(quote),
+    // What the plans already held credited towards these ones: the total, and
+    // the working package by package, as the quote made it.
+    // upgrade_credit: toRupees(quote.upgradeDiscount ?? 0),
+    // total_upgrade_credit: toRupees(quote.upgradeDiscount ?? 0),
+    // total_upgrade_amount: toRupees(quote.upgradeAmount ?? 0),
+    // package_quotes: (quote.upgrades ?? []).map((entry) => ({
+    //   package_name: entry.packageName ?? entry.name,
+    //   // The plan credited from, or the package it replaces when a different
+    //   // package is being taken (Accounts Automation -> Inventory).
+    //   current_plan: entry.from ?? entry.replacing ?? null,
+    //   replaces_package: entry.replacing ?? null,
+    //   new_plan: entry.to,
+    //   current_amount: toRupees(entry.paidBefore),
+    //   new_amount: toRupees(entry.newAmount),
+    //   upgrade_credit: toRupees(entry.credit),
+    //   package_upgrade_amount: toRupees(entry.packageUpgradeAmount),
+    //   already_paid_companies: entry.paidCompanies,
+    //   selected_companies: entry.companies,
+    //   additional_company_amount: toRupees(entry.additionalCompanyAmount),
+    //   upgrade_amount: toRupees(entry.upgradeAmount),
+    //   elapsed_months: entry.months,
+    //   upgrade_credit_percent: entry.percent,
+    // })),
+    // Whole packages, whichever of them was taken - never 'custom' here,
+    // since nothing on this page is built module by module.
+    package_type: QUANTITY_PREMIUM_PACKAGE_TYPE,
     user_type: catalog.userType,
-    product_type: productType,
+    // product_type: productType,
     company_count: count,
-    [normalizeKey(catalog.userType)]: rows,
+    /*
+     * The plans taken, under the company count they were bought for - the
+     * same shape the package payment has always sent ("50": [...]), so three
+     * companies reads `data: { "3": [ ... ] }`. `is_upgraded` sits beside
+     * them, in the same dictionary, because it describes this order.
+     */
+    data: {
+      [count]: rows,
+      is_upgraded: Boolean(quote.upgrade),
+    },
+    // [normalizeKey(catalog.userType)]: rows,
   }
 }
 
@@ -1269,12 +1676,19 @@ export const isProcurementModule = (module) => module.key.includes('procurement'
 /** "100" -> 100; "unlimited" stays as the backend spelled it. */
 const optionValue = (optionKey) => (isNumericKey(optionKey) ? Number(optionKey) : optionKey)
 
-/** silver / gold / ... for a tier, 'platinum' for MSME premium, 'custom'. */
-export const packageTypeFor = (catalog, mode, tierKey) => {
-  if (mode === PACKAGE_MODE.CUSTOM) return PACKAGE_MODE.CUSTOM
-  if (catalog.structure === PLAN_STRUCTURE.TIERS) return normalizeKey(getPlan(catalog, tierKey)?.name)
-  return QUANTITY_PREMIUM_PACKAGE_TYPE
-}
+/**
+ * WHAT KIND OF PACKAGE IS BEING BOUGHT
+ *
+ *   custom     the user picked the modules themselves
+ *   platinum   a whole package - Accounting Professional Premium and every
+ *              MSME payment alike
+ *
+ * It follows the package type on screen, so switching between Premium and
+ * Custom changes it with the rest of the quote; the company package itself
+ * is said by the data key ("50", "100"), not by this.
+ */
+export const packageTypeFor = (mode) =>
+  mode === PACKAGE_MODE.CUSTOM ? PACKAGE_MODE.CUSTOM : QUANTITY_PREMIUM_PACKAGE_TYPE
 
 /**
  * The POST payment/paymentDetail/ body, built only from what is on screen:
@@ -1305,7 +1719,7 @@ export const buildPaymentPayload = ({
   optionChoices = {},
   subscription = null,
   removeCompanies = [],
-  productType,
+  // productType,
 }) => {
   const plan = getPlan(catalog, tierKey)
   // What is charged is the amount AFTER the offer; GST is already on that.
@@ -1328,18 +1742,23 @@ export const buildPaymentPayload = ({
     return row
   })
 
+  // 'platinum' for Premium, 'custom' for a package the user built - the same
+  // word inside `data` and at the top, so the two can never disagree.
+  const packageType = packageTypeFor(mode)
+
   return {
     currency: 'INR',
     amount,
     gstamount,
     ...offerFields(quote),
+    package_type: packageType,
     user_type: userType,
-    product_type: productType,
+    // product_type: productType,
     // Whole numbers only - never "12" or "12,25".
     remove_company: removeCompanies.map(Number).filter(Number.isInteger),
     data: {
       [quote.companies]: moduleRows,
-      package_type: packageTypeFor(catalog, mode, tierKey),
+      package_type: packageType,
       amount,
       gstamount,
       is_upgraded: Boolean(subscription),

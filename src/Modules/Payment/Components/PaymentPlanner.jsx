@@ -109,6 +109,7 @@ export function PaymentPlanner() {
         <OfferBanner offer={plan.offer} status={plan.offerStatus} />
 
         <PackagePlans
+          catalog={catalog}
           sections={catalog.sections}
           selection={selection.sections}
           companies={selection.quantity}
@@ -117,6 +118,7 @@ export function PaymentPlanner() {
           onToggleSection={plan.toggleSection}
           onChoosePlan={plan.choosePlan}
           procurementUsage={plan.procurementUsage}
+          heldPackages={plan.heldPackages}
           onPay={() => setShowDetails(true)}
           paying={plan.paying}
           payBlocked={blocked}
