@@ -94,7 +94,7 @@ export const MODULE_NAV = [
     label: 'Inventory Details',
     icon: Boxes,
     path: ROUTES.INVENTORY_DETAILS,
-    ready: false,
+    ready: true,
   },
 ]
 

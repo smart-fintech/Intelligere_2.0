@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useDispatch } from 'react-redux'
+import { useDispatch, useSelector } from 'react-redux'
 import { Outlet } from 'react-router-dom'
 
 import Footer from '@/Components/Layout/Footer'
@@ -7,7 +7,8 @@ import Header from '@/Components/Layout/Header'
 import HelpTab from '@/Components/Layout/HelpTab'
 import Sidebar from '@/Components/Layout/Sidebar'
 import { useActiveCompanyStorageSync } from '@/Hooks/useActiveCompany'
-import { fetchCompanies } from '@/Store/Slices/companySlice'
+import { toast } from '@/Library/toast'
+import { fetchCompanies, selectCompanyError, selectCompanyStatus } from '@/Store/Slices/companySlice'
 import { fetchProfile } from '@/Store/Slices/profileSlice'
 
 /**
@@ -86,6 +87,15 @@ export default function AppLayout() {
     dispatch(fetchProfile())
     dispatch(fetchCompanies())
   }, [dispatch])
+
+  // A failed load of tally/user-companies-list/ - from here or from any
+  // reload elsewhere - is shown once, with the backend's own text. Every
+  // retry goes back through 'loading', so a repeat failure shows again.
+  const companyStatus = useSelector(selectCompanyStatus)
+  const companyError = useSelector(selectCompanyError)
+  useEffect(() => {
+    if (companyStatus === 'failed' && companyError) toast.error(companyError)
+  }, [companyStatus, companyError])
 
   return (
     // `h-dvh` + `overflow-hidden` pins the frame to the window, so the header

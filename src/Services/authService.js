@@ -101,17 +101,24 @@ apiSetup.interceptors.request.use((config) => {
 /**
  * Returns ONLY the message text, nothing else.
  *
- * This backend answers with { msg: "email: This field is required." },
- * so `msg` is checked first. The other shapes are there in case a different
- * endpoint replies the way Django REST normally does.
+ * This backend answers a failure in one of two ways:
+ *
+ *   { msg: "email: This field is required." }     the account views
+ *   { error: "User not found." }                  tally/user-companies-list/
+ *                                                 and most tally views
+ *
+ * so both are read, as sent. `msg` wins when a reply carries both, because
+ * there `error` is the raw exception text ({ msg: "Something went wrong",
+ * error: str(e) }). `detail` and field errors are Django REST's own shapes.
+ * `message` is NOT read: this backend uses it for success replies.
  */
 const getErrorMessage = (error) => {
   const data = error?.response?.data
 
   if (typeof data === 'string') return data
   if (typeof data?.msg === 'string') return data.msg
+  if (typeof data?.error === 'string') return data.error
   if (typeof data?.detail === 'string') return data.detail
-  if (typeof data?.message === 'string') return data.message
 
   // Field errors like { email: ["already taken"] } - show the first one.
   if (data && typeof data === 'object') {

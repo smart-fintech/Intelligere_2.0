@@ -92,6 +92,8 @@ function SelectContent({
   searchPlaceholder = "Search...",
   searchValue = "",
   onSearchChange,
+  // The list's own scroll - what SelectField draws more options on.
+  onViewportScroll,
   ...props
 }) {
   /* This draws the search box; it does NOT decide what the box does to the
@@ -211,6 +213,7 @@ function SelectContent({
             "p-1",
             "max-h-[300px] overflow-y-auto"
           )}
+          onScroll={onViewportScroll}
         >
           {children}
         </SelectPrimitive.Viewport>

@@ -40,6 +40,7 @@ import { cn } from '@/Library/utils'
  *   TextareaField  a labelled multi-line box
  *   SelectField    a labelled dropdown
  *   SwitchField    a labelled on/off switch ("Fill from GSTIN")
+ *   ToggleField    a setting row: label left, switch and On / Off right
  *   FormGrid       two columns from `sm` up, one on a phone
  *   FormActions    the row of buttons at the bottom of a form
  *
@@ -228,6 +229,9 @@ export function TextareaField({ id, label, required, error, className, rows = 3,
 /* Choices                                                            */
 /* ------------------------------------------------------------------ */
 
+/** How many options a dropdown draws at a time - see SelectField. */
+const OPTIONS_PAGE = 100
+
 /**
  * A labelled dropdown.
  *
@@ -271,6 +275,37 @@ export function SelectField({
     )
   }, [options, term])
 
+  /* How many of them are drawn.
+     ----------------------------------------------------------------
+     Radix mounts EVERY <SelectItem> it is given - even while the list is
+     closed, to know the chosen one's text - so a company's 6000 ledgers were
+     6000 mounted options before the dropdown had ever been opened. Only the
+     first OPTIONS_PAGE are drawn, and scrolling near the end of them draws
+     the next lot (drawMore below); the search still looks through all of
+     them. A short list is under the limit and is drawn whole, as before.
+
+     The chosen option is always drawn, at the top when it is further down
+     than the list has got to: Radix shows its text in the trigger only while
+     it is mounted. */
+  const [limit, setLimit] = useState(OPTIONS_PAGE)
+
+  const drawnOptions = useMemo(() => {
+    if (visibleOptions.length <= limit) return visibleOptions
+
+    const drawn = visibleOptions.slice(0, limit)
+    if (!value || drawn.some((option) => option.value === value)) return drawn
+
+    const chosen = visibleOptions.find((option) => option.value === value)
+    return chosen ? [chosen, ...drawn] : drawn
+  }, [visibleOptions, limit, value])
+
+  const drawMore = (event) => {
+    const list = event.currentTarget
+    if (list.scrollHeight - list.scrollTop - list.clientHeight > 200) return
+
+    setLimit((drawn) => (drawn < visibleOptions.length ? drawn + OPTIONS_PAGE : drawn))
+  }
+
   return (
     <div className={cn('space-y-1.5', className)}>
       <FieldLabel htmlFor={id} required={required}>
@@ -282,7 +317,9 @@ export function SelectField({
         onValueChange={onValueChange}
         disabled={disabled}
         onOpenChange={(open) => {
-          if (!open) setSearch('')
+          if (open) return
+          setSearch('')
+          setLimit(OPTIONS_PAGE)
         }}
       >
         {/* The icon goes INSIDE the trigger rather than absolutely on top of
@@ -298,9 +335,14 @@ export function SelectField({
           searchable={searchable}
           searchPlaceholder={searchPlaceholder}
           searchValue={search}
-          onSearchChange={setSearch}
+          // A new search starts from the first lot of its own matches.
+          onSearchChange={(text) => {
+            setSearch(text)
+            setLimit(OPTIONS_PAGE)
+          }}
+          onViewportScroll={drawMore}
         >
-          {visibleOptions.map((option) => (
+          {drawnOptions.map((option) => (
             <SelectItem key={option.value} value={option.value}>
               {option.label}
             </SelectItem>
@@ -331,6 +373,91 @@ export function SwitchField({ id, label, checked, onCheckedChange, disabled, cla
         {label}
       </Label>
       <Switch id={id} checked={checked} disabled={disabled} onCheckedChange={onCheckedChange} />
+    </div>
+  )
+}
+
+/**
+ * A setting that is either on or off, as a full-width row: the label (and an
+ * optional line under it) on the left, the switch on the right with "On" /
+ * "Off" spelled out beside it, so the state reads without decoding the
+ * switch's colour.
+ *
+ *   <ToggleField id="barcode" label="Enable Barcode"
+ *                checked={form.barcode} onCheckedChange={(on) => setField('barcode', on)} />
+ *
+ * `stacked` puts the label ABOVE a text-box-sized box holding the switch,
+ * exactly where a Field puts its label above its input - so a row of
+ * switches lines up with a row of fields, and three fit side by side where
+ * three full rows would not.
+ *
+ * SwitchField is the compact one for inside a toolbar or beside a field;
+ * this is the one for a list of settings.
+ */
+export function ToggleField({ id, label, description, checked, onCheckedChange, disabled, stacked, className }) {
+  const descriptionId = description && id ? `${id}-description` : undefined
+
+  const control = (
+    <div className="flex shrink-0 items-center gap-2">
+      <span
+        aria-hidden="true"
+        className={cn('w-6 text-xs font-medium', !stacked && 'text-right', checked ? 'text-brand' : 'text-muted-foreground')}
+      >
+        {checked ? 'On' : 'Off'}
+      </span>
+      <Switch
+        id={id}
+        checked={Boolean(checked)}
+        disabled={disabled}
+        onCheckedChange={onCheckedChange}
+        aria-describedby={descriptionId}
+      />
+    </div>
+  )
+
+  if (stacked) {
+    return (
+      <div className={cn('space-y-1.5', className)}>
+        <FieldLabel htmlFor={id}>{label}</FieldLabel>
+        <div
+          className={cn(
+            'flex h-9 items-center rounded-md border border-border bg-card px-3',
+            disabled && 'opacity-80',
+          )}
+        >
+          {control}
+        </div>
+        {description ? (
+          <p id={descriptionId} className="text-xs text-muted-foreground">
+            {description}
+          </p>
+        ) : null}
+      </div>
+    )
+  }
+
+  return (
+    <div
+      className={cn(
+        // min-h-9: the height of a text box, so a switch sits level with
+        // the fields beside it in a grid.
+        'flex min-h-9 items-center justify-between gap-3 rounded-md border border-border bg-card px-3 py-1.5',
+        disabled && 'opacity-80',
+        className,
+      )}
+    >
+      <div className="min-w-0 space-y-0.5">
+        <Label htmlFor={id} className={cn(fieldLabelClass, !disabled && 'cursor-pointer')}>
+          {label}
+        </Label>
+        {description ? (
+          <p id={descriptionId} className="text-xs text-muted-foreground">
+            {description}
+          </p>
+        ) : null}
+      </div>
+
+      {control}
     </div>
   )
 }

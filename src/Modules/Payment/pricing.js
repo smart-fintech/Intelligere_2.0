@@ -795,6 +795,10 @@ export const renewalCredit = (subscription) => {
  *
  * Field names are read loosely (`current_plan` or `plan`, `current_amount`,
  * `paid_amount` or `base_amount`), so an older reply still parses.
+ *
+ * A reply that lists no packages but HAS been paid for falls back to
+ * `heldFromModules` below - the first payment of a package is not always
+ * written into `msme_packages`, and the user still owns what they bought.
  */
 export const parseHeldPackages = (raw) => {
   const list = Array.isArray(raw?.msme_packages)
@@ -803,7 +807,7 @@ export const parseHeldPackages = (raw) => {
       ? raw.package_details
       : []
 
-  return list
+  const packages = list
     .map((entry) => {
       if (!entry || typeof entry !== 'object') return null
 
@@ -836,6 +840,61 @@ export const parseHeldPackages = (raw) => {
       }
     })
     .filter(Boolean)
+
+  return packages.length ? packages : heldFromModules(raw)
+}
+
+/**
+ * WHAT A PAID-FOR REPLY WITH NO `msme_packages` STILL SAYS THE USER OWNS
+ *
+ * A first payment comes back as the payment itself, with `msme_packages: []`:
+ *
+ *   { payment_date, end_date, amount: 8000, company_package: 3,
+ *     module: ["Procurement Automation"], procurement_used: [{ total: 10 }] }
+ *
+ * `module` is what that payment bought, so it names the packages held - one
+ * entry each, matched to what is on sale by name like every other held
+ * package. Without this the user reads as new, and a second payment for
+ * another package would neither be marked an upgrade nor credited.
+ *
+ * The reply's `amount` is the whole payment, so it stands as a package's own
+ * price only when the payment bought exactly ONE module; with several, the
+ * packages are known but their prices are not, and a price that cannot be
+ * attributed is left at nothing rather than guessed - the rule that a
+ * package's credit never comes from the combined amount.
+ *
+ * Nothing is held unless the reply carries a payment date and an amount
+ * actually paid, so a free trial or an untouched account still reads as new.
+ */
+const heldFromModules = (raw) => {
+  const names = textList(raw?.module ?? raw?.modules)
+  const paymentDate = raw?.payment_date ?? null
+  const paid = toPaise(raw?.amount)
+  if (!names.length || !paymentDate || !paid) return []
+
+  // The plan of a Procurement package is its event allowance, which the reply
+  // carries in `procurement_used` rather than as a plan name. Read only when
+  // one module was bought, since the reply does not say which module a usage
+  // record belongs to.
+  const usage = parseProcurementUsage(raw)
+  const limit = names.length === 1 ? usage[0]?.total ?? null : null
+
+  return names.map((name) => ({
+    key: normalizeKey(name),
+    name,
+    // The reply names no plan; a Procurement plan is recovered from its limit
+    // (see heldPlanInSection), and there is nothing else to recover.
+    plan: null,
+    planKey: null,
+    amount: names.length === 1 ? paid : 0,
+    rawAmount: names.length === 1 ? raw.amount : null,
+    paymentDate,
+    endDate: raw.end_date ?? null,
+    companyPackage: Number(raw.company_package) || null,
+    procurementLimit: limit,
+    procurementUsed: names.length === 1 ? usage[0]?.used ?? 0 : 0,
+    monthsSincePayment: monthsSince(paymentDate),
+  }))
 }
 
 /**
@@ -1170,15 +1229,39 @@ const chosenSectionPackage = (section, choice) =>
 const chosenSectionPlan = (section, choice) => section.plans.find((entry) => entry.key === choice) ?? null
 
 /**
+ * A PACKAGE THAT IS BOUGHT AGAIN RATHER THAN SAT ON
+ *
+ * A package sold as a numbered allowance - Procurement, whose plans are the
+ * events they allow (10, 100, 500, unlimited) - is a quantity the user buys,
+ * not a tier they hold: buying it again buys another allowance, and the one
+ * already bought is being used up meanwhile. So nothing of it is ever opened
+ * ready-selected, no plan of it is put out of reach, and taking the plan
+ * already held is a fresh purchase at its own price rather than something
+ * already paid for.
+ *
+ * The other two - one price for the lot, or named packages - are tiers: the
+ * plan held IS the entitlement, and it stays ticked and paid for. Which a
+ * package is follows from its shape, as everything else on this page does,
+ * so a package the backend adds tomorrow needs nothing said about it here.
+ */
+export const isRepeatableSection = (section) => section?.kind === 'options'
+
+/**
  * The plan a held package names, as the price list has it today - matched by
  * NAME, since that is all userPaymentData gives ("Basic", "Starter") and the
  * price list keys a Procurement plan by its limit. Null when the plan is no
  * longer listed, or when the package has no plans at all.
  */
 const heldPlanInSection = (section, heldPackage) => {
-  if (!heldPackage?.planKey) return null
+  if (!heldPackage) return null
   const list = section.kind === 'packages' ? section.packages : section.kind === 'options' ? section.plans : []
-  return list.find((entry) => normalizeKey(entry.name) === heldPackage.planKey) ?? null
+  if (heldPackage.planKey) {
+    return list.find((entry) => normalizeKey(entry.name) === heldPackage.planKey) ?? null
+  }
+  // No plan name: a Procurement plan is still known by the event allowance it
+  // was bought with, which is how the price list keys it.
+  const limit = heldPackage.procurementLimit
+  return limit ? list.find((entry) => entry.limit === limit) ?? null : null
 }
 
 /**
@@ -1243,9 +1326,27 @@ export const planChargeFor = ({ catalog, section, plan, companies = 1, held = []
   const source = own ?? replaced
   if (!source) return plain
 
-  const samePlan = own
-    ? (plan?.name ? normalizeKey(plan.name) : null) === (own.planKey || null)
-    : false
+  // The plan held, as the price list has it - the one thing the plan being
+  // taken is compared against, so a plan bought for many companies is still
+  // compared as a plan.
+  const heldPlan = own ? heldPlanInSection(section, own) : null
+
+  /*
+   * The same plan as the one held, so nothing is owed for the plan itself.
+   * Judged on the price list's own plan where the held package could be
+   * matched to one, and on the name the reply gave otherwise - a reply that
+   * names no plan (a Procurement payment, which says only its event
+   * allowance) must not read as a change of plan and be charged twice.
+   *
+   * An allowance is never "the same plan": taking it again buys another one
+   * (isRepeatableSection), so it is charged like any other purchase.
+   */
+  const samePlan =
+    own && !isRepeatableSection(section)
+      ? heldPlan
+        ? heldPlan.key === (plan?.key ?? null)
+        : (plan?.name ? normalizeKey(plan.name) : null) === (own.planKey || null)
+      : false
 
   // What the companies already paid for would cost on the plan being taken;
   // everything above that is companies newly added.
@@ -1254,9 +1355,6 @@ export const planChargeFor = ({ catalog, section, plan, companies = 1, held = []
   const entitled = entitledCompanies ? packagePriceFor(base, entitledCompanies) : 0
   const additionalCompanyAmount = Math.max(0, gross - entitled)
 
-  // Plan against plan, from the price list, so a plan bought for many
-  // companies is still compared as a plan.
-  const heldPlan = own ? heldPlanInSection(section, own) : null
   const dearer = own
     ? samePlan
       ? false
@@ -1279,7 +1377,9 @@ export const planChargeFor = ({ catalog, section, plan, companies = 1, held = []
     additionalCompanyAmount,
     samePlan,
     replacing: own ? null : source.name,
-    from: source.plan || null,
+    // The plan moved up from: the name the reply gave, or the plan it was
+    // matched to when it gave none.
+    from: source.plan || (own ? heldPlan?.name ?? null : null),
     paidBefore: source.amount,
     paidCompanies,
     companies: count,
@@ -1299,12 +1399,19 @@ export const planChargeFor = ({ catalog, section, plan, companies = 1, held = []
  * Two packages that cannot be held together (Accounts Automation and
  * Inventory Management) would leave the page unable to pay for anything, so
  * only the first of them is opened on; the other stays free to choose.
+ *
+ * A package sold as an allowance is left alone (isRepeatableSection): holding
+ * one does not mean buying it again, and the user chooses it themselves.
  */
 export const defaultSectionChoices = (catalog, held = []) => {
   const choices = {}
   let exclusiveTaken = false
 
     ; (catalog?.sections ?? []).forEach((section) => {
+      // An allowance is bought again each time, so it opens unselected: what
+      // the user holds of it is being used up, not waiting to be renewed.
+      if (isRepeatableSection(section)) return
+
       const heldPackage = heldPackageFor(held, section)
       if (!heldPackage) return
 
@@ -1353,6 +1460,8 @@ export const defaultSectionChoices = (catalog, held = []) => {
 export const calculatePackageQuote = ({ catalog, selection = {}, companies = 1, held = [], offer = null }) => {
   const gstPercent = catalog?.gstPercent ?? DEFAULT_GST_PERCENT
   const count = Math.max(1, Math.floor(companies) || 1)
+  // One package alone or a list of them - the screen holds either.
+  const heldList = Array.isArray(held) ? held : held ? [held] : []
   const lines = []
   const issues = []
   const upgrades = []
@@ -1371,7 +1480,7 @@ export const calculatePackageQuote = ({ catalog, selection = {}, companies = 1, 
    * credited there.
    */
   const settle = (section, line, plan) => {
-    const charge = planChargeFor({ catalog, section, plan, companies: count, held })
+    const charge = planChargeFor({ catalog, section, plan, companies: count, held: heldList })
     if (charge.credit <= 0) return
 
     const extra = Math.max(0, count - charge.paidCompanies)
@@ -1451,6 +1560,13 @@ export const calculatePackageQuote = ({ catalog, selection = {}, companies = 1, 
   return {
     companies: count,
     upgrade: upgradeCredit > 0,
+    /*
+     * The user already owns a package, so this order is a change to what they
+     * have rather than a first purchase - whether or not anything was
+     * credited. Every package on such an order is part of the upgrade, the one
+     * moving up and the one being added alongside it alike.
+     */
+    hasHeldPackages: heldList.length > 0,
     // Package by package: what was held, what was taken, what it credited
     // and what is left to pay for THAT package. Amounts in paise, like every
     // other figure in a quote.
@@ -1520,10 +1636,14 @@ const without = (raw, fields) =>
  * did not take is sent, and no other package of a section goes with the one
  * chosen.
  *
- * A row that moves up from a plan already held says so - `current_plan`,
- * `current_amount` and `upgrade_credit` - so the backend can check the credit
- * the user was shown for THAT package. `is_upgraded` is true when any row
- * does. The backend re-prices the order either way.
+ * The package being upgraded carries `upgrade: true` - the one whose plan moves
+ * up, or the one added to what the user already owns - and no other row does,
+ * so an order holding an old package beside a new one says which is which. A
+ * row credited from a plan already held also says where from: `current_plan`,
+ * `current_amount` and `upgrade_credit`, so the backend can check the credit
+ * the user was shown for THAT package and never charge it twice.
+ * `is_upgraded` says the same of the order as a whole. The backend re-prices
+ * it either way.
  */
 export const buildPackagePayload = ({ catalog, quote, selection = {}, companies = 1,
   // productType
@@ -1533,11 +1653,42 @@ export const buildPackagePayload = ({ catalog, quote, selection = {}, companies 
   const count = Math.max(1, Math.floor(companies) || 1)
   const rows = []
 
-  /** What the quote credited for this package, if anything (never re-worked). */
+  /*
+   * `upgrade: true` marks ONLY the package this order actually upgrades -
+   * whichever package that is, Accounts Automation, Inventory Management or
+   * Procurement. A package is upgraded when the user pays something new for it
+   * here: a plan moving up, more companies than were paid for, or a package
+   * being added to the ones already owned.
+   *
+   * A package already paid for and taken again unchanged travels with the order
+   * - the backend is sent the whole selection - but it is not what is being
+   * upgraded, so it carries no flag. It keeps `current_amount` and
+   * `upgrade_credit`, which are what say it is already paid for and must not be
+   * charged again.
+   *
+   * So: Accounts Automation owned, Procurement added -> the Procurement row
+   * alone says `upgrade: true`. Accounts Automation owned, an Inventory package
+   * taken -> the Inventory row alone. Nothing owned at all -> no row says it.
+   */
+  const upgradeOrder = Boolean(quote.upgrade || quote.hasHeldPackages)
+
+  /**
+   * The flag, plus what the quote credited for THIS package when it credited
+   * anything (never re-worked here) - so the backend can check the credit the
+   * user was shown against the plan it came from.
+   */
   const upgradeFields = (section) => {
     const credited = (quote.upgrades ?? []).find((entry) => entry.key === section.key)
-    if (!credited) return {}
+    // Not credited: either a package added to what is owned (an upgrade), or a
+    // plain first purchase.
+    if (!credited) return upgradeOrder ? { upgrade: true } : {}
+
+    // Credited, so it was owned before. It is being upgraded only if the plan
+    // changed or there is something left to pay for it; a nil balance on the
+    // same plan is the package the user already has.
+    const upgraded = !credited.samePlan || credited.upgradeAmount > 0
     return {
+      ...(upgraded ? { upgrade: true } : {}),
       current_plan: credited.from,
       current_amount: toRupees(credited.paidBefore),
       upgrade_credit: toRupees(credited.credit),
@@ -1553,6 +1704,7 @@ export const buildPackagePayload = ({ catalog, quote, selection = {}, companies 
         package_name: section.name,
         base_amount: section.rawAmount,
         calculated_amount: toRupees(packagePriceFor(section.amount, count)),
+        ...upgradeFields(section),
         ...without(section.raw, ['package_name', 'amount']),
       })
       return
@@ -1628,7 +1780,9 @@ export const buildPackagePayload = ({ catalog, quote, selection = {}, companies 
      */
     data: {
       [count]: rows,
-      is_upgraded: Boolean(quote.upgrade),
+      // True for the same orders the rows call an upgrade, so the two can
+      // never disagree: an order that changes what the user already owns.
+      is_upgraded: upgradeOrder,
     },
     // [normalizeKey(catalog.userType)]: rows,
   }

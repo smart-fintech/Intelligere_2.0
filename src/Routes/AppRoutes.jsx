@@ -34,7 +34,7 @@
  *   /dashboard/bank-details    ->  BankDetailsPage.jsx   (inside the shell)
  *   /dashboard/company-details ->  ModulePlaceholder     (inside the shell)
  *   /dashboard/ledger-details  ->  LedgerDetailsPage.jsx (inside the shell)
- *   /dashboard/inventory-details -> ModulePlaceholder    (inside the shell)
+ *   /dashboard/inventory-details -> InventoryDetailsPage.jsx (inside the shell)
  *   /modules/<key>     ->  one per PRODUCT_MODULES entry; its real page, or
  *                          ComingSoonPage until built    (inside the shell)
  *   /payment           ->  PaymentPage                  (inside the shell)
@@ -74,8 +74,8 @@ import Register from '@/Modules/Auth/Pages/Register'
 import Dashboard from '@/Modules/Dashboard/Pages/Dashboard'
 import BankDetailsPage from '@/Modules/Dashboard/Pages/BankDetailsPage'
 import CompanyDetailsPage from '@/Modules/Dashboard/Pages/CompanyDetailsPage'
+import InventoryDetailsPage from '@/Modules/Dashboard/Pages/InventoryDetailsPage'
 import LedgerDetailsPage from '@/Modules/Dashboard/Pages/LedgerDetailsPage'
-import ModulePlaceholder from '@/Modules/Dashboard/Pages/ModulePlaceholder'
 import PaymentPage from '@/Modules/Payment/Pages/PaymentPage'
 import PaymentStatusPage from '@/Modules/Payment/Pages/PaymentStatusPage'
 import PremiumRechargePage from '@/Modules/Payment/Pages/PremiumRechargePage'
@@ -135,18 +135,15 @@ export default function AppRoutes() {
         <Route path={ROUTES.DASHBOARD} element={<Dashboard />} />
 
         {/* ---- The dashboard modules ----
-            Company, Bank and Ledger Details are built. Inventory uses the
-            shared placeholder page: it looks its module up in
-            Constants/dashboardModules by the key given here and shows Coming
-            Soon for it. Building it means pointing its line at the real page
-            and setting `ready: true` in that list - nothing else changes. */}
+            All four are built. A new one starts on the shared placeholder,
+            <ModulePlaceholder moduleKey="..." />, which looks its module up
+            in Constants/dashboardModules and shows Coming Soon for it.
+            Inventory Details has tabs of its own, and its unbuilt tabs show
+            Coming Soon inside the page - see InventoryDetails. */}
         <Route path={ROUTES.BANK_DETAILS} element={<BankDetailsPage />} />
         <Route path={ROUTES.COMPANY_DETAILS} element={<CompanyDetailsPage />} />
         <Route path={ROUTES.LEDGER_DETAILS} element={<LedgerDetailsPage />} />
-        <Route
-          path={ROUTES.INVENTORY_DETAILS}
-          element={<ModulePlaceholder moduleKey="inventory" />}
-        />
+        <Route path={ROUTES.INVENTORY_DETAILS} element={<InventoryDetailsPage />} />
 
         {/* ---- The product modules ----
             One route per PRODUCT_MODULES entry, at /modules/<key>, generated

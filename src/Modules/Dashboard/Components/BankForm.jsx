@@ -51,7 +51,7 @@
  *   onCancel()    leaves edit mode and goes back to an empty form
  */
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useSelector } from 'react-redux'
 import { Building2, Hash, Landmark, MapPin } from 'lucide-react'
 
@@ -131,6 +131,17 @@ export default function BankForm({
    * rather than silently disappearing.
    */
   const selectedLedger = ledgers.find((ledger) => ledger.ledeger_name === form.bank_ledger_name)
+
+  // Built once per ledger list, not on every keystroke in the form: a new
+  // array here would make the dropdown go through all of them again.
+  const ledgerOptions = useMemo(
+    () =>
+      ledgers.map((ledger) => ({
+        value: String(getLedgerId(ledger)),
+        label: ledger.ledeger_name,
+      })),
+    [ledgers],
+  )
 
   /** A ledger was picked: take its name, and its account details if it has them. */
   const selectLedger = (value) => {
@@ -317,10 +328,7 @@ export default function BankForm({
           searchable
           searchPlaceholder="Search ledger..."
           onValueChange={selectLedger}
-          options={ledgers.map((ledger) => ({
-            value: String(getLedgerId(ledger)),
-            label: ledger.ledeger_name,
-          }))}
+          options={ledgerOptions}
         />
         <FormGrid>
           <Field

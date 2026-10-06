@@ -660,8 +660,16 @@ function PackagesPackage({ section, step, choice, companies, held, heldPackages,
   )
 }
 
-/** Procurement: Starter | Growth | Business | Unlimited, one of them taken. */
-function OptionsPackage({ section, step, choice, companies, held, heldPackages, catalog, onChoose }) {
+/**
+ * Procurement: Starter | Growth | Business | Unlimited, one of them taken.
+ *
+ * An allowance, not a tier (pricing.isRepeatableSection): every plan is on
+ * sale every time, including the one bought before, and none of them opens
+ * ticked. So there is no ladder here - no plan held, no plan out of reach, and
+ * no plan marked as already paid for. How much of the allowance is left is
+ * said by the usage card, which is where it belongs.
+ */
+function OptionsPackage({ section, step, choice, companies, heldPackages, catalog, onChoose }) {
   const chargeFor = (plan) => planChargeFor({ catalog, section, plan, companies, held: heldPackages })
   const [preview, setPreview] = useState(choice ?? section.plans[0]?.key ?? null)
   const shown = section.plans.find((plan) => plan.key === (choice ?? preview)) ?? section.plans[0]
@@ -672,23 +680,11 @@ function OptionsPackage({ section, step, choice, companies, held, heldPackages, 
     onChoose(section, plan.key)
   }
 
-  const standing = planStanding(section.plans, held)
-  const heldPlan = held?.plan ?? null
-  const fullyUpgraded = Boolean(heldPlan) && section.plans.every((plan, index) => !standing(plan, index).note?.startsWith('Upgrade'))
-
   return (
     <PackageCard
       step={step}
       title={section.heading}
-      subtitle={
-        choice
-          ? `${shown.name} selected`
-          : fullyUpgraded
-            ? `${heldPlan} · your current plan`
-            : heldPlan
-              ? `On ${heldPlan} · choose a higher plan to upgrade`
-              : 'Choose a plan'
-      }
+      subtitle={choice ? `${shown.name} selected` : 'Choose a plan'}
       amount={shown.amount}
       companies={companies}
       charge={chargeFor(shown)}
@@ -697,26 +693,18 @@ function OptionsPackage({ section, step, choice, companies, held, heldPackages, 
       {/* Two plans to a row, so four of them read as a small block inside
           this column rather than a strip across it. */}
       <div aria-label={section.heading} className="mt-5 grid grid-cols-1 gap-4 pt-2 sm:grid-cols-2">
-        {section.plans.map((plan, index) => {
-          const { locked, current, note } = standing(plan, index)
-          const charge = chargeFor(plan)
-
-          return (
-            <PlanTile
-              key={plan.key}
-              id={`plan-${section.key}-${plan.key}`}
-              name={plan.name}
-              price={formatINR(charge.payable)}
-              caption={plan.limit === null ? (<><b className='text-brand'>Unlimited</b> Bid.</>) : (<>Up to <b className='text-brand'>{plan.limit}</b> Bid.</>)}
-              selected={choice === plan.key}
-              popular={plan.key === popularPlanKey(section.plans)}
-              current={current}
-              locked={locked}
-              note={note}
-              onSelect={() => take(plan)}
-            />
-          )
-        })}
+        {section.plans.map((plan) => (
+          <PlanTile
+            key={plan.key}
+            id={`plan-${section.key}-${plan.key}`}
+            name={plan.name}
+            price={formatINR(chargeFor(plan).payable)}
+            caption={plan.limit === null ? (<><b className='text-brand'>Unlimited</b> Bid.</>) : (<>Up to <b className='text-brand'>{plan.limit}</b> Bid.</>)}
+            selected={choice === plan.key}
+            popular={plan.key === popularPlanKey(section.plans)}
+            onSelect={() => take(plan)}
+          />
+        ))}
       </div>
 
       {/* What the package holds, once. The plan taken is said by its own
@@ -924,7 +912,6 @@ export function PackagePlans({
               section={section}
               step={step}
               choice={choice}
-              held={held}
               heldPackages={heldPackages}
               companies={companies}
               catalog={catalog}
