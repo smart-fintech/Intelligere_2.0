@@ -30,3 +30,31 @@ export const GST_REGISTRATION_TYPES = ['Regular', 'Composition', 'Unregistered',
  * `gst_rate` field holds - no unit, no percent sign.
  */
 export const GST_RATES = ['0', '0.25', '3', '5', '12', '18', '28']
+
+/**
+ * What a GST rate is made of - the tax rule itself, not anything of ours:
+ *
+ *   a sale WITHIN a state   half is CGST and half is SGST    5 -> 2.5 + 2.5
+ *   a sale ACROSS states    all of it is IGST                 5 -> 5
+ *
+ *   gstBreakdown('5')   -> { cgst: '2.5', sgst: '2.5', igst: '5' }
+ *   gstBreakdown('')    -> null     nothing chosen, nothing to show
+ *
+ * Both readings are returned, as text ready to show. WHICH ONE APPLIES is a
+ * property of a sale - where the seller and the buyer are - and not of a
+ * product or a rate, so nothing here chooses between them. A screen that
+ * knows the two places (an invoice) picks one; a screen that does not (a
+ * product) shows both.
+ *
+ * It only describes the rate. What is saved and sent is always the rate
+ * itself, untouched.
+ */
+export const gstBreakdown = (rate) => {
+  const total = Number(rate)
+  if (rate === null || rate === undefined || String(rate).trim() === '' || !Number.isFinite(total)) return null
+
+  // 0.25 halves to 0.125; anything longer than that is rounding noise.
+  const tidy = (value) => String(Number(value.toFixed(4)))
+
+  return { cgst: tidy(total / 2), sgst: tidy(total / 2), igst: tidy(total) }
+}

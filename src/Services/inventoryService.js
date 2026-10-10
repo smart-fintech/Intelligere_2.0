@@ -36,7 +36,11 @@
  *     "expiry_alert_days": 5, "sku_pattern": [...], ... }
  */
 
-import { BUSINESS_TYPE_MANUFACTURER, productFieldPlacement } from '@/Constants/inventory'
+import {
+  BUSINESS_TYPE_MANUFACTURER,
+  PREMIUM_MODULE_INVENTORY_MANAGEMENT,
+  productFieldPlacement,
+} from '@/Constants/inventory'
 import { api } from '@/Services/authService'
 
 const MASTER_DETAILS_URL = 'inventory/company_master_details/'
@@ -327,10 +331,33 @@ export const saveCustomField = (companyName, field) =>
   api.post(CUSTOM_FIELDS_URL, { company_name: companyName, custom_fields: field })
 
 /* ------------------------------------------------------------------ */
-/* Products                                                           */
+/* Inventory Management - who has it                                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Whether a company's plan includes Inventory Management: its
+ * `premium_modules` (from tally/user-companies-list/, so already in the
+ * store with the rest of the company) lists "Inventory Management", spelt
+ * exactly so. A company without the list, or without that entry, does not.
+ *
+ * `company` is the active company's record - see useActiveCompany.
+ *
+ * This is only half of the question "does this user get the full inventory
+ * screens?" - the other half is who the user is. Screens ask
+ * Hooks/useInventoryAccess, which answers both.
+ */
+export const hasInventoryManagement = (company) =>
+  Array.isArray(company?.premium_modules) &&
+  company.premium_modules.includes(PREMIUM_MODULE_INVENTORY_MANAGEMENT)
+
+/* ------------------------------------------------------------------ */
+/* Products - with Inventory Management                               */
 /* ------------------------------------------------------------------ */
 
 /*
+ * (A user without Inventory Management has a simpler product, with its own
+ * endpoint and its own payloads - see Services/productService.)
+ *
  *   POST  inventory/product/   create a product   (the body: buildProductPayload)
  *
  * which answers
@@ -349,9 +376,9 @@ export const saveCustomField = (companyName, field) =>
  *
  * With SKUs the form has a SKU Details section, an entry per SKU; without,
  * it is a single product. A field marked `sku_field` says which fields the
- * SKU details are; it never switches them on by itself. Nothing about the
- * form depends on the company's plan (`premium_modules`): every company
- * can say where its stock is kept.
+ * SKU details are; it never switches them on by itself. Nothing INSIDE this
+ * form depends on the company's plan: whether a user reaches the form at all
+ * is decided before it, by useInventoryAccess.
  */
 const PRODUCT_URL = 'inventory/product/'
 

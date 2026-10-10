@@ -37,11 +37,23 @@ import { ClipboardList, Package, Settings2, SlidersHorizontal, Truck, Warehouse 
  *          built.
  *   tabs   sections only, optional - the tabs inside it. A section with
  *          tabs has no page of its own; opening it opens a tab.
+ *   requiresInventory   tabs only, optional. true = part of Inventory
+ *          Management, and shown only to a user who has it (see
+ *          useInventoryAccess). Everyone else never sees the tab at all.
  *
  * The order here IS the order on screen. A plain
- * /dashboard/inventory-details opens INVENTORY_DEFAULT_SECTION (below), and
- * a section opens on its first ready tab - so that is Inventory Master, on
- * Master Details.
+ * /dashboard/inventory-details opens the default section (below), and a
+ * section opens on its first ready tab.
+ *
+ * WHO SEES WHAT
+ *
+ *   with Inventory Management      everything above: Product is the full,
+ *                                  SKU-based product form, and Inventory
+ *                                  Master has all four tabs
+ *   without                        Product (the simple product list) and
+ *                                  Vendor - the one tab left of Inventory
+ *                                  Master, which is then shown as a section
+ *                                  under its own name
  *
  * TO ADD A SECTION OR A TAB: add one entry here with `ready: false`. It
  * appears, with a Coming Soon page, with no other change.
@@ -59,10 +71,18 @@ export const INVENTORY_SECTIONS = [
     icon: ClipboardList,
     ready: true,
     tabs: [
-      { key: 'master-details', label: 'Master Details', icon: Settings2, ready: true },
-      { key: 'warehouse', label: 'Warehouse', icon: Warehouse, ready: true },
+      { key: 'master-details', label: 'Master Details', icon: Settings2, ready: true, requiresInventory: true },
+      { key: 'warehouse', label: 'Warehouse', icon: Warehouse, ready: true, requiresInventory: true },
+      // Not `requiresInventory`: a simple product can name its vendor too,
+      // and this is where vendors are added.
       { key: 'vendor', label: 'Vendor', icon: Truck, ready: true },
-      { key: 'customised-fields', label: 'Customised Fields', icon: SlidersHorizontal, ready: true },
+      {
+        key: 'customised-fields',
+        label: 'Customised Fields',
+        icon: SlidersHorizontal,
+        ready: true,
+        requiresInventory: true,
+      },
     ],
   },
 ]
@@ -75,8 +95,19 @@ export const INVENTORY_SECTIONS = [
  * page - and, as the default section is left out of the address, turned
  * every saved ?tab=warehouse link into a link to Product. Change it here, on
  * purpose, the day another section should open first.
+ *
+ * That is for a user with Inventory Management. Without it there is no
+ * Master Details to land on, so the page opens on the product list instead.
  */
 export const INVENTORY_DEFAULT_SECTION = 'inventory-master'
+export const INVENTORY_DEFAULT_SECTION_WITHOUT_INVENTORY = 'product'
+
+/**
+ * The entry in a company's `premium_modules` (tally/user-companies-list/)
+ * that gives it Inventory Management. Matched exactly, as the backend
+ * writes it.
+ */
+export const PREMIUM_MODULE_INVENTORY_MANAGEMENT = 'Inventory Management'
 
 /* ------------------------------------------------------------------ */
 /* Master Details                                                     */
