@@ -7,16 +7,18 @@
  * them but the vendor list.)
  *
  * Every simple-product URL and WebSocket message in the project is written
- * here and nowhere else. Nothing in this file shows a message: the shared
- * axios setup (Services/authService) has already turned a failure into a
- * plain Error carrying the backend's own text.
+ * here and nowhere else - but one. Nothing in this file shows a message: the
+ * shared axios setup (Services/authService) has already turned a failure
+ * into a plain Error carrying the backend's own text.
  *
  * ------------------------------------------------------------------
- * THE LIST IS ONE CALL, WHICHEVER ERP - AND IT IS A **POST**
+ * THE LIST IS NOT HERE - it is the same call for every user
  * ------------------------------------------------------------------
- *   POST  inventory/intelligere_product_create/   list them   { company }
+ *   POST  inventory/product/   { company_name }
  *
- * A body with only the company's name is a query, as with the ledgers.
+ * getProducts in Services/inventoryService, read through Hooks/useProducts:
+ * one list of a company's products, whoever is looking. What IS here is how
+ * the simple product page reads a row of it (readBasicProduct, below).
  *
  * ------------------------------------------------------------------
  * SAVING IS WHERE THE TWO ERPs PART - and they share nothing
@@ -39,7 +41,8 @@
  * ------------------------------------------------------------------
  *   POST  inventory/product_group_list/   list the groups   { company_name }
  *   POST  inventory/product_group_list/   add a group       { company_name, group_name }
- *   GET   inventory/product_units/        the units         -> ["NOS", "KGS", ...]
+ *   POST  inventory/product_units/        list the units    { company_name }
+ *                                                           -> ["NOS", "KGS", ...]
  *
  * THERE IS NO DELETE HERE YET, for either ERP: how a simple product is
  * removed has not been confirmed, and a guessed method or body could remove
@@ -73,17 +76,6 @@ const toList = (response) => {
   return []
 }
 
-/**
- * The products of one company. The name comes from the caller, which reads
- * it from the active company in the store - never from a form. Without one
- * there is nothing to ask for.
- */
-export const getBasicProducts = async (companyName) => {
-  if (!companyName) return []
-
-  return toList(await api.post(PRODUCT_URL, { company: companyName }))
-}
-
 /** The first of some properties a row actually has - null when it has none of them. */
 const pick = (row, names) => {
   for (const name of names) {
@@ -93,12 +85,13 @@ const pick = (row, names) => {
 }
 
 /**
- * ONE ROW OF THE LIST, under the names the screens use.
+ * ONE ROW OF THE LIST, under the names the simple product page uses.
  *
- * The two ERPs do not agree on what a product's properties are called, and
- * the list has not been seen to say which of the two it speaks - so each
- * value is looked for under every name it goes by, and the screens read the
- * one neutral name on the left:
+ * THE SHAPE OF A ROW HAS NOT BEEN SUPPLIED YET (the list is getProducts in
+ * inventoryService). Until it is, each value is looked for under the names
+ * the two ERPs' own save payloads use for it - the only names known - and
+ * the page reads the one neutral name on the left. A value the row carries
+ * under some other name reads as missing, and shows as "--":
  *
  *   id            id                       what an Intelligere edit names
  *   guid          stockitem_guid           what a Tally edit names
@@ -113,8 +106,10 @@ const pick = (row, names) => {
  *   category      category
  *   vendors       vendor      [{ id, name }]
  *
- * `source` is the row exactly as the backend sent it. If the list turns out
- * to use another name for something, this is the one place to add it.
+ * `source` is the row exactly as the backend sent it. THIS IS THE ONE PLACE
+ * a row's properties are named for the simple page: when the real shape is
+ * known, the names on the right are corrected here and nothing else - not
+ * the table, the filters or the form - has to change.
  */
 export const readBasicProduct = (row) => ({
   source: row,
@@ -159,29 +154,21 @@ export const createProductGroup = (companyName, groupName) =>
   api.post(PRODUCT_GROUP_URL, { company_name: companyName, group_name: groupName })
 
 /**
- * The units a product can be counted in - a plain list of text, as the
- * backend names them ("NOS", "KGS", "N/A" ...):
+ * The units one company's products can be counted in - a plain list of
+ * text, as the backend names them ("NOS", "KGS", "N/A" ...):
  *
- *   GET  inventory/product_units/
+ *   POST  inventory/product_units/   { company_name }
  *
- * The same for every company and every user, so it is fetched ONCE per
- * visit to the app and the answer kept here. A failed request is not kept,
- * so Retry really asks again.
+ * A POST, with the company's name in the body, like the groups above: the
+ * units are a company's own, so they are asked for per company and never
+ * kept from one company for the next. Without a company there is nothing
+ * to ask for.
  */
-let productUnitsRequest = null
+export const getProductUnits = async (companyName) => {
+  if (!companyName) return []
 
-export const getProductUnits = () => {
-  if (!productUnitsRequest) {
-    productUnitsRequest = api
-      .get(PRODUCT_UNITS_URL)
-      .then((response) => toList(response).filter((unit) => typeof unit === 'string' && unit.trim()))
-      .catch((failure) => {
-        productUnitsRequest = null
-        throw failure
-      })
-  }
-
-  return productUnitsRequest
+  const units = toList(await api.post(PRODUCT_UNITS_URL, { company_name: companyName }))
+  return units.filter((unit) => typeof unit === 'string' && unit.trim())
 }
 
 /* ------------------------------------------------------------------ */

@@ -14,9 +14,9 @@
  * ------------------------------------------------------------------
  * WHAT REACHES THE NETWORK
  * ------------------------------------------------------------------
- *   opening the section / company change   the list   POST { company }
+ *   opening the section / company change   the list   POST inventory/product/ { company_name }
  *                                           the product groups   POST { company_name }
- *                                           the units, once a visit
+ *                                           the units            POST { company_name }
  *                                           the vendors (Intelligere only)
  *   Refresh / Retry                         the list
  *   Save in the form                        see BasicProductForm - HTTP for
@@ -51,8 +51,8 @@
  * confirmed (see the note in productService), so a row has Edit only. And
  * the CSV card is drawn but not connected - see ProductCsvUpload.
  *
- * The rows are this page's alone, so they are kept here rather than in the
- * store.
+ * The list itself comes through Hooks/useProducts - the same call, and the
+ * same hook, the full SKU product page uses.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -74,6 +74,7 @@ import { TableCell, TableRow } from '@/Components/ui/table'
 import { useActiveCompany } from '@/Hooks/useActiveCompany'
 import { useListView } from '@/Hooks/useListView'
 import useProductGroups from '@/Hooks/useProductGroups'
+import useProducts from '@/Hooks/useProducts'
 import useProductUnits from '@/Hooks/useProductUnits'
 import useVendorOptions from '@/Hooks/useVendorOptions'
 import { useWebSocket } from '@/Hooks/useWebSocket'
@@ -84,7 +85,6 @@ import {
   BASIC_PRODUCT_FIELDS,
   TALLY_PRODUCT_FETCH_MODULE,
   buildFetchProductsMessage,
-  getBasicProducts,
   readBasicProduct,
 } from '@/Services/productService'
 import { selectCompanyStatus } from '@/Store/Slices/companySlice'
@@ -111,9 +111,6 @@ const FILTER_FIELDS = {
 /** The name column is the one a user scans for; the rest are short values. */
 const COLUMN_WIDTH = { name: 220, group: 160 }
 
-/** What a company whose list has not arrived yet shows - one object, so the memos below hold. */
-const NOT_LOADED = { status: 'loading', rows: [], error: null }
-
 export default function BasicProducts() {
   const { activeCompanyName: companyName } = useActiveCompany()
   const companyStatus = useSelector(selectCompanyStatus)
@@ -124,50 +121,23 @@ export default function BasicProducts() {
   const fields = BASIC_PRODUCT_FIELDS[erp]
 
   /* ---------------- The list ----------------
-     Kept with the company it belongs to: a result for an older company (the
-     header changed while it was on its way) is not shown. A reload keeps the
-     rows on screen until the new ones arrive. */
-  const [state, setState] = useState({ status: 'loading', rows: [], error: null, forKey: null })
-  const [attempt, setAttempt] = useState(0)
-  const request = useRef(null)
+     The one product list every user has (useProducts - POST inventory/product/
+     with the company's name), read again for each company. The hook keeps
+     the rows on screen while a reload is on its way and announces a failed
+     request itself.
 
-  useEffect(() => {
-    if (!companyName) return
-
-    const requestKey = `${companyName}#${attempt}`
-    if (request.current === requestKey) return
-    request.current = requestKey
-
-    getBasicProducts(companyName)
-      .then((rows) => {
-        if (request.current === requestKey) setState({ status: 'ready', rows, error: null, forKey: companyName })
-      })
-      .catch((failure) => {
-        if (request.current !== requestKey) return
-        toast.error(failure.message)
-        setState((previous) => ({
-          status: 'failed',
-          // The rows already on screen stay if they are this company's.
-          rows: previous.forKey === companyName ? previous.rows : [],
-          error: failure.message,
-          forKey: companyName,
-        }))
-      })
-  }, [companyName, attempt])
-
-  /** One controlled reload - Refresh, Retry, and after every save or sync. */
-  const reload = () => {
-    setState((previous) => ({ ...previous, status: 'loading' }))
-    setAttempt((count) => count + 1)
-  }
-
-  const current = state.forKey === companyName ? state : NOT_LOADED
+     `reload` is one controlled reload - Refresh, Retry, and after every
+     save or sync. */
+  const current = useProducts()
+  const { reload } = current
   const loading = current.status === 'loading'
 
   /* What the table draws: each product under the neutral names
      readBasicProduct gives it (with `source`, the row as the backend sent
      it), and a key - its id, its Tally identifier, or its position for a
-     row that arrived with neither. */
+     row that arrived with neither. readBasicProduct is THE place a row's
+     properties are named for this page: when the list's real shape is
+     known, it is adjusted there and nothing here changes. */
   const rows = useMemo(
     () =>
       current.rows.map((row, index) => {
@@ -198,9 +168,10 @@ export default function BasicProducts() {
     reload()
   }
 
-  /* What the form's dropdowns offer. The groups are this company's; the
-     units are the same for everyone; the vendors are the same the Vendor
-     tab lists, asked for only where the form has a Vendor field. */
+  /* What the form's dropdowns offer. The groups and the units are this
+     company's, read again when the company changes; the vendors are the
+     same the Vendor tab lists, asked for only where the form has a Vendor
+     field. */
   const groups = useProductGroups()
   const units = useProductUnits()
   const vendors = useVendorOptions(!isTally)

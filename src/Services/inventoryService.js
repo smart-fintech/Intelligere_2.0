@@ -351,12 +351,46 @@ export const hasInventoryManagement = (company) =>
   company.premium_modules.includes(PREMIUM_MODULE_INVENTORY_MANAGEMENT)
 
 /* ------------------------------------------------------------------ */
+/* Products - the list, for every user                                */
+/* ------------------------------------------------------------------ */
+
+const PRODUCT_URL = 'inventory/product/'
+
+/**
+ * THE PRODUCTS OF ONE COMPANY - the ONE call every product list makes.
+ *
+ *   POST  inventory/product/   { company_name }
+ *
+ * A POST, with the company's name in the body: a body with only the company
+ * is a query, as with the ledgers (a body with a product in it is a create -
+ * see createProduct below). The same call whoever is asking - Tally or
+ * Intelligere, MSME or Accounting Professional, with Inventory Management
+ * or without - and it returns every product of the company, those with SKUs
+ * and those without. Screens read it through Hooks/useProducts.
+ *
+ * The name comes from the caller, which reads it from the active company in
+ * the store - never from a form. Without one there is nothing to ask for.
+ *
+ * WHAT A ROW LOOKS LIKE HAS NOT BEEN SUPPLIED YET. So this hands the rows
+ * back exactly as they came, and nothing here names a property of one. The
+ * list is taken to be an array - bare, or under `data` / `results` (toList);
+ * when the real reply is known, a different wrapper is unwrapped HERE, and
+ * the properties of a row are named where each list reads them.
+ */
+export const getProducts = async (companyName) => {
+  if (!companyName) return []
+
+  return toList(await api.post(PRODUCT_URL, { company_name: companyName }))
+}
+
+/* ------------------------------------------------------------------ */
 /* Products - with Inventory Management                               */
 /* ------------------------------------------------------------------ */
 
 /*
- * (A user without Inventory Management has a simpler product, with its own
- * endpoint and its own payloads - see Services/productService.)
+ * (A user without Inventory Management has a simpler product, saved through
+ * its own endpoint with its own payloads - see Services/productService. Its
+ * LIST is the same call as everyone's: getProducts, above.)
  *
  *   POST  inventory/product/   create a product   (the body: buildProductPayload)
  *
@@ -365,10 +399,9 @@ export const hasInventoryManagement = (company) =>
  *   { "msg": "Product saved successfully", "product_id": 1,
  *     "sku_code": "PRI-COT-COT-140-001", "sku_details": { ... } }
  *
- * THERE IS NO LIST, UPDATE OR DELETE HERE YET. How this endpoint lists a
- * company's products - its method, what it is asked with and what a row
- * looks like - has not been confirmed, and neither has changing or removing
- * one; each is added as one function below once its contract is known.
+ * THERE IS NO UPDATE OR DELETE HERE YET. How this endpoint changes or
+ * removes a product has not been confirmed; each is added as one function
+ * below once its contract is known.
  *
  * ONE QUESTION decides what a company's Product form is:
  *
@@ -380,7 +413,6 @@ export const hasInventoryManagement = (company) =>
  * form depends on the company's plan: whether a user reaches the form at all
  * is decided before it, by useInventoryAccess.
  */
-const PRODUCT_URL = 'inventory/product/'
 
 /**
  * Whether the company has SKU management switched on: the `sku` setting of

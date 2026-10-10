@@ -1,59 +1,63 @@
 /**
- * The units a product can be counted in, as the choices of the Product
- * form's Unit dropdown:
+ * The units the active company's products can be counted in, as the choices
+ * of the Product form's Unit dropdown:
  *
  *   const units = useProductUnits()
  *
- *   status    'loading' | 'ready' | 'failed'
+ *   status    'idle' | 'loading' | 'ready' | 'failed'
  *   options   [{ value, label }] - both the unit exactly as the backend
  *             names it ("NOS", "Nos" and "N/A" are three different units)
  *   error     the message when the request failed
  *   retry()   asks again - nothing retries on its own
  *
- * The request itself is made, and its answer kept, by getProductUnits in
- * Services/productService - the list is the same for every company, so any
- * number of screens using this hook, and any number of remounts, share ONE
- * request per visit.
+ * Read with the active company's name, from the store and never typed, and
+ * read again whenever the company changes - the same way useProductGroups
+ * reads the groups. An older company's units are never handed out: until
+ * the answer for THIS company is in, `options` is empty.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
+import { useActiveCompany } from '@/Hooks/useActiveCompany'
 import { getProductUnits } from '@/Services/productService'
 
-const LOADING = { status: 'loading', units: null, error: null }
+const NO_UNITS = []
 
 export default function useProductUnits() {
-  const [state, setState] = useState(LOADING)
+  const { activeCompanyName: companyName } = useActiveCompany()
+
+  const [state, setState] = useState({ status: 'loading', units: NO_UNITS, error: null, forKey: null })
   const [attempt, setAttempt] = useState(0)
+  const request = useRef(null)
 
   useEffect(() => {
-    // An answer arriving after the screen has gone is dropped.
-    let current = true
+    if (!companyName) return
 
-    getProductUnits()
+    const requestKey = `${companyName}#${attempt}`
+    if (request.current === requestKey) return
+    request.current = requestKey
+
+    getProductUnits(companyName)
       .then((units) => {
-        if (current) setState({ status: 'ready', units, error: null })
+        if (request.current === requestKey) setState({ status: 'ready', units, error: null, forKey: companyName })
       })
       .catch((failure) => {
-        if (current) setState({ status: 'failed', units: null, error: failure.message })
+        if (request.current !== requestKey) return
+        setState({ status: 'failed', units: NO_UNITS, error: failure.message, forKey: companyName })
       })
+  }, [companyName, attempt])
 
-    return () => {
-      current = false
-    }
-  }, [attempt])
+  const mine = Boolean(companyName) && state.forKey === companyName
+  const units = mine ? state.units : NO_UNITS
 
-  const options = useMemo(
-    () => [...new Set(state.units ?? [])].map((unit) => ({ value: unit, label: unit })),
-    [state.units],
-  )
+  const options = useMemo(() => [...new Set(units)].map((unit) => ({ value: unit, label: unit })), [units])
 
   return {
-    status: state.status,
+    status: !companyName ? 'idle' : mine ? state.status : 'loading',
     options,
-    error: state.error,
+    error: mine ? state.error : null,
     retry: () => {
-      setState(LOADING)
+      setState((previous) => ({ ...previous, forKey: null }))
       setAttempt((count) => count + 1)
     },
   }

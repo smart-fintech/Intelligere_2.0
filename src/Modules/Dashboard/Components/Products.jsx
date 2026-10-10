@@ -2,26 +2,30 @@
  * The Product section of Inventory Details: adding a product for the active
  * company, in a dialog opened from here.
  *
- * THE PRODUCT LIST IS NOT HERE YET. How inventory/product/ lists a company's
- * products has not been confirmed (see the note in inventoryService), so
- * this page is, for now, the way in to Add Product. The table, its search,
- * filters and pager take this card's body when the list contract is known -
- * `handleSaved` below is where it will be read again after a save.
+ * THE PRODUCTS ARE FETCHED, BUT NOT YET LISTED. The page reads the company's
+ * products through useProducts - the one call every product list makes,
+ * POST inventory/product/ with the company's name - as it opens, on Refresh
+ * and again after every Add Product. What a row of that reply looks like has
+ * not been supplied yet, so no column is made up for it: the page says HOW
+ * MANY products came back and nothing more. The table, its search, filters
+ * and pager take this card's body when the shape is known - the rows are
+ * already here, in `products.rows`, for it to draw.
  *
  * ------------------------------------------------------------------
  * WHAT THE FORM IS MADE OF - ALL OF IT ALREADY IN THE APP
  * ------------------------------------------------------------------
+ *   the products         the one product list               useProducts
  *   the fields           the company's Customised Fields    useCustomFields
  *   SKU on or off        the company's Master Details        useMasterDetails
  *   its vendors          the Vendor list                     useVendorOptions
  *   its warehouses       the Warehouse list                  useWarehouseOptions
  *
- * The first two are read from the store, shared with the tabs that own
- * them, so opening this section after either of those costs no request -
- * and a field added on the Customised Fields tab, or SKUs switched on in
- * Master Details, changes the form without a reload. The last two are asked
- * for only once the dialog has been opened (and, for vendors, only when a
- * field asks for one).
+ * The fields and the Master Details are read from the store, shared with
+ * the tabs that own them, so opening this section after either of those
+ * costs no request - and a field added on the Customised Fields tab, or
+ * SKUs switched on in Master Details, changes the form without a reload.
+ * The vendors and the warehouses are asked for only once the dialog has
+ * been opened (and the vendors only when a field asks for one).
  *
  * ------------------------------------------------------------------
  * ONE DECISION
@@ -43,17 +47,19 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useSelector } from 'react-redux'
-import { AlertCircle, Package, Plus } from 'lucide-react'
+import { AlertCircle, Package, Plus, RefreshCw } from 'lucide-react'
 
-import { ListSkeleton, RetryButton, StateMessage } from '@/Components/Common/DataList'
+import { InlineAlert, ListSkeleton, RetryButton, StateMessage } from '@/Components/Common/DataList'
 import { Panel } from '@/Components/Common/Panel'
 import { Button } from '@/Components/ui/button'
 import { ENV } from '@/Config/env'
 import { useActiveCompany } from '@/Hooks/useActiveCompany'
 import useCustomFields from '@/Hooks/useCustomFields'
 import useMasterDetails from '@/Hooks/useMasterDetails'
+import useProducts from '@/Hooks/useProducts'
 import useVendorOptions from '@/Hooks/useVendorOptions'
 import useWarehouseOptions from '@/Hooks/useWarehouseOptions'
+import { cn } from '@/Library/utils'
 import { isSkuManagementEnabled } from '@/Services/inventoryService'
 import { selectCompanyStatus } from '@/Store/Slices/companySlice'
 import {
@@ -72,6 +78,10 @@ export default function Products() {
 
   const customFields = useCustomFields()
   const masterDetails = useMasterDetails()
+
+  // The company's products - see "fetched, but not yet listed" at the top.
+  const products = useProducts()
+  const loadingProducts = products.status === 'loading'
 
   /* ---------------- The one decision ---------------- */
 
@@ -119,8 +129,11 @@ export default function Products() {
   const vendors = useVendorOptions(everOpened && needsVendors)
   const warehouses = useWarehouseOptions(everOpened)
 
-  /** A product was saved: the dialog goes. (The list is read again here, once there is one.) */
-  const handleSaved = () => closeDialog()
+  /** A product was saved: the dialog goes, and the products are read again. */
+  const handleSaved = () => {
+    closeDialog()
+    products.reload()
+  }
 
   // The form can be opened once there is something to build it from and
   // every decision above has an answer.
@@ -201,7 +214,34 @@ export default function Products() {
 
   return (
     <>
-      <Panel title="Products" actions={addButton}>
+      <Panel
+        title="Products"
+        // How many came back - the one thing known about the reply so far.
+        meta={products.status === 'ready' ? `(Total Count: ${products.rows.length})` : undefined}
+        actions={
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              onClick={products.reload}
+              disabled={!companyId || loadingProducts}
+              aria-label="Refresh products"
+            >
+              <RefreshCw className={cn(loadingProducts && companyId && 'animate-spin')} />
+              Refresh
+            </Button>
+            {addButton}
+          </div>
+        }
+      >
+        {/* The products could not be read. Adding one does not depend on
+            that, so the rest of the card carries on underneath. */}
+        {products.status === 'failed' ? (
+          <InlineAlert action={<RetryButton onClick={products.reload} />}>
+            Products could not be loaded. {products.error}
+          </InlineAlert>
+        ) : null}
+
         {renderBody()}
       </Panel>
 
