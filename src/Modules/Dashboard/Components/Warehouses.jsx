@@ -6,9 +6,11 @@
  * WHAT REACHES THE NETWORK
  * ------------------------------------------------------------------
  *   opening the tab / company change   the list   POST { company_id }
+ *                                      the Master Details, unless the store
+ *                                      already has them (see useMasterDetails)
  *   Refresh / Retry                    the list
  *   Save in the dialog                 POST or PUT, then the list again
- *   Delete, confirmed                  DELETE { warehouse_obj_id }, then the list
+ *   Delete, confirmed in its popover   DELETE { warehouse_obj_id }, then the list
  *
  * After every change the list is read again from the backend rather than
  * patched by hand, so the table always shows what is really saved.
@@ -26,7 +28,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSelector } from 'react-redux'
 import { AlertCircle, Plus, RefreshCw, Warehouse } from 'lucide-react'
 
-import { ConfirmDialog } from '@/Components/Common/ConfirmDialog'
 import { ListSkeleton, InlineAlert, RetryButton, RowActions, StateMessage } from '@/Components/Common/DataList'
 import { YesNo } from '@/Components/Common/DetailList'
 import { Panel } from '@/Components/Common/Panel'
@@ -41,6 +42,7 @@ import { Button } from '@/Components/ui/button'
 import { TableCell, TableRow } from '@/Components/ui/table'
 import { useActiveCompany } from '@/Hooks/useActiveCompany'
 import { useListView } from '@/Hooks/useListView'
+import useMasterDetails from '@/Hooks/useMasterDetails'
 import { toast } from '@/Library/toast'
 import { cn } from '@/Library/utils'
 import { deleteWarehouse, getWarehouseId, getWarehouses } from '@/Services/inventoryService'
@@ -51,7 +53,7 @@ import WarehouseFormModal from './WarehouseFormModal'
 const SEARCH_FIELDS = ['name', 'warehouse_address', 'contact', 'email', 'pincode', 'state_name', 'contact_person_name']
 const FILTER_FIELDS = {
   state_name: 'State',
-  status_label: 'Status',
+  // status_label: 'Status',
 }
 
 /** What a company whose list has not arrived yet shows - one object, so the memos below hold. */
@@ -60,6 +62,12 @@ const NOT_LOADED = { status: 'loading', rows: [], error: null }
 export default function Warehouses() {
   const { activeCompanyId: companyId } = useActiveCompany()
   const companyStatus = useSelector(selectCompanyStatus)
+
+  // The company's Master Details - their `business_type` decides which
+  // fields the warehouse form has. Asked for as this tab opens, so they are
+  // normally in long before the form is; shared with the Master Details tab,
+  // so having visited it already means no request at all.
+  const masterDetails = useMasterDetails()
 
   /* ---------------- The list ----------------
      Kept with the company it belongs to: a result for an older company (the
@@ -132,9 +140,14 @@ export default function Warehouses() {
     reload()
   }
 
-  /* ---------------- Delete ---------------- */
+  /* ---------------- Delete ----------------
+     `confirming` is the row whose "are you sure?" popover is open - one at
+     a time, beside that row's Delete button. */
   const [confirming, setConfirming] = useState(null)
   const [deleting, setDeleting] = useState(false)
+
+  const isConfirming = (warehouse) =>
+    Boolean(confirming) && getWarehouseId(confirming) === getWarehouseId(warehouse)
 
   const handleDelete = async () => {
     if (!confirming || deleting) return
@@ -241,9 +254,9 @@ export default function Warehouses() {
                 <SortableHead view={view} field="plant_label" width={130}>
                   Mfg. Plant
                 </SortableHead>
-                <SortableHead view={view} field="status_label" width={110}>
+                {/* <SortableHead view={view} field="status_label" width={110}>
                   Status
-                </SortableHead>
+                </SortableHead> */}
                 <PlainHead width={96} className="text-right">
                   Actions
                 </PlainHead>
@@ -264,14 +277,30 @@ export default function Warehouses() {
                 <TableCell>
                   <YesNo value={warehouse.is_manufacturing_plant} />
                 </TableCell>
-                <TableCell>
+                {/* <TableCell>
                   <YesNo value={warehouse.is_active} yes="Active" no="Inactive" />
-                </TableCell>
+                </TableCell> */}
                 <TableCell className="text-right">
+                  {/* Nothing is deleted on the click itself - the popover
+                      beside the button asks first. */}
                   <RowActions
                     label={warehouse.name}
                     onEdit={() => openDialog(warehouse)}
-                    onDelete={() => setConfirming(warehouse)}
+                    deleteConfirm={{
+                      open: isConfirming(warehouse),
+                      onOpenChange: (next) => {
+                        // One delete at a time: no other row can be opened
+                        // while a request is on its way.
+                        if (!deleting) setConfirming(next ? warehouse : null)
+                      },
+                      title: 'Delete Warehouse?',
+                      description: (<>
+                        Are you sure you want to delete <strong>{warehouse.name}</strong> ? This cannot be undone.
+                      </>),
+                      confirmLabel: deleting ? 'Deleting...' : 'Delete',
+                      busy: deleting,
+                      onConfirm: handleDelete,
+                    }}
                   />
                 </TableCell>
               </TableRow>
@@ -319,22 +348,8 @@ export default function Warehouses() {
         }}
         warehouse={dialog.warehouse}
         companyId={companyId}
+        masterDetails={masterDetails}
         onSaved={handleSaved}
-      />
-
-      {/* Nothing is deleted on the click itself - this asks first. */}
-      <ConfirmDialog
-        open={Boolean(confirming)}
-        onOpenChange={(next) => {
-          if (!next && !deleting) setConfirming(null)
-        }}
-        title="Delete Warehouse?"
-        description={
-          confirming ? `Are you sure you want to delete "${confirming.name}"? This cannot be undone.` : undefined
-        }
-        confirmLabel={deleting ? 'Deleting...' : 'Delete'}
-        busy={deleting}
-        onConfirm={handleDelete}
       />
     </>
   )

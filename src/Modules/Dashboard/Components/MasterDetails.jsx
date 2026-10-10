@@ -17,21 +17,20 @@
  * read again whenever either changes, so switching company in the header
  * shows that company's details.
  *
- * The data is this tab's alone, so it is kept here rather than in the store.
+ * The record is not this tab's alone - the Warehouse form reads its
+ * `business_type` - so it is kept in the store and reached through
+ * Hooks/useMasterDetails. Saving here is what changes it for everyone.
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { useSelector } from 'react-redux'
 import { AlertCircle, Building2 } from 'lucide-react'
 
 import { RetryButton, StateMessage } from '@/Components/Common/DataList'
 import { Loader } from '@/Components/Common/Loader'
 import { Panel } from '@/Components/Common/Panel'
-import { useActiveCompany } from '@/Hooks/useActiveCompany'
+import useMasterDetails from '@/Hooks/useMasterDetails'
 import useSampleInvoices from '@/Hooks/useSampleInvoices'
-import { getEmail } from '@/Library/secureStorage'
-import { toast } from '@/Library/toast'
-import { getMasterDetails } from '@/Services/inventoryService'
 import { selectCompanyStatus } from '@/Store/Slices/companySlice'
 import MasterDetailsForm from './MasterDetailsForm'
 import MasterDetailsView from './MasterDetailsView'
@@ -51,50 +50,18 @@ export default function MasterDetails() {
 }
 
 function MasterDetailsContent() {
-  const { activeCompanyName: compName } = useActiveCompany()
+  // The record, shared with every other screen that needs it. `loadKey`
+  // names the company and user it is for; until the answer for THIS key is
+  // in, the status is 'loading'.
+  const { key: loadKey, compName, email, status, record, error, reload, setRecord } = useMasterDetails()
   const companyStatus = useSelector(selectCompanyStatus)
-  const email = getEmail() || ''
 
   // Fetched once for the whole tab and shared by the view and the form, so
   // going in and out of Edit never asks again.
   const samples = useSampleInvoices()
 
-  // The record and which company it belongs to. A result for an older key
-  // (the company changed while it was on its way) is not this company's.
-  const loadKey = `${compName}|${email}`
-  const [state, setState] = useState({ status: 'loading', record: null, error: null, forKey: null })
-  const [attempt, setAttempt] = useState(0)
   // The key Edit was clicked under - so a company switch leaves edit mode.
   const [editingKey, setEditingKey] = useState(null)
-  const request = useRef(null)
-
-  useEffect(() => {
-    if (!compName) return
-
-    const requestKey = `${loadKey}#${attempt}`
-    if (request.current === requestKey) return
-    request.current = requestKey
-
-    getMasterDetails({ compName, email })
-      .then((record) => {
-        if (request.current === requestKey) setState({ status: 'ready', record, error: null, forKey: loadKey })
-      })
-      .catch((failure) => {
-        if (request.current === requestKey) {
-          // A real failure - "no record yet" never gets here (see
-          // getMasterDetails), it opens the Add form instead. The backend's
-          // own `msg` is the message, as everywhere (see authService).
-          toast.error(failure.message)
-          setState({ status: 'failed', record: null, error: failure.message, forKey: loadKey })
-        }
-      })
-  }, [loadKey, attempt, compName, email])
-
-  /** Asks again - Retry, and after a save whose reply carried no record. */
-  const reload = () => {
-    setState((previous) => ({ ...previous, forKey: null }))
-    setAttempt((count) => count + 1)
-  }
 
   /* ---------------- No company to ask about ---------------- */
   if (!compName) {
@@ -113,9 +80,7 @@ function MasterDetailsContent() {
     )
   }
 
-  const current = state.forKey === loadKey ? state : { status: 'loading' }
-
-  if (current.status === 'loading') {
+  if (status === 'loading') {
     return (
       <Panel title="Master Details">
         <Loader variant="section" label="Loading master details..." />
@@ -123,7 +88,7 @@ function MasterDetailsContent() {
     )
   }
 
-  if (current.status === 'failed') {
+  if (status === 'failed') {
     return (
       <Panel title="Master Details">
         <StateMessage
@@ -132,7 +97,7 @@ function MasterDetailsContent() {
           title="Could not load the master details"
           action={<RetryButton onClick={reload} />}
         >
-          {current.error}
+          {error}
         </StateMessage>
       </Panel>
     )
@@ -141,11 +106,9 @@ function MasterDetailsContent() {
   /** After a save: show what the reply carried, or read it again. */
   const handleSaved = (saved) => {
     setEditingKey(null)
-    if (saved) setState({ status: 'ready', record: saved, error: null, forKey: loadKey })
+    if (saved) setRecord(saved)
     else reload()
   }
-
-  const { record } = current
 
   if (record && editingKey !== loadKey) {
     return (

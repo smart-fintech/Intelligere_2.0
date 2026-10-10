@@ -17,16 +17,34 @@
  * with nothing renamed. `company_id` is never a field: it is the company the
  * header is working in, handed in by the list.
  *
+ * ------------------------------------------------------------------
+ * MANUFACTURING PLANT DEPENDS ON THE COMPANY'S BUSINESS TYPE
+ * ------------------------------------------------------------------
+ * Whether a warehouse has the Manufacturing Plant switch is decided by the
+ * company's Master Details (hasManufacturingPlantSetting in
+ * inventoryService), in Create and in Edit alike:
+ *
+ *   Manufacturer   not shown, and `is_manufacturing_plant` is left out of
+ *                  the payload - whatever the saved warehouse holds
+ *   Trader         shown, filled from the warehouse, and sent
+ *
+ * Until the Master Details have been read there is no answer, and none is
+ * assumed: the switch's place holds a placeholder and Save waits. If reading
+ * them failed, the form says so and offers Retry.
+ *
  * Props:
  *   open, onOpenChange   controlled by the list, the same as Modal
  *   warehouse            the row being edited, or null to create one
  *   companyId            the active company - what a new warehouse is filed under
+ *   masterDetails        useMasterDetails(), from the list: { status, record,
+ *                        error, reload }
  *   onSaved()            after a successful save; the list closes this and reloads
  */
 
 import { useState } from 'react'
 import { Mail, MapPin, Phone, User, Warehouse } from 'lucide-react'
 
+import { InlineAlert, RetryButton } from '@/Components/Common/DataList'
 import {
   Field,
   FormGrid,
@@ -36,9 +54,15 @@ import {
 } from '@/Components/Common/FormFields'
 import { Modal } from '@/Components/Common/Modal'
 import { Button } from '@/Components/ui/button'
+import { Skeleton } from '@/Components/ui/skeleton'
 import { findStateByName, INDIAN_STATES } from '@/Constants/indianStates'
 import { toast } from '@/Library/toast'
-import { createWarehouse, getWarehouseId, updateWarehouse } from '@/Services/inventoryService'
+import {
+  createWarehouse,
+  getWarehouseId,
+  hasManufacturingPlantSetting,
+  updateWarehouse,
+} from '@/Services/inventoryService'
 
 const FORM_ID = 'warehouse-form'
 
@@ -82,8 +106,13 @@ const initialForm = (warehouse) =>
       }
     : EMPTY_FORM
 
-export default function WarehouseFormModal({ open, onOpenChange, warehouse, companyId, onSaved }) {
+export default function WarehouseFormModal({ open, onOpenChange, warehouse, companyId, masterDetails, onSaved }) {
   const editing = Boolean(warehouse)
+
+  // Only once the Master Details have been read is it known which fields
+  // this company's warehouses have - see the note at the top.
+  const settingsKnown = masterDetails.status === 'ready'
+  const showPlant = settingsKnown && hasManufacturingPlantSetting(masterDetails.record)
 
   const [initial] = useState(() => initialForm(warehouse))
   const [form, setForm] = useState(initial)
@@ -120,7 +149,11 @@ export default function WarehouseFormModal({ open, onOpenChange, warehouse, comp
     return found
   }
 
-  /** The warehouse as the backend takes it: text trimmed, numbers kept as text. */
+  /**
+   * The warehouse as the backend takes it: text trimmed, numbers kept as
+   * text. A setting the company does not have is left out altogether rather
+   * than sent as false.
+   */
   const buildFields = () => ({
     name: form.name.trim(),
     warehouse_address: form.warehouse_address.trim(),
@@ -129,13 +162,14 @@ export default function WarehouseFormModal({ open, onOpenChange, warehouse, comp
     pincode: form.pincode,
     state_name: form.state_name,
     contact_person_name: form.contact_person_name.trim(),
-    is_manufacturing_plant: form.is_manufacturing_plant,
+    ...(showPlant ? { is_manufacturing_plant: form.is_manufacturing_plant } : {}),
     // is_active: form.is_active,
   })
 
   const handleSubmit = async (event) => {
     event.preventDefault()
-    if (submitting) return
+    // Enter in a field submits the form even while Save is disabled.
+    if (submitting || !settingsKnown) return
 
     const found = validate()
     setErrors(found)
@@ -192,7 +226,12 @@ export default function WarehouseFormModal({ open, onOpenChange, warehouse, comp
           </Button>
           {/* `form` ties this button to the form above it, outside of which
               the dialog draws its footer. */}
-          <Button type="submit" form={FORM_ID} loading={submitting} disabled={!editing && !companyId}>
+          <Button
+            type="submit"
+            form={FORM_ID}
+            loading={submitting}
+            disabled={!settingsKnown || (!editing && !companyId)}
+          >
             {submitting ? 'Saving...' : editing ? 'Update Warehouse' : 'Save Warehouse'}
           </Button>
         </>
@@ -200,6 +239,14 @@ export default function WarehouseFormModal({ open, onOpenChange, warehouse, comp
     >
       {/* `p-1`: room for the focus ring, inside the dialog's scroll box. */}
       <form id={FORM_ID} onSubmit={handleSubmit} noValidate className="space-y-3 p-1">
+        {/* Without the Master Details nobody knows which fields apply, so the
+            warehouse cannot be saved - and nothing retries on its own. */}
+        {masterDetails.status === 'failed' ? (
+          <InlineAlert action={<RetryButton onClick={masterDetails.reload} />}>
+            Could not load the master details, so this warehouse cannot be saved yet. {masterDetails.error}
+          </InlineAlert>
+        ) : null}
+
         <FormGrid>
           <Field
             id="warehouse_name"
@@ -282,13 +329,20 @@ export default function WarehouseFormModal({ open, onOpenChange, warehouse, comp
             disabled={submitting}
             onChange={(event) => setDigits('pincode', event.target.value)}
           />
-          <ToggleField
-            id="is_manufacturing_plant"
-            label="Manufacturing Plant"
-            checked={form.is_manufacturing_plant}
-            disabled={submitting}
-            onCheckedChange={(on) => setField('is_manufacturing_plant', on)}
-          />
+          {/* Not rendered at all when it does not apply, so the grid closes
+              up and no gap is left where it was. */}
+          {showPlant ? (
+            <ToggleField
+              id="is_manufacturing_plant"
+              label="Manufacturing Plant"
+              checked={form.is_manufacturing_plant}
+              disabled={submitting}
+              onCheckedChange={(on) => setField('is_manufacturing_plant', on)}
+            />
+          ) : masterDetails.status === 'loading' ? (
+            // Still being read: its place is held, without guessing.
+            <Skeleton className="h-9" />
+          ) : null}
           {/* <ToggleField
             id="warehouse_is_active"
             label="Active"

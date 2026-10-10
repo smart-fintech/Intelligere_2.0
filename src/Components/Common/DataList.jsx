@@ -1,5 +1,6 @@
 import { AlertCircle, Pencil, RefreshCw, Trash2 } from 'lucide-react'
 
+import { ConfirmPopover } from '@/Components/Common/ConfirmPopover'
 import { Button } from '@/Components/ui/button'
 import { Skeleton } from '@/Components/ui/skeleton'
 import { cn } from '@/Library/utils'
@@ -117,8 +118,39 @@ export function RetryButton({ onClick, label = 'Retry' }) {
  * `label` names the record for screen readers - "Edit HDFC Bank" rather than
  * a page of identical "Edit" buttons. `onEdit` and `onDelete` are called with
  * no arguments; the caller already knows which row it drew.
+ *
+ * `deleteConfirm` asks "are you sure?" in a small popover beside the Delete
+ * button instead of leaving the asking to the page. It is the props of
+ * ConfirmPopover - open, onOpenChange, title, description, confirmLabel,
+ * busy, onConfirm - and with it the click opens the popover, so `onDelete`
+ * is not needed:
+ *
+ *   <RowActions
+ *     label={bank.bank_name}
+ *     onEdit={() => openDialog(bank)}
+ *     deleteConfirm={{
+ *       open: confirming === bank,
+ *       onOpenChange: (next) => setConfirming(next ? bank : null),
+ *       title: 'Delete bank?',
+ *       confirmLabel: 'Delete',
+ *       busy: deleting,
+ *       onConfirm: handleDelete,
+ *     }}
+ *   />
  */
-export function RowActions({ label, onEdit, onDelete }) {
+export function RowActions({ label, onEdit, onDelete, deleteConfirm }) {
+  const deleteButton = (
+    <Button
+      type="button"
+      variant="iconDelete"
+      size="icon-sm"
+      tooltip="Delete"
+      aria-label={`Delete ${label}`}
+      icon={Trash2}
+      onClick={deleteConfirm ? undefined : onDelete}
+    />
+  )
+
   return (
     <div className="flex justify-end gap-1.5">
       <Button
@@ -131,15 +163,7 @@ export function RowActions({ label, onEdit, onDelete }) {
         onClick={onEdit}
       />
 
-      <Button
-        type="button"
-        variant="iconDelete"
-        size="icon-sm"
-        tooltip="Delete"
-        aria-label={`Delete ${label}`}
-        icon={Trash2}
-        onClick={onDelete}
-      />
+      {deleteConfirm ? <ConfirmPopover {...deleteConfirm}>{deleteButton}</ConfirmPopover> : deleteButton}
     </div>
   )
 }

@@ -23,7 +23,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { AlertCircle, BookOpen, CloudDownload, RefreshCw, Trash2 } from 'lucide-react'
 
-import { ConfirmDialog } from '@/Components/Common/ConfirmDialog'
+import { ConfirmPopover } from '@/Components/Common/ConfirmPopover'
 import { CsvDownloadButton } from '@/Components/Common/CsvDownloadButton'
 import {
   InlineAlert,
@@ -123,6 +123,8 @@ export default function LedgerDetails() {
   const bankNames = useSelector(selectBankNames)
 
   const [editing, setEditing] = useState(null)
+  // Whose "are you sure?" popover is open: a ledger row, or 'all' for the
+  // Delete All button in the header. One at a time.
   const [confirming, setConfirming] = useState(null)
   const [deleting, setDeleting] = useState(false)
 
@@ -383,6 +385,9 @@ export default function LedgerDetails() {
   // The id of the row open in the form, or null while adding.
   const editingId = editing ? getLedgerId(editing) : null
 
+  // The id of the row being asked about, or null ('all' is not a row).
+  const confirmingId = confirming && confirming !== 'all' ? getLedgerId(confirming) : null
+
   /* ---------------- What fills the list card ---------------- */
   const renderList = () => {
     // Sync Now first: the whole list area is the loader until the reloaded
@@ -513,10 +518,24 @@ export default function LedgerDetails() {
                 <TableCell>{orDash(ledger.ledeger_state)}</TableCell>
                 <TableCell>{creditPeriod(ledger.credit_period_days)}</TableCell>
                 <TableCell className="text-right">
+                  {/* Nothing is deleted on the click itself - the popover
+                      beside the button asks first. */}
                   <RowActions
                     label={ledger.ledeger_name}
                     onEdit={() => setEditing(ledger)}
-                    onDelete={() => setConfirming(ledger)}
+                    deleteConfirm={{
+                      open: confirmingId !== null && confirmingId === getLedgerId(ledger),
+                      onOpenChange: (next) => setConfirming(next ? ledger : null),
+                      title: 'Delete Ledger?',
+                      description: (
+                        <>
+                          Are you sure you want to delete the ledger <strong>{ledger.ledeger_name}</strong> ? This cannot be undone.
+                        </>
+                      ),
+                      confirmLabel: deleting ? 'Deleting...' : 'Delete',
+                      busy: deleting,
+                      onConfirm: handleDelete,
+                    }}
                   />
                 </TableCell>
               </TableRow>
@@ -573,17 +592,29 @@ export default function LedgerDetails() {
                   Total Count: {ledgers.length}
                 </span>&nbsp;&nbsp;
 
-                <Button
-                  type="button"
-                  variant="iconDelete"
-                  size="sm"
-                  tooltip="Delete all ledgers for this company"
-                  onClick={() => setConfirming('all')} // Set to 'all' to trigger the modal
-                  disabled={loading || syncing || ledgers.length === 0}
-                  aria-label="Delete all ledgers"
+                {/* The button sits at the left of the header, so its popover
+                    lines up with the button's left edge. */}
+                <ConfirmPopover
+                  open={confirming === 'all'}
+                  onOpenChange={(next) => setConfirming(next ? 'all' : null)}
+                  title="Delete All Ledgers?"
+                  description="Are you sure you want to permanently delete ALL ledgers for this company? This action cannot be undone."
+                  confirmLabel={deleting ? 'Deleting...' : 'Delete'}
+                  busy={deleting}
+                  onConfirm={handleDeleteAll}
+                  align="start"
                 >
-                  <Trash2 className="w-3.5 h-3.5" /> 
-                </Button>
+                  <Button
+                    type="button"
+                    variant="iconDelete"
+                    size="sm"
+                    tooltip="Delete all ledgers for this company"
+                    disabled={loading || syncing || ledgers.length === 0}
+                    aria-label="Delete all ledgers"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </Button>
+                </ConfirmPopover>
               </React.Fragment>
             }
             actions={
@@ -627,25 +658,6 @@ export default function LedgerDetails() {
           </Panel>
         </div>
       </div>
-
-      {/* Nothing is deleted on the click itself - this asks first. */}
-      <ConfirmDialog
-        open={Boolean(confirming)}
-        onOpenChange={(next) => {
-          if (!next) setConfirming(null)
-        }}
-        title={confirming === 'all' ? "Delete All Ledgers" : "Delete ledger"}
-        description={
-          confirming === 'all'
-            ? "Are you sure you want to permanently delete ALL ledgers for this company? This action cannot be undone."
-            : confirming
-              ? `Remove ${confirming.ledeger_name} from this company?`
-              : undefined
-        }
-        confirmLabel={deleting ? 'Deleting...' : 'Delete'}
-        busy={deleting}
-        onConfirm={confirming === 'all' ? handleDeleteAll : handleDelete}
-      />
     </>
   )
 }

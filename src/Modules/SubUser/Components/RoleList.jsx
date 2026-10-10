@@ -12,7 +12,6 @@ import { useEffect, useRef, useState } from 'react'
 import { useSelector } from 'react-redux'
 import { AlertCircle, Plus, ShieldCheck } from 'lucide-react'
 
-import { ConfirmDialog } from '@/Components/Common/ConfirmDialog'
 import { ListSkeleton, RetryButton, RowActions, StateMessage } from '@/Components/Common/DataList'
 import { Panel } from '@/Components/Common/Panel'
 import {
@@ -44,6 +43,8 @@ export default function RoleList() {
 
   // The modal: undefined = closed, null = Create Role, a row = Edit Role.
   const [modalRole, setModalRole] = useState(undefined)
+  // The row whose "are you sure?" popover is open - one at a time, beside
+  // that row's Delete button.
   const [confirming, setConfirming] = useState(null)
   const [deleting, setDeleting] = useState(false)
 
@@ -182,10 +183,23 @@ export default function RoleList() {
                 <TableCell>{orDash(role.role_created_at)}</TableCell>
                 <TableCell>{orDash(role.updated_at)}</TableCell>
                 <TableCell className="text-right">
+                  {/* Nothing is deleted on the click itself - the popover
+                      beside the button asks first. */}
                   <RowActions
                     label={role.under_role}
                     onEdit={() => setModalRole(role)}
-                    onDelete={() => setConfirming(role)}
+                    deleteConfirm={{
+                      open: confirming?.role_id === role.role_id,
+                      onOpenChange: (next) => setConfirming(next ? role : null),
+                      title: 'Delete Role?',
+                      description: (
+                        <>
+                          Are you sure you want to delete the role <strong>{role.under_role}</strong> ? This cannot be undone.
+                        </>
+                      ), confirmLabel: deleting ? 'Deleting...' : 'Delete',
+                      busy: deleting,
+                      onConfirm: handleDelete,
+                    }}
                   />
                 </TableCell>
               </TableRow>
@@ -230,18 +244,6 @@ export default function RoleList() {
           onClose={() => setModalRole(undefined)}
         />
       )}
-
-      <ConfirmDialog
-        open={Boolean(confirming)}
-        onOpenChange={(next) => {
-          if (!next) setConfirming(null)
-        }}
-        title="Delete role"
-        description={confirming ? `Remove the role "${confirming.under_role}"? This cannot be undone.` : undefined}
-        confirmLabel={deleting ? 'Deleting...' : 'Delete'}
-        busy={deleting}
-        onConfirm={handleDelete}
-      />
     </>
   )
 }

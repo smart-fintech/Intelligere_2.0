@@ -1,7 +1,8 @@
-import { ChevronDown, ChevronUp, ChevronsUpDown, Search, X } from 'lucide-react'
+import { ChevronDown, ChevronUp, ChevronsUpDown, Search, SlidersHorizontal, X } from 'lucide-react'
 
-import { Field } from '@/Components/Common/FormFields'
+import { Field, fieldLabelClass } from '@/Components/Common/FormFields'
 import { Button } from '@/Components/ui/button'
+import { Popover, PopoverContent, PopoverTrigger } from '@/Components/ui/popover'
 import {
   Select,
   SelectContent,
@@ -46,11 +47,21 @@ export const DEFAULT_COLUMN_WIDTH = 160
  * (and wraps under the filters on a narrow screen), and the filters work
  * exactly the same with or without it.
  *
+ * `moreFilters` is for a list with more filters than a row has room for: the
+ * fields named in it (keys of the view's `filterFields`) are tucked behind
+ * one "More Filters" button, in a small popover, instead of each taking a
+ * dropdown's width on the row. The button says how many of them are set, so
+ * a filter that is out of sight is never forgotten. Without it every filter
+ * sits on the row, as on the Bank and Ledger lists.
+ *
  * These are toolbar controls, so they use the compact 32px height (`h-8`,
  * `size="sm"`) rather than the 40px of a form field.
  */
-export function TableFilters({ view, searchPlaceholder = 'Search', actions }) {
+export function TableFilters({ view, searchPlaceholder = 'Search', actions, moreFilters = [] }) {
   const fields = Object.entries(view.filterFields)
+  const onRow = fields.filter(([field]) => !moreFilters.includes(field))
+  const tucked = fields.filter(([field]) => moreFilters.includes(field))
+  const tuckedInUse = tucked.filter(([field]) => view.filters[field]).length
 
   return (
     <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -65,28 +76,37 @@ export function TableFilters({ view, searchPlaceholder = 'Search', actions }) {
         inputClassName="h-8"
       />
 
-      {fields.map(([field, label]) => (
-        <Select
+      {onRow.map(([field, label]) => (
+        <FilterSelect
           key={field}
-          // Radix treats "" as "nothing chosen", so the "any" entry needs a
-          // value of its own; it is turned back into "" on the way out.
-          value={view.filters[field] || ANY}
-          onValueChange={(value) => view.setFilter(field, value === ANY ? '' : value)}
-        >
-          <SelectTrigger size="sm" aria-label={`Filter by ${label}`} className="w-full sm:w-44">
-            <SelectValue placeholder={label} />
-          </SelectTrigger>
-
-          <SelectContent>
-            <SelectItem value={ANY}>All {label}</SelectItem>
-            {(view.filterOptions[field] ?? []).map((option) => (
-              <SelectItem key={option} value={option}>
-                {option}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          view={view}
+          field={field}
+          label={label}
+          anyLabel={`All ${label}`}
+          className="w-full sm:w-44"
+        />
       ))}
+
+      {tucked.length > 0 ? (
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button type="button" variant="outline" size="sm" icon={SlidersHorizontal}>
+              More Filters{tuckedInUse > 0 ? ` (${tuckedInUse})` : ''}
+            </Button>
+          </PopoverTrigger>
+
+          {/* Each one under its own label here, as there is room for it -
+              which also lets the "any" entry be a plain "All". */}
+          <PopoverContent align="start" className="w-64 space-y-2.5 p-3">
+            {tucked.map(([field, label]) => (
+              <div key={field} className="space-y-1">
+                <p className={fieldLabelClass}>{label}</p>
+                <FilterSelect view={view} field={field} label={label} anyLabel="All" className="w-full" />
+              </div>
+            ))}
+          </PopoverContent>
+        </Popover>
+      ) : null}
 
       {view.isFiltered ? (
         <Button type="button" variant="ghost" size="sm" icon={X} onClick={view.clear}>
@@ -96,6 +116,34 @@ export function TableFilters({ view, searchPlaceholder = 'Search', actions }) {
 
       {actions ? <div className="ml-auto flex items-center gap-2">{actions}</div> : null}
     </div>
+  )
+}
+
+/**
+ * One filter dropdown: "any", then every value the rows hold for that field
+ * (see `filterOptions` in useListView).
+ */
+function FilterSelect({ view, field, label, anyLabel, className }) {
+  return (
+    <Select
+      // Radix treats "" as "nothing chosen", so the "any" entry needs a
+      // value of its own; it is turned back into "" on the way out.
+      value={view.filters[field] || ANY}
+      onValueChange={(value) => view.setFilter(field, value === ANY ? '' : value)}
+    >
+      <SelectTrigger size="sm" aria-label={`Filter by ${label}`} className={className}>
+        <SelectValue placeholder={label} />
+      </SelectTrigger>
+
+      <SelectContent>
+        <SelectItem value={ANY}>{anyLabel}</SelectItem>
+        {(view.filterOptions[field] ?? []).map((option) => (
+          <SelectItem key={option} value={option}>
+            {option}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   )
 }
 

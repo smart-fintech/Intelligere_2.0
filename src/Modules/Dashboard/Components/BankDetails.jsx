@@ -27,7 +27,6 @@ import { useEffect, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
 import { AlertCircle, Landmark, RefreshCw } from 'lucide-react'
 
-import { ConfirmDialog } from '@/Components/Common/ConfirmDialog'
 import { CsvDownloadButton } from '@/Components/Common/CsvDownloadButton'
 import {
   InlineAlert,
@@ -121,6 +120,8 @@ export default function BankDetails() {
   // never fetches anything.
   const [editing, setEditing] = useState(null)
 
+  // The row whose "are you sure?" popover is open - one at a time, beside
+  // that row's Delete button.
   const [confirming, setConfirming] = useState(null)
   const [deleting, setDeleting] = useState(false)
 
@@ -294,10 +295,24 @@ export default function BankDetails() {
                 <TableCell>{orDash(bank.account_no)}</TableCell>
                 <TableCell>{orDash(bank.ifsc_code)}</TableCell>
                 <TableCell className="text-right">
+                  {/* Nothing is deleted on the click itself - the popover
+                      beside the button asks first. */}
                   <RowActions
                     label={bank.bank_name}
                     onEdit={() => setEditing(bank)}
-                    onDelete={() => setConfirming(bank)}
+                    deleteConfirm={{
+                      open: confirming?.id === bank.id,
+                      onOpenChange: (next) => setConfirming(next ? bank : null),
+                      title: 'Delete Bank?',
+                      description: (
+                        <>
+                          Are you sure you want to delete <strong>{bank.bank_name}</strong> ? This cannot be undone.
+                        </>
+                      ),
+                      confirmLabel: deleting ? 'Deleting...' : 'Delete',
+                      busy: deleting,
+                      onConfirm: handleDelete,
+                    }}
                   />
                 </TableCell>
               </TableRow>
@@ -367,23 +382,6 @@ export default function BankDetails() {
           </Panel>
         </div>
       </div>
-
-      {/* Nothing is deleted on the click itself - this asks first. */}
-      <ConfirmDialog
-        open={Boolean(confirming)}
-        onOpenChange={(next) => {
-          if (!next) setConfirming(null)
-        }}
-        title="Delete bank"
-        description={
-          confirming
-            ? `Remove ${confirming.bank_name} (${confirming.account_no}) from this company? This cannot be undone.`
-            : undefined
-        }
-        confirmLabel={deleting ? 'Deleting...' : 'Delete'}
-        busy={deleting}
-        onConfirm={handleDelete}
-      />
     </>
   )
 }

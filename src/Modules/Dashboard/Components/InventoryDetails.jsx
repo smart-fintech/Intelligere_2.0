@@ -36,9 +36,12 @@ import { useSearchParams } from 'react-router-dom'
 
 import ComingSoon from '@/Components/Common/ComingSoon'
 import { Card } from '@/Components/ui/card'
-import { INVENTORY_SECTIONS } from '@/Constants/inventory'
+import { INVENTORY_DEFAULT_SECTION, INVENTORY_SECTIONS } from '@/Constants/inventory'
 import { cn } from '@/Library/utils'
+import CustomFields from './CustomFields'
 import MasterDetails from './MasterDetails'
+import Products from './Products'
+import Vendors from './Vendors'
 import Warehouses from './Warehouses'
 
 /**
@@ -49,14 +52,19 @@ import Warehouses from './Warehouses'
  * `ready` to true in Constants/inventory.
  */
 const INVENTORY_PAGES = {
+  product: Products,
   'inventory-master/master-details': MasterDetails,
   'inventory-master/warehouse': Warehouses,
+  'inventory-master/vendor': Vendors,
+  'inventory-master/customised-fields': CustomFields,
 }
 
 /** The one a list opens on: its first ready entry, else simply its first. */
 const firstReady = (entries) => entries.find((entry) => entry.ready) ?? entries[0]
 
-const DEFAULT_SECTION = firstReady(INVENTORY_SECTIONS)
+// The landing section is named, not worked out - see INVENTORY_DEFAULT_SECTION.
+const DEFAULT_SECTION =
+  INVENTORY_SECTIONS.find((entry) => entry.key === INVENTORY_DEFAULT_SECTION) ?? firstReady(INVENTORY_SECTIONS)
 
 /** The id of a page in INVENTORY_PAGES - see the note there. */
 const pageId = (section, tab) => (tab ? `${section.key}/${tab.key}` : section.key)
@@ -122,12 +130,12 @@ export default function InventoryDetails() {
               onClick={() => chooseSection(key)}
               className={cn(
                 '-mb-px flex cursor-pointer items-center gap-2 border-b-2 px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors outline-none',
-                'focus-visible:ring-[3px] focus-visible:ring-ring/50',
+                'focus-visible:ring-[3px] focus-visible:ring-ring/50 focus:rounded-md',
                 selected ? 'border-brand text-brand' : 'border-transparent text-muted-foreground hover:text-brand',
               )}
             >
               <Icon className="size-4" />
-              {label}s
+              {label}
             </button>
           )
         })}

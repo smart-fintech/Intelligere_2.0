@@ -244,6 +244,7 @@ const TALLY_LEDGER_FIELDS = [
   'ledger_accno',
   'ledger_pincode',
   'gst_rate',
+  'credit_period_days'
 ]
 
 /**

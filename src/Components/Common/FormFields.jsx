@@ -238,6 +238,8 @@ const OPTIONS_PAGE = 100
  * `options` is a list of `{ value, label }` - the caller maps its own data
  * into that shape, so this never has to know what it is showing.
  * `searchable` adds a filter box to the top of a long list (the states).
+ * `size="sm"` draws the compact 32px box, to sit beside a Field given
+ * inputClassName="h-8" in a form that has to stay short.
  */
 export function SelectField({
   id,
@@ -252,6 +254,7 @@ export function SelectField({
   disabled,
   searchable,
   searchPlaceholder,
+  size,
   className,
 }) {
   /* What is typed in the search box, and the options left after it.
@@ -325,7 +328,7 @@ export function SelectField({
         {/* The icon goes INSIDE the trigger rather than absolutely on top of
             it, so the chosen value is laid out beside it and never sits
             underneath. */}
-        <SelectTrigger id={id} className="w-full" {...controlAria(id, { error, required })}>
+        <SelectTrigger id={id} size={size} className="w-full" {...controlAria(id, { error, required })}>
           {/* Brand blue, matching the icon in a Field. */}
           {Icon ? <Icon className="size-4 shrink-0 text-brand" /> : null}
           <SelectValue placeholder={placeholder} />

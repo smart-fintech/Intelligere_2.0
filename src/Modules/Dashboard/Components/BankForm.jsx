@@ -233,7 +233,7 @@ export default function BankForm({
           account_no: form.account_no.trim(),
           ifsc_code: form.ifsc_code.trim(),
           // Never typed by the user - it is the company the header is on.
-          comp_id: companyId,
+          company_id: companyId,
         })
       }
 
