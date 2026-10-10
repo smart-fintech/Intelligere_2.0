@@ -8,8 +8,8 @@
  * There is no separate edit screen. `product` decides which mode this is:
  *
  *   product = null    ADD    clean fields
- *   product = {...}   EDIT   its values (a row of the list, as
- *                            readBasicProduct gives it)
+ *   product = {...}   EDIT   its values (a product of the list, as
+ *                            toBasicProduct gives it)
  *
  * The fields start filled in from `product` as the component mounts. The
  * page gives this component a `key` that changes with the row being edited,
@@ -272,7 +272,7 @@ export default function BasicProductForm({ erp, product, companyName, groups, un
 
   const saveToIntelligere = async () => {
     // The backend finds the product by its id - never by its name.
-    if (editing && (product.id === null || product.id === undefined)) {
+    if (editing && (product.product_id === null || product.product_id === undefined)) {
       toast.error('This product has no identifier, so it cannot be edited. Refresh the list and try again.')
       return
     }
@@ -291,7 +291,7 @@ export default function BasicProductForm({ erp, product, companyName, groups, un
 
     try {
       const response = editing
-        ? await updateIntelligereProduct(product.id, payload)
+        ? await updateIntelligereProduct(product.product_id, payload)
         : await createIntelligereProduct(payload)
 
       // Declined, not failed: nothing was created, so nothing is cleared or

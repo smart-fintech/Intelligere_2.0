@@ -122,6 +122,10 @@ export function TableFilters({ view, searchPlaceholder = 'Search', actions, more
 /**
  * One filter dropdown: "any", then every value the rows hold for that field
  * (see `filterOptions` in useListView).
+ *
+ * `view.filterHints` is optional: { [field]: { [option]: text } }. An option
+ * that has one shows it on hover - for a choice whose own text is a code
+ * that says little by itself (a SKU code, and what the SKU is made of).
  */
 function FilterSelect({ view, field, label, anyLabel, className }) {
   return (
@@ -138,7 +142,7 @@ function FilterSelect({ view, field, label, anyLabel, className }) {
       <SelectContent>
         <SelectItem value={ANY}>{anyLabel}</SelectItem>
         {(view.filterOptions[field] ?? []).map((option) => (
-          <SelectItem key={option} value={option}>
+          <SelectItem key={option} value={option} title={view.filterHints?.[field]?.[option]}>
             {option}
           </SelectItem>
         ))}
@@ -190,6 +194,14 @@ function FilterSelect({ view, field, label, anyLabel, className }) {
  *   share out the space left over; when the widths add up to more than fits,
  *   it scrolls sideways exactly as it always has.
  *
+ * A ROW THAT OPENS
+ *   A row can be followed by a second <TableRow> holding ONE cell that spans
+ *   every column (`colSpan`) - the details the row above opens out into.
+ *   Such a cell is left alone by the rules for the pinned Actions column and
+ *   for the tint under the pointer, so it lays out as a plain full-width box.
+ *   Do not put a <table> inside it: the rules here reach every cell beneath
+ *   this table, a nested table's included.
+ *
  * The cell borders, the cell padding and the tint of the selected row (the
  * one open in the form - mark it with data-state="selected") are all set
  * here, so a page's rows are only TableRow and TableCell with no classes.
@@ -218,12 +230,16 @@ export function DataTable({ head, children, defaultColumnWidth = DEFAULT_COLUMN_
         '[&_td]:border-b [&_td]:border-border/60 [&_td]:py-2',
         // The pinned Actions column, in the body and the header, with a
         // hairline on its left so it reads as sitting above the data.
-        '[&_td:last-child]:sticky [&_td:last-child]:right-0 [&_td:last-child]:bg-card',
+        // `:not([colspan])`: a cell that spans the row - the details a row
+        // opens out into, see "A ROW THAT OPENS" above - is the last cell of
+        // ITS row too, but it is not the Actions column and is not pinned.
+        '[&_td:last-child:not([colspan])]:sticky [&_td:last-child:not([colspan])]:right-0 [&_td:last-child:not([colspan])]:bg-card',
         '[&_th:last-child]:sticky [&_th:last-child]:right-0 [&_th:last-child]:z-10 [&_th:last-child]:bg-muted',
-        '[&_td:last-child]:shadow-[inset_1px_0_0_var(--border)] [&_th:last-child]:shadow-[inset_1px_0_0_var(--border)]',
+        '[&_td:last-child:not([colspan])]:shadow-[inset_1px_0_0_var(--border)] [&_th:last-child]:shadow-[inset_1px_0_0_var(--border)]',
         // The row open in the form, then the row under the pointer - both
-        // opaque, so the pinned cell matches the rest of its row.
-        '[&_tr[data-state=selected]>td]:bg-brand-soft [&_tbody_tr:hover>td]:bg-muted',
+        // opaque, so the pinned cell matches the rest of its row. A spanning
+        // cell is not a row of data, so the pointer does not tint it.
+        '[&_tr[data-state=selected]>td]:bg-brand-soft [&_tbody_tr:hover>td:not([colspan])]:bg-muted',
       )}
     >
       <TableHeader className="bg-muted">

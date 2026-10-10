@@ -39,11 +39,10 @@ import {
   PRODUCT_FIELD_RAW_MATERIAL,
   PRODUCT_FIELD_SEMI_FINISHED,
   PRODUCT_FIELD_VENDOR_SELECT,
-  PRODUCT_FIELD_PLACEMENT,
   PRODUCT_FIELDS_PER_STEP,
   PRODUCT_MAIN_FIELD_COUNT,
-  PRODUCT_QUANTITY_KEY,
-  productFieldPlacement,
+  isProductQuantityField,
+  perSkuFieldRank,
 } from '@/Constants/inventory'
 
 /* ------------------------------------------------------------------ */
@@ -195,14 +194,14 @@ const chunk = (list, size) => {
 
 /**
  * Whether a field belongs to ONE SKU rather than to the product: it is one
- * the backend keeps inside a `product_details` entry (PRODUCT_FIELD_PLACEMENT
+ * the backend keeps inside a `product_details` entry (PRODUCT_PER_SKU_FIELDS
  * - the quantity, the expiry date, the rate). For a product with SKUs each
  * SKU entry has its own; for a product without, it is a normal field.
  */
-export const isDetailField = (field) => productFieldPlacement(productFieldName(field))?.in === 'detail'
+export const isDetailField = (field) => perSkuFieldRank(productFieldName(field)) !== -1
 
-/** Where a per-SKU field comes in a SKU entry: its place in the placement table, Unit Rate last. */
-const detailRank = (field) => PRODUCT_FIELD_PLACEMENT.indexOf(productFieldPlacement(productFieldName(field)))
+/** Where a per-SKU field comes in a SKU entry: its place in PRODUCT_PER_SKU_FIELDS, Unit Rate last. */
+const detailRank = (field) => perSkuFieldRank(productFieldName(field))
 
 /**
  * THE STEPS OF THE FORM.
@@ -625,15 +624,15 @@ const quantityOf = (text) => {
  *   { exists, entered, value }
  *
  *   exists    the company's product has a quantity field at all (the one
- *             sent as `product_quantity` - see PRODUCT_FIELD_PLACEMENT).
- *             Without one there is nothing to check allocations against.
+ *             called PRODUCT_QUANTITY_FIELD - "Quantity"). Without one
+ *             there is nothing to check allocations against.
  *   entered   something has been typed into it
  *   value     that as a number, or null when it is empty or not a number
  */
 export const productQuantity = (steps, values) => {
   const field = steps
     .flatMap(stepFields)
-    .find((entry) => productFieldPlacement(productFieldName(entry))?.key === PRODUCT_QUANTITY_KEY)
+    .find((entry) => isProductQuantityField(productFieldName(entry)))
 
   if (!field) return { exists: false, entered: false, value: null }
 

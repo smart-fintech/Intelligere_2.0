@@ -2,14 +2,17 @@
  * The Product section of Inventory Details: adding a product for the active
  * company, in a dialog opened from here.
  *
- * THE PRODUCTS ARE FETCHED, BUT NOT YET LISTED. The page reads the company's
- * products through useProducts - the one call every product list makes,
- * POST inventory/product/ with the company's name - as it opens, on Refresh
- * and again after every Add Product. What a row of that reply looks like has
- * not been supplied yet, so no column is made up for it: the page says HOW
- * MANY products came back and nothing more. The table, its search, filters
- * and pager take this card's body when the shape is known - the rows are
- * already here, in `products.rows`, for it to draw.
+ * THE LIST is the company's products, read through useProducts - the one
+ * call every product list makes, POST inventory/product/ with the company's
+ * name - as the page opens, on Refresh and again after every Add Product,
+ * and drawn by ProductTable, the one product table both Product pages use:
+ * a row per product, search and filters (SKU code, SKU attributes,
+ * warehouse, expiry), a row that opens onto its SKUs and warehouses, and
+ * the full details behind the eye. There is no Edit on a row here: how
+ * this endpoint changes a product has not been confirmed.
+ *
+ * A product's stock names its warehouse by id, so the company's warehouses
+ * are read as well, to put names to them.
  *
  * ------------------------------------------------------------------
  * WHAT THE FORM IS MADE OF - ALL OF IT ALREADY IN THE APP
@@ -71,6 +74,7 @@ import {
   stepFields,
 } from '../productForm'
 import ProductFormModal from './ProductFormModal'
+import ProductTable from './ProductTable'
 
 export default function Products() {
   const { activeCompanyId: companyId, activeCompanyName: companyName } = useActiveCompany()
@@ -79,7 +83,7 @@ export default function Products() {
   const customFields = useCustomFields()
   const masterDetails = useMasterDetails()
 
-  // The company's products - see "fetched, but not yet listed" at the top.
+  // The company's products - see "the list" at the top.
   const products = useProducts()
   const loadingProducts = products.status === 'loading'
 
@@ -122,12 +126,19 @@ export default function Products() {
   const openDialog = () => setDialog((previous) => ({ open: true, session: previous.session + 1 }))
   const closeDialog = () => setDialog((previous) => ({ ...previous, open: false }))
 
-  // Asked for once the dialog has been opened - a visit to this page alone
-  // costs neither request. Every form has warehouse stock; only one with a
-  // vendor field needs the vendors.
+  // The vendors are asked for once the dialog has been opened, and only
+  // when a field asks for one. The warehouses are needed from the start:
+  // the list uses them to name the warehouse a product's stock is in, and
+  // the form to offer them.
   const everOpened = dialog.session > 0
   const vendors = useVendorOptions(everOpened && needsVendors)
-  const warehouses = useWarehouseOptions(everOpened)
+  const warehouses = useWarehouseOptions(true)
+
+  // { "<warehouse id>": "name" } - what the list puts a name to an id with.
+  const warehouseNames = useMemo(
+    () => Object.fromEntries(warehouses.options.map((option) => [option.value, option.label])),
+    [warehouses.options],
+  )
 
   /** A product was saved: the dialog goes, and the products are read again. */
   const handleSaved = () => {
@@ -152,10 +163,23 @@ export default function Products() {
 
       return (
         <StateMessage icon={Package} title="No company selected">
-          Choose a company in the header to add its products.
+          Choose a company in the header to see its products.
         </StateMessage>
       )
     }
+
+    // The company has products: the list. Whether another can be ADDED is
+    // the Add Product button's business, above - a product list does not
+    // wait for the form's fields.
+    if (products.rows.length > 0) return <ProductTable rows={products.rows} warehouseNames={warehouseNames} />
+
+    // Not in yet: a placeholder, never "add your first product" for a
+    // moment to a company that has a hundred.
+    if (loadingProducts) return <ListSkeleton />
+
+    /* No products (or they could not be read - said above the card). What
+       is left to show is why one cannot be added yet, or the way to add
+       the first. */
 
     // The fields: nothing to build a form from until they are in.
     if (customFields.rows.length === 0) {
@@ -206,8 +230,8 @@ export default function Products() {
     }
 
     return (
-      <StateMessage icon={Package} title="Add a product" action={addButton}>
-        Enter the product&apos;s details step by step. Its fields come from Inventory Master &gt; Customised Fields.
+      <StateMessage icon={Package} title="No products found" action={addButton}>
+        Add your first product. Its fields come from Inventory Master &gt; Customised Fields.
       </StateMessage>
     )
   }
@@ -216,8 +240,7 @@ export default function Products() {
     <>
       <Panel
         title="Products"
-        // How many came back - the one thing known about the reply so far.
-        meta={products.status === 'ready' ? `(Total Count: ${products.rows.length})` : undefined}
+        meta={products.rows.length > 0 ? `(Total Count: ${products.rows.length})` : undefined}
         actions={
           <div className="flex items-center gap-2">
             <Button

@@ -284,63 +284,60 @@ export const PRODUCT_FIELD_RAW_MATERIAL = 'raw_material'
 export const PRODUCT_FIELD_SEMI_FINISHED = 'semi_finished'
 
 /**
- * WHERE A PRODUCT FIELD GOES IN THE REQUEST - the exceptions.
+ * THE FIELDS A PRODUCT HAS ONE OF PER SKU.
  *
- * A product is sent to inventory/product/ as
+ * NOTHING IS RENAMED. Every product field is sent to inventory/product/
+ * under its own `field_name`, exactly as the company's Customised Fields
+ * call it - "Product Name", "Group", "GST Rate", "Quantity" - so a key in
+ * the request is always the field's own name and never one of ours:
  *
- *   { product_name, group, gst_rate, "<any other field>": ...,
- *     product_details: [{ sku_details, warehouse, product_quantity,
- *                         expiry_date, "Unit Rate",
- *                         semi_finished, raw_reference }, ...],
+ *   { "Product Name": ..., "Group": ..., "GST Rate": ..., "<any other field>": ...,
+ *     product_details: [{ sku_details, warehouse, "Quantity", "Expiry Date",
+ *                         "Unit Rate", semi_finished, raw_reference }, ...],
  *     vendor: [...] }
  *
- * THE RULE: a field goes at the top level under its own `field_name`
- * ("HSN Code", "Category", "Lot / Roll Number" ...). The ones below are the only
- * ones that do not, and this table is the ONLY place the Product form knows
- * a field by name:
+ * What this list decides is only WHERE a field is filled in and sent, not
+ * what it is called. `product_details` has one entry per SKU, and the
+ * fields named here belong to an entry rather than to the product:
  *
- *   field   the customised field's name, as the standard fields are called
- *   key     what the backend calls it
- *   in      'product'  the top level, renamed
- *           'detail'   inside the product_details entries
+ *   a product with SKUs      each SKU entry has its own - each SKU its own
+ *                            quantity, expiry date and rate - drawn in the
+ *                            order below, so the rate closes the entry, and
+ *                            nowhere else on the form
+ *   a product without SKUs   they are normal fields, drawn once where the
+ *                            field order puts them, and sent inside the one
+ *                            entry
  *
- * 'detail' IS ALSO WHAT MAKES A FIELD PER-SKU. `product_details` has one
- * entry per SKU, so for a product with SKUs a 'detail' field is filled in
- * once in each SKU entry - each SKU has its own quantity, expiry date and
- * rate - and is not drawn anywhere else. THE ORDER OF THE 'detail' ROWS
- * BELOW IS THE ORDER THEY ARE DRAWN IN within a SKU entry, which is why
- * Unit Rate is last: it closes the entry. For a product without SKUs they
- * are normal fields, drawn once where the field order puts them.
+ * Every other field is the product's: filled in once, sent at the top level.
  *
- * The name field is listed under both names it goes by - "Product Name" in
- * the configuration the backend sends today, "Item Name" in an older one.
+ * Matched without regard to case or outer spaces, and only for a company
+ * that has a field of that name - one without an Expiry Date field simply
+ * has no expiry date. A company that renames one of these on the Customised
+ * Fields tab makes it a normal field again.
  *
- * Matched without regard to case or outer spaces. A company that renames one
- * of these fields on the Customised Fields tab breaks the match - the value
- * would then go to the top level under its new name - so if that tab ever
- * needs to allow it, match on something steadier than the name here.
- *
- * (SKU fields are not in this table: when SKU management is on they go into
+ * (SKU fields are not here: when SKU management is on they go into
  * `sku_details`, whatever they are called. A vendor field fills `vendor`.)
  */
-export const PRODUCT_FIELD_PLACEMENT = [
-  { field: 'Product Name', key: 'product_name', in: 'product' },
-  { field: 'Item Name', key: 'product_name', in: 'product' },
-  { field: 'Group', key: 'group', in: 'product' },
-  { field: 'GST Rate', key: 'gst_rate', in: 'product' },
-  { field: 'Quantity', key: 'product_quantity', in: 'detail' },
-  { field: 'Expiry Date', key: 'expiry_date', in: 'detail' },
-  { field: 'Unit Rate', key: 'Unit Rate', in: 'detail' },
-]
+export const PRODUCT_PER_SKU_FIELDS = ['Quantity', 'Expiry Date', 'Unit Rate']
 
-/** The backend's key for the quantity a product's warehouse stock is checked against. */
-export const PRODUCT_QUANTITY_KEY = 'product_quantity'
+/**
+ * The one of them that a SKU's warehouse stock is held to: the lines of an
+ * entry cannot together hold more than its Quantity.
+ */
+export const PRODUCT_QUANTITY_FIELD = 'Quantity'
 
-/** A field's entry in PRODUCT_FIELD_PLACEMENT, or null when it follows the rule. */
-export const productFieldPlacement = (fieldName) => {
-  const wanted = String(fieldName ?? '').trim().toLowerCase()
-  return PRODUCT_FIELD_PLACEMENT.find((entry) => entry.field.toLowerCase() === wanted) ?? null
-}
+/** A field's name as it is compared: no outer spaces, no capitals. */
+const comparable = (fieldName) => String(fieldName ?? '').trim().toLowerCase()
+
+/**
+ * Where a field comes among the per-SKU fields (0, 1, 2 - the order they
+ * are drawn in), or -1 when it is not one of them.
+ */
+export const perSkuFieldRank = (fieldName) =>
+  PRODUCT_PER_SKU_FIELDS.findIndex((name) => comparable(name) === comparable(fieldName))
+
+/** Whether a field is the quantity an entry's warehouse stock is held to. */
+export const isProductQuantityField = (fieldName) => comparable(fieldName) === comparable(PRODUCT_QUANTITY_FIELD)
 
 /** A list of strings as the `{ value, label }` options SelectField takes. */
 export const toOptions = (values) => values.map((value) => ({ value, label: value }))

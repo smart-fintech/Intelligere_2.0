@@ -16,9 +16,10 @@
  * ------------------------------------------------------------------
  *   POST  inventory/product/   { company_name }
  *
- * getProducts in Services/inventoryService, read through Hooks/useProducts:
- * one list of a company's products, whoever is looking. What IS here is how
- * the simple product page reads a row of it (readBasicProduct, below).
+ * getProducts in Services/inventoryService, read through Hooks/useProducts
+ * and drawn by the shared ProductTable: one list of a company's products,
+ * whoever is looking. What IS here is how a product of it is handed to the
+ * simple product form for editing (toBasicProduct, below).
  *
  * ------------------------------------------------------------------
  * SAVING IS WHERE THE TWO ERPs PART - and they share nothing
@@ -76,56 +77,57 @@ const toList = (response) => {
   return []
 }
 
-/** The first of some properties a row actually has - null when it has none of them. */
-const pick = (row, names) => {
+/** The first of some properties an object actually has - null when it has none of them. */
+const pick = (object, names) => {
   for (const name of names) {
-    if (row?.[name] !== undefined && row[name] !== null) return row[name]
+    if (object?.[name] !== undefined && object[name] !== null) return object[name]
   }
   return null
 }
 
 /**
- * ONE ROW OF THE LIST, under the names the simple product page uses.
+ * A PRODUCT OF THE LIST, AS THE SIMPLE PRODUCT FORM TAKES IT.
  *
- * THE SHAPE OF A ROW HAS NOT BEEN SUPPLIED YET (the list is getProducts in
- * inventoryService). Until it is, each value is looked for under the names
- * the two ERPs' own save payloads use for it - the only names known - and
- * the page reads the one neutral name on the left. A value the row carries
- * under some other name reads as missing, and shows as "--":
+ * The list is the same for every user and is read in one place
+ * (readProducts in Modules/Dashboard/productList): a product, its SKUs, and
+ * each SKU's entries. The simple form edits a product with ONE SKU and one
+ * entry, under a handful of flat names - this is the step between the two:
  *
- *   id            id                       what an Intelligere edit names
- *   guid          stockitem_guid           what a Tally edit names
- *   name          product_name
- *   group         group | group_name
- *   hsn           hsn_code | hsn
- *   unit          per_unit | unit
- *   quantity      quantity
- *   rate          "Unit Rate" | unit_rate | rate
- *   sellingPrice  selling_price
- *   gstRate       gst_rate
- *   category      category
- *   vendors       vendor      [{ id, name }]
+ *   key           the row's key, to tint the row open in the form
+ *   id            the SKU's `product_id`        what an Intelligere edit names
+ *   guid          `stockitem_guid`              what a Tally edit names
+ *   name, group, hsn, unit, gstRate, category   the product's own
+ *   quantity      the product's total quantity
+ *   rate          its entry's "Unit Rate"
+ *   sellingPrice  its SKU's `selling_price`
+ *   vendors       its SKU's `vendor`            [{ id, name }]
  *
- * `source` is the row exactly as the backend sent it. THIS IS THE ONE PLACE
- * a row's properties are named for the simple page: when the real shape is
- * known, the names on the right are corrected here and nothing else - not
- * the table, the filters or the form - has to change.
+ * A simple product has one SKU, so "its SKU" is the first - and for a
+ * product that turns out to have more, the first is still the one the form
+ * opens on. `stockitem_guid` is looked for on the entry, the SKU and the
+ * product, since the reply has not been seen to carry one: without it a
+ * Tally product cannot be edited, and the form says so.
  */
-export const readBasicProduct = (row) => ({
-  source: row,
-  id: pick(row, ['id', 'product_id']),
-  guid: pick(row, ['stockitem_guid']),
-  name: pick(row, ['product_name']),
-  group: pick(row, ['group', 'group_name']),
-  hsn: pick(row, ['hsn_code', 'hsn']),
-  unit: pick(row, ['per_unit', 'unit']),
-  quantity: pick(row, ['quantity']),
-  rate: pick(row, ['Unit Rate', 'unit_rate', 'rate']),
-  sellingPrice: pick(row, ['selling_price']),
-  gstRate: pick(row, ['gst_rate']),
-  category: pick(row, ['category']),
-  vendors: Array.isArray(row?.vendor) ? row.vendor : [],
-})
+export const toBasicProduct = (product) => {
+  const [variant] = product.variants
+  const [detail] = variant?.details ?? []
+
+  return {
+    key: product.key,
+    product_id: variant?.productId ?? null,
+    guid: pick(detail?.source, ['stockitem_guid']) ?? pick(variant?.source, ['stockitem_guid']) ?? pick(product.source, ['stockitem_guid']),
+    name: product.name,
+    group: product.group,
+    hsn: product.hsn,
+    unit: product.unit,
+    quantity: product.quantity,
+    rate: detail?.unitRate ?? null,
+    sellingPrice: variant?.sellingPrice ?? null,
+    gstRate: product.gstRate,
+    category: product.category,
+    vendors: variant?.vendors ?? [],
+  }
+}
 
 /* ------------------------------------------------------------------ */
 /* Groups and units - what the form's two dropdowns offer              */
@@ -176,13 +178,12 @@ export const getProductUnits = async (companyName) => {
 /* ------------------------------------------------------------------ */
 
 /**
- * What the Add / Edit Product form asks for, and what the list shows - in
- * this order. Each ERP has only the fields its own payload carries.
+ * What the Add / Edit Product form asks for - in this order. Each ERP has only the fields its own payload carries.
  *
  *   key        the property's name IN THAT ERP'S PAYLOAD - also the key its
  *              value is kept under while the form is open
  *   label      what it is called on screen
- *   from       where its value is in a row of the list (see readBasicProduct)
+ *   from       where its value is in a product handed to the form (see toBasicProduct)
  *   required   the form will not save without it
  *   numeric    a number: only digits and one decimal point can be typed
  *   choices    chosen from a list rather than typed - which list:
@@ -252,7 +253,7 @@ export const createIntelligereProduct = (payload) => api.post(PRODUCT_URL, paylo
  * from the list - and never by its name, which is one of the things that can
  * be changed. `payload` is the same body a create sends.
  */
-export const updateIntelligereProduct = (id, payload) => api.put(PRODUCT_URL, { id, ...payload })
+export const updateIntelligereProduct = (id, payload) => api.put(PRODUCT_URL, { product_id: id, ...payload })
 
 /**
  * Whether a reply to "add this product" is the backend declining because

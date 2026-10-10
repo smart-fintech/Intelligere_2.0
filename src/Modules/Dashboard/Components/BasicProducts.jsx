@@ -27,8 +27,12 @@
  *
  * After every change the list is read again from the backend rather than
  * patched by hand, so the table always shows what is really saved.
- * Searching, filtering, sorting and paging work on the rows already loaded
- * (Hooks/useListView) and cost no request.
+ *
+ * THE LIST ITSELF is ProductTable - the one product table both Product
+ * pages draw: one row per product, with search and filters. Its arrow
+ * and eye belong to Inventory Management, which nobody on this page has,
+ * so a row here has one action - this page's own: Edit, which loads a
+ * product into the form.
  *
  * ------------------------------------------------------------------
  * SYNC NOW (Tally users)
@@ -44,8 +48,9 @@
  * WHICH ERP
  * ------------------------------------------------------------------
  * From the profile in the store, the app's one answer to it. It decides the
- * columns and the form's fields (BASIC_PRODUCT_FIELDS), how a product is
- * saved, and whether there is a Sync Now - nothing about who may be here.
+ * form's fields (BASIC_PRODUCT_FIELDS), how a product is saved, and whether
+ * there is a Sync Now - nothing about who may be here, nor what the list
+ * shows.
  *
  * THERE IS NO DELETE: how a simple product is removed has not been
  * confirmed (see the note in productService), so a row has Edit only. And
@@ -55,24 +60,15 @@
  * same hook, the full SKU product page uses.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useSelector } from 'react-redux'
-import { AlertCircle, CloudDownload, Package, Pencil, RefreshCw } from 'lucide-react'
+import { AlertCircle, CloudDownload, Package, RefreshCw } from 'lucide-react'
 
 import { InlineAlert, ListSkeleton, RetryButton, StateMessage } from '@/Components/Common/DataList'
 import { Loader } from '@/Components/Common/Loader'
 import { Panel } from '@/Components/Common/Panel'
-import {
-  DataTable,
-  PlainHead,
-  SortableHead,
-  TableFilters,
-  TablePager,
-} from '@/Components/Common/TableTools'
 import { Button } from '@/Components/ui/button'
-import { TableCell, TableRow } from '@/Components/ui/table'
 import { useActiveCompany } from '@/Hooks/useActiveCompany'
-import { useListView } from '@/Hooks/useListView'
 import useProductGroups from '@/Hooks/useProductGroups'
 import useProducts from '@/Hooks/useProducts'
 import useProductUnits from '@/Hooks/useProductUnits'
@@ -82,16 +78,15 @@ import { toast } from '@/Library/toast'
 import { cn } from '@/Library/utils'
 import {
   BASIC_PRODUCT_ERP,
-  BASIC_PRODUCT_FIELDS,
   TALLY_PRODUCT_FETCH_MODULE,
   buildFetchProductsMessage,
-  readBasicProduct,
+  toBasicProduct,
 } from '@/Services/productService'
 import { selectCompanyStatus } from '@/Store/Slices/companySlice'
 import { selectIsTallyErp } from '@/Store/Slices/profileSlice'
-import { orDash } from '@/Utils/display'
 import BasicProductForm from './BasicProductForm'
 import ProductCsvUpload from './ProductCsvUpload'
+import ProductTable from './ProductTable'
 
 /**
  * Safety net for Sync Now: the longest the loader waits for Tally's
@@ -100,17 +95,6 @@ import ProductCsvUpload from './ProductCsvUpload'
  */
 const SYNC_TIMEOUT_MS = 5 * 60 * 1000
 
-/* Searched and filtered under the neutral names readBasicProduct gives a
-   row, so they work whichever ERP's names the list arrived in. */
-const SEARCH_FIELDS = ['name', 'group', 'hsn', 'category']
-const FILTER_FIELDS = {
-  group: 'Group',
-  gstRate: 'GST Rate',
-}
-
-/** The name column is the one a user scans for; the rest are short values. */
-const COLUMN_WIDTH = { name: 220, group: 160 }
-
 export default function BasicProducts() {
   const { activeCompanyName: companyName } = useActiveCompany()
   const companyStatus = useSelector(selectCompanyStatus)
@@ -118,7 +102,6 @@ export default function BasicProducts() {
   // Tally, or - for everyone else - Intelligere. See "Which ERP" at the top.
   const isTally = useSelector(selectIsTallyErp)
   const erp = isTally ? BASIC_PRODUCT_ERP.TALLY : BASIC_PRODUCT_ERP.INTELLIGERE
-  const fields = BASIC_PRODUCT_FIELDS[erp]
 
   /* ---------------- The list ----------------
      The one product list every user has (useProducts - POST inventory/product/
@@ -132,22 +115,9 @@ export default function BasicProducts() {
   const { reload } = current
   const loading = current.status === 'loading'
 
-  /* What the table draws: each product under the neutral names
-     readBasicProduct gives it (with `source`, the row as the backend sent
-     it), and a key - its id, its Tally identifier, or its position for a
-     row that arrived with neither. readBasicProduct is THE place a row's
-     properties are named for this page: when the list's real shape is
-     known, it is adjusted there and nothing here changes. */
-  const rows = useMemo(
-    () =>
-      current.rows.map((row, index) => {
-        const product = readBasicProduct(row)
-        return { ...product, key: product.id ?? product.guid ?? `row-${index}` }
-      }),
-    [current.rows],
-  )
-
-  const view = useListView(rows, { searchFields: SEARCH_FIELDS, filterFields: FILTER_FIELDS })
+  // How many products the company has - the list itself is drawn, and
+  // read, by ProductTable (see renderList).
+  const rows = current.rows
 
   /* ---------------- The form ----------------
      `editing` is the row open in the form, or null while adding. `saves`
@@ -335,70 +305,17 @@ export default function BasicProducts() {
       )
     }
 
+    // The one product table every user has - search and filters. Edit is
+    // this page's own: it loads the product into the form on the left (see
+    // toBasicProduct for how), and waits while a sync is replacing the
+    // list. There is no Delete beside it - see the note at the top.
     return (
-      <>
-        <TableFilters view={view} searchPlaceholder="Search name, group or HSN" />
-
-        {view.total === 0 ? (
-          <StateMessage icon={Package} title="No matching products">
-            Nothing matches the current filters.
-          </StateMessage>
-        ) : (
-          // The ERP's own fields, in its own order. Wide: it scrolls sideways
-          // inside its own box, never the page, and the Actions column stays
-          // pinned on the right while it does.
-          <DataTable
-            defaultColumnWidth={120}
-            head={
-              <>
-                {fields.map(({ key, label, from }) => (
-                  <SortableHead key={key} view={view} field={from} width={COLUMN_WIDTH[from]}>
-                    {label}
-                  </SortableHead>
-                ))}
-                <PlainHead width={72} className="text-right">
-                  Actions
-                </PlainHead>
-              </>
-            }
-          >
-            {view.rows.map((product) => (
-              <TableRow
-                key={product.key}
-                className="text-brand"
-                // Tinted while it is the one open in the form.
-                data-state={product.key === editingProduct?.key ? 'selected' : undefined}
-              >
-                {fields.map(({ key, from }) => (
-                  <TableCell
-                    key={key}
-                    className={cn(from === 'name' && 'font-medium')}
-                    title={from === 'name' || from === 'group' ? (product[from] ?? undefined) : undefined}
-                  >
-                    {orDash(product[from])}
-                  </TableCell>
-                ))}
-                <TableCell className="text-right">
-                  {/* Edit alone, in the look RowActions gives it - see the
-                      note at the top on why there is no Delete beside it. */}
-                  <Button
-                    type="button"
-                    variant="iconEdit"
-                    size="icon-sm"
-                    icon={Pencil}
-                    tooltip="Edit"
-                    aria-label={`Edit ${product.name ?? 'product'}`}
-                    disabled={syncing}
-                    onClick={() => setEditing({ product, company: companyName })}
-                  />
-                </TableCell>
-              </TableRow>
-            ))}
-          </DataTable>
-        )}
-
-        <TablePager view={view} />
-      </>
+      <ProductTable
+        rows={rows}
+        selectedKey={editingProduct?.key}
+        onEdit={(product) => setEditing({ product: toBasicProduct(product), company: companyName })}
+        editDisabled={syncing}
+      />
     )
   }
 

@@ -39,7 +39,7 @@
 import {
   BUSINESS_TYPE_MANUFACTURER,
   PREMIUM_MODULE_INVENTORY_MANAGEMENT,
-  productFieldPlacement,
+  perSkuFieldRank,
 } from '@/Constants/inventory'
 import { api } from '@/Services/authService'
 
@@ -430,47 +430,51 @@ export const isSkuManagementEnabled = (masterDetails) => masterDetails?.sku === 
  * THE BODY OF A PRODUCT - AND THE ONE PLACE IT IS BUILT.
  *
  *   { "company_name": "ABC Industries",               <- the active company
- *     "product_name": "Printed Cotton Fabric",        <- the "Product Name" field
- *     "group": "primary",                             <- "Group"
- *     "gst_rate": "5",                                <- "GST Rate"
- *     "HSN Code": "01", "Per Unit": "NOS",            <- every other field, at
- *     "Category": "Raw Material",                        the top level, under
- *     "Lot / Roll Number": "L-7", ...                    its own field_name
+ *     "Product Name": "Printed Cotton Fabric",        <- every field of the
+ *     "Group": "primary",                                product, under its
+ *     "GST Rate": "5",                                   OWN field_name
+ *     "HSN Code": "01", "Per Unit": "NOS",
+ *     "Category": "Raw Material", ...
  *     "product_details": [
  *       { "sku_details": { "Fabric Type": "Cotton", "Color": "Navy Blue", ... },
  *         "warehouse": [ { "id": "42", "warehouse_quantity": "300",
  *                          "level": "1", "shelf": "sh-1", "rack_no": "A-1" } ],
- *         "product_quantity": "300",                  <- "Quantity"
- *         "expiry_date": null,                        <- "Expiry Date"
- *         "Unit Rate": "120",
+ *         "Quantity": "300",                          <- the per-SKU fields,
+ *         "Expiry Date": null,                           also under their
+ *         "Unit Rate": "120",                            own names
  *         "semi_finished": [],
  *         "raw_reference": [] },
  *       { ...the next SKU entry: its own sku_details, warehouse, quantity,
  *            expiry date and rate... } ],
  *     "vendor": [ { "id": 531, "name": "Selected Vendor Name" } ] }
  *
- * WHICH FIELD GOES WHERE is PRODUCT_FIELD_PLACEMENT in Constants/inventory:
- * a few fields are renamed or belong inside a product_details entry, and
- * every other one follows the rule - top level, own name. Nothing is dropped
- * for not being in the example above.
+ * NO FIELD IS RENAMED. A field's key is its `field_name`, exactly as the
+ * company's Customised Fields call it - there is no `product_name`, `group`
+ * or `product_quantity` of ours, and no key that is sent when the company
+ * has no such field. The keys a product carries are the company's fields,
+ * whatever those are.
+ *
+ * The only keys that are not field names are the structure itself:
+ * `company_name`, `product_details`, and inside an entry `sku_details`,
+ * `warehouse`, `semi_finished` and `raw_reference`, then `vendor`. They win
+ * over a field that happens to share a name with one.
  *
  * `product_details` HAS ONE ENTRY PER SKU, and each entry is that SKU's
- * alone: its `sku_details` (the SKU fields under their own names, in SKU
- * order - the reply names them the same way), its own stock in `warehouse`,
- * and its own quantity, expiry date and rate. The entries are never merged,
- * and no SKU field is ever sent at the top level.
+ * alone: its `sku_details` (the SKU fields, in SKU order - the reply names
+ * them the same way), its own stock in `warehouse`, and its own per-SKU
+ * fields (PRODUCT_PER_SKU_FIELDS in Constants/inventory - the quantity, the
+ * expiry date, the rate). The entries are never merged, and no SKU field is
+ * ever sent at the top level.
  *
  * A product without SKUs is a single entry with an empty `sku_details`. Its
- * quantity, rate and expiry date are then normal fields, filled in once -
- * they arrive in `fields` and are written into that one entry.
+ * per-SKU fields are then normal fields, filled in once - they arrive in
+ * `fields` like the rest, and are written into that one entry rather than
+ * at the top level, so a product's quantity is always found in the same
+ * place whether it has SKUs or not.
  *
  * `semi_finished` and `raw_reference` are always [] for now, in every entry:
  * the fields that would fill them pick from the company's own products,
  * which needs the product list - a later stage.
- *
- * The structural keys win over a field that happens to share a name with
- * one, and the fixed keys are always present - "" (null for the expiry
- * date) when the company has no such field.
  *
  * What is handed in is already typed, sorted and split between the product
  * and its entries (see collectProductValues in Modules/Dashboard/productForm):
@@ -482,48 +486,28 @@ export const isSkuManagementEnabled = (masterDetails) => masterDetails?.sku === 
  *                warehouses: [{ id, warehouse_quantity, level, shelf, rack_no }] }]
  *   vendors   [{ id, name }]
  *
- * This function only names things: each field is put under the key
- * PRODUCT_FIELD_PLACEMENT gives it, or under its own name.
- *
  * `company_name` says whose product it is, the same way the Master Details
- * and Customised Fields calls name their company. It is a structural key
- * like the others: a field that happened to be called "company_name" could
- * not replace it.
+ * and Customised Fields calls name their company.
  */
+const named = (list) => Object.fromEntries(list.map(({ name, value }) => [name, value]))
+
 export const buildProductPayload = ({ companyName, fields = [], details = [], vendors = [] }) => {
-  const product = {}
   // A per-SKU field filled in once - a product without SKUs - belongs to
   // every entry there is, which is then the only one.
-  const shared = {}
-
-  fields.forEach(({ name, value }) => {
-    const placement = productFieldPlacement(name)
-
-    if (!placement) product[name] = value
-    else if (placement.in === 'detail') shared[placement.key] = value
-    else product[placement.key] = value
-  })
+  const ofProduct = fields.filter(({ name }) => perSkuFieldRank(name) === -1)
+  const ofEveryEntry = fields.filter(({ name }) => perSkuFieldRank(name) !== -1)
 
   // A product is always at least one entry, SKUs or not.
   const entries = details.length > 0 ? details : [{ sku: [], fields: [], warehouses: [] }]
 
   return {
-    product_name: '',
-    group: '',
-    gst_rate: '',
-    ...product,
+    ...named(ofProduct),
     company_name: companyName,
     product_details: entries.map((detail) => ({
-      // Under their own names, whatever the placement table says of them: a
-      // SKU field called "Quantity" would still be a SKU attribute.
-      sku_details: Object.fromEntries(detail.sku.map(({ name, value }) => [name, value])),
+      ...named(ofEveryEntry),
+      ...named(detail.fields),
+      sku_details: named(detail.sku),
       warehouse: detail.warehouses,
-      product_quantity: '',
-      expiry_date: null,
-      ...shared,
-      ...Object.fromEntries(
-        detail.fields.map(({ name, value }) => [productFieldPlacement(name)?.key ?? name, value]),
-      ),
       semi_finished: [],
       raw_reference: [],
     })),
@@ -535,29 +519,45 @@ export const buildProductPayload = ({ companyName, fields = [], details = [], ve
  * Creates a product.
  *
  * `payload` is the body from buildProductPayload. `files` is what the File
- * fields hold, as { field_name: File } - empty for most products, and then
- * the body goes up as plain JSON like every other call.
+ * fields hold, as { field_name: File } - empty for most products.
  *
- * With a file there is no JSON body to put it in, so the same body goes up
- * as multipart instead: each top-level property as a part (an object as its
- * JSON text), and each file as a part under its field's name. PROVISIONAL:
- * how this endpoint takes a file has not been confirmed - only the JSON body
- * above has.
+ * ALWAYS MULTIPART, with a file or without: each top-level property of the
+ * payload is a part - an object or a list as its JSON text
+ * (`product_details`, `vendor`), nothing at all as '' - and each file is a
+ * part under its field's name. The payload itself is unchanged; only how it
+ * travels is.
  *
- * The Content-Type is named for that one call, as for the ledger CSV import:
- * the shared axios instance sends JSON by default, and would otherwise turn
- * the FormData, files and all, into a JSON body.
+ * The Content-Type is named for this one call, as for the ledger CSV import:
+ * the shared axios instance sends JSON by default, and with that header
+ * axios would turn the FormData, files and all, into a JSON body. Naming
+ * multipart stops that, and axios then leaves the header to the browser,
+ * which writes it with the boundary.
  */
 export const createProduct = (payload, files = {}) => {
-  const attached = Object.entries(files)
-  if (attached.length === 0) return api.post(PRODUCT_URL, payload)
+  // OLD implementation - JSON without a file, multipart only with one.
+  // Retained for reference.
+  // const attached = Object.entries(files)
+  // if (attached.length === 0) return api.post(PRODUCT_URL, payload)
+  //
+  // const body = new FormData()
+  //
+  // Object.entries(payload).forEach(([name, value]) => {
+  //   body.append(name, value !== null && typeof value === 'object' ? JSON.stringify(value) : (value ?? ''))
+  // })
+  // attached.forEach(([name, file]) => body.append(name, file))
+  //
+  // return api.post(PRODUCT_URL, body, { headers: { 'Content-Type': 'multipart/form-data' } })
 
+  // NEW implementation - always FormData.
   const body = new FormData()
 
   Object.entries(payload).forEach(([name, value]) => {
     body.append(name, value !== null && typeof value === 'object' ? JSON.stringify(value) : (value ?? ''))
   })
-  attached.forEach(([name, file]) => body.append(name, file))
+
+  Object.entries(files).forEach(([name, file]) => {
+    if (file != null) body.append(name, file)
+  })
 
   return api.post(PRODUCT_URL, body, { headers: { 'Content-Type': 'multipart/form-data' } })
 }
