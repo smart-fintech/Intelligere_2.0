@@ -48,6 +48,11 @@
  *   actions          optional - what sits at the right of the filter row
  *   onEdit(product)  optional. With it every row has an Edit button, and is
  *                    handed the product as productList read it
+ *   onEditSku(product, variant)   optional - Edit one SKU (the Inventory
+ *                    Management page: each SKU is its own record). The
+ *                    row's Edit opens its only SKU straight away; a
+ *                    product with several opens its row, where each SKU
+ *                    has its own Edit
  *   editDisabled     optional - Edit is there but cannot be pressed (the
  *                    page is busy with something an edit would cut across)
  *   selectedKey      optional - the `key` of the row to tint (the one open
@@ -82,12 +87,21 @@ const COLUMN_COUNT = 8
 /** The Actions column: room for its heading, then for each button it holds. */
 const ACTIONS_WIDTH = { base: 36, details: 60, edit: 36 }
 
-export default function ProductTable({ rows, warehouseNames, actions, onEdit, editDisabled = false, selectedKey }) {
+export default function ProductTable({
+  rows,
+  warehouseNames,
+  actions,
+  onEdit,
+  onEditSku,
+  editDisabled = false,
+  selectedKey,
+}) {
   // The arrow and the eye - see the note at the top.
   const { full: detailed } = useInventoryAccess()
 
-  const hasActions = detailed || Boolean(onEdit)
-  const actionsWidth = ACTIONS_WIDTH.base + (detailed ? ACTIONS_WIDTH.details : 0) + (onEdit ? ACTIONS_WIDTH.edit : 0)
+  const canEdit = Boolean(onEdit || onEditSku)
+  const hasActions = detailed || canEdit
+  const actionsWidth = ACTIONS_WIDTH.base + (detailed ? ACTIONS_WIDTH.details : 0) + (canEdit ? ACTIONS_WIDTH.edit : 0)
 
   const products = useMemo(() => readProducts(rows, warehouseNames), [rows, warehouseNames])
   const offered = useMemo(() => productFilterOptions(products), [products])
@@ -143,6 +157,18 @@ export default function ProductTable({ rows, warehouseNames, actions, onEdit, ed
 
   const toggle = (key) =>
     setExpanded((previous) => (previous.includes(key) ? previous.filter((entry) => entry !== key) : [...previous, key]))
+
+  /** The SKUs of a product Edit can open - those with a `product_id` to save under. */
+  const editableSkus = (product) => product.variants.filter((variant) => variant.productId !== null)
+
+  /** The row's Edit: the page's own, or its one SKU, or its row opened onto its SKUs' own Edits. */
+  const editRow = (product) => {
+    if (onEdit) return onEdit(product)
+
+    const skus = editableSkus(product)
+    if (skus.length === 1) return onEditSku(product, skus[0])
+    setExpanded((previous) => (previous.includes(product.key) ? previous : [...previous, product.key]))
+  }
 
   const viewed = detailed ? (products.find((product) => product.key === viewing.key) ?? null) : null
 
@@ -232,16 +258,16 @@ export default function ProductTable({ rows, warehouseNames, actions, onEdit, ed
                             />
                           </>
                         ) : null}
-                        {onEdit ? (
+                        {canEdit ? (
                           <Button
                             type="button"
                             variant="iconEdit"
                             size="icon-sm"
                             icon={Pencil}
-                            tooltip="Edit"
+                            tooltip={!onEdit && editableSkus(product).length > 1 ? 'Edit - choose a SKU below' : 'Edit'}
                             aria-label={`Edit ${label}`}
-                            disabled={editDisabled}
-                            onClick={() => onEdit(product)}
+                            disabled={editDisabled || (!onEdit && editableSkus(product).length === 0)}
+                            onClick={() => editRow(product)}
                           />
                         ) : null}
                       </div>
@@ -254,7 +280,10 @@ export default function ProductTable({ rows, warehouseNames, actions, onEdit, ed
                 {open ? (
                   <TableRow className="hover:bg-transparent">
                     <TableCell colSpan={COLUMN_COUNT} wrap className="bg-muted/40 p-0">
-                      <ProductVariantRows product={product} />
+                      <ProductVariantRows
+                        product={product}
+                        onEditSku={onEditSku ? (variant) => onEditSku(product, variant) : undefined}
+                      />
                     </TableCell>
                   </TableRow>
                 ) : null}

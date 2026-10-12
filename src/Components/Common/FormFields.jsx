@@ -236,7 +236,8 @@ const OPTIONS_PAGE = 100
  * A labelled dropdown.
  *
  * `options` is a list of `{ value, label }` - the caller maps its own data
- * into that shape, so this never has to know what it is showing.
+ * into that shape, so this never has to know what it is showing. An
+ * option may add a `title`, shown when it is hovered.
  * `searchable` adds a filter box to the top of a long list (the states).
  * `size="sm"` draws the compact 32px box, to sit beside a Field given
  * inputClassName="h-8" in a form that has to stay short.
@@ -346,7 +347,7 @@ export function SelectField({
           onViewportScroll={drawMore}
         >
           {drawnOptions.map((option) => (
-            <SelectItem key={option.value} value={option.value}>
+            <SelectItem key={option.value} value={option.value} title={option.title}>
               {option.label}
             </SelectItem>
           ))}

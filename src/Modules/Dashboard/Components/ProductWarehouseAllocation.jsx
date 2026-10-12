@@ -5,8 +5,8 @@
  * Either way it is handed one list of lines and the one quantity they are
  * held to, and knows nothing of any other.
  *
- * A line per place - a warehouse, how much is there, and the level, shelf
- * and rack it sits on. There can be none (stock does not have to be put
+ * A line per place - a warehouse, how much is there, and (if the user
+ * wants to say) the level, shelf and rack it sits on. There can be none (stock does not have to be put
  * anywhere yet), one, or several: the same stock can be split across
  * warehouses, or across racks of one.
  *
@@ -17,7 +17,7 @@
  *
  * It holds nothing itself: the lines live in the form, with everything else
  * the user has entered, so they survive going to another step and back. The
- * rules - a line is complete or it is not there, and the lines together
+ * rules - a line names its warehouse and quantity, and the lines together
  * cannot hold more than the product's quantity - are in ../productForm.
  *
  * A COMPANY WITH ONE WAREHOUSE (`singleWarehouse` - its plan allows no
@@ -94,7 +94,7 @@ export default function ProductWarehouseAllocation({
 
         <Button
           type="button"
-          variant="outline"
+          variant="default"
           size="sm"
           icon={Plus}
           disabled={disabled || loading || noWarehouses || warehouses.status === 'failed'}
@@ -164,7 +164,6 @@ export default function ProductWarehouseAllocation({
                   <Field
                     id={fieldId('level')}
                     label="Level"
-                    required
                     className="lg:col-span-2"
                     autoComplete="off"
                     value={allocation.level}
@@ -175,7 +174,6 @@ export default function ProductWarehouseAllocation({
                   <Field
                     id={fieldId('shelf')}
                     label="Shelf"
-                    required
                     className="lg:col-span-2"
                     autoComplete="off"
                     value={allocation.shelf}
@@ -186,7 +184,6 @@ export default function ProductWarehouseAllocation({
                   <Field
                     id={fieldId('rack_no')}
                     label="Rack No."
-                    required
                     className="lg:col-span-2"
                     autoComplete="off"
                     value={allocation.rack_no}

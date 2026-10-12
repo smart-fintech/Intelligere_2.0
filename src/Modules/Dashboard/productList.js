@@ -33,8 +33,11 @@
  *   readProducts(rows, warehouseNames)   the rows, under the names the screens use
  *   productFilterOptions(products)       what each filter can offer
  *   filterProducts(products, filters)    the products the filters leave
+ *   isProductCategory(product, category) whether a product is of a category
  *   hasMaterialReferences(product)       whether its category has raw and
  *                                        semi-finished references at all
+ *   productEditSource(product, variant)  what one SKU was saved with, for Edit
+ *   savedValue(objects, fieldName)       a form field's saved value in them
  *   otherFields(object, known)           whatever else an object carries
  *   fieldLabel(key), displayValue(value) how a property and its value read
  *
@@ -144,7 +147,18 @@ export const otherFields = (object, known = []) =>
 
 /** The properties each reader below shows itself - everything else is "other". */
 const WAREHOUSE_KEYS = ['id', 'warehouse_id', 'name', 'warehouse_name', 'warehouse_quantity', 'level', 'shelf', 'rack_no']
-const DETAIL_KEYS = ['Unit Rate', 'product_quantity', 'expiry_date', 'warehouse', 'deleted']
+const DETAIL_KEYS = [
+  'Unit Rate',
+  'product_quantity',
+  'expiry_date',
+  'warehouse',
+  'deleted',
+  // Read into the SKU when the SKU itself does not carry them - see readVariant.
+  'sku_details',
+  'raw_reference',
+  'semi_finished_reference',
+  'semi_finished',
+]
 const VARIANT_KEYS = [
   'product_id',
   'sku_code',
@@ -208,24 +222,46 @@ const readDetail = (detail, names) => ({
   others: otherFields(detail, DETAIL_KEYS),
 })
 
-/** One SKU of a product. */
-const readVariant = (variant, names) => ({
-  source: variant,
-  productId: variant.product_id ?? null,
-  skuCode: textOf(variant.sku_code),
-  // [[name, value]] - the company's own SKU fields, whatever they are.
-  skuDetails: isPlainObject(variant.sku_details) ? Object.entries(variant.sku_details) : [],
-  totalQty: variant.total_qty,
-  totalAmount: variant.total_amount,
-  sellingPrice: variant.selling_price,
-  details: listOf(variant.product_details)
-    .filter((detail) => isPlainObject(detail) && detail.deleted !== true)
-    .map((detail) => readDetail(detail, names)),
-  vendors: listOf(variant.vendor),
-  rawReferences: listOf(variant.raw_reference),
-  semiFinishedReferences: listOf(variant.semi_finished_reference),
-  others: otherFields(variant, VARIANT_KEYS),
-})
+/** A non-empty object, or null. */
+const filledObject = (value) => (isPlainObject(value) && Object.keys(value).length > 0 ? value : null)
+
+/**
+ * One SKU of a product.
+ *
+ * A product is SAVED with its SKU details and references inside each
+ * `product_details` entry (see buildProductPayload), and LISTED with them
+ * on the SKU - so both are looked for: the SKU's own first, then its
+ * entries' (not a deleted one's). Either way the screens, and a reference
+ * to this SKU, get what it is really made of rather than nothing.
+ */
+const readVariant = (variant, names) => {
+  const entries = listOf(variant.product_details).filter((detail) => isPlainObject(detail) && detail.deleted !== true)
+
+  const skuDetails =
+    filledObject(variant.sku_details) ?? entries.map((detail) => filledObject(detail.sku_details)).find(Boolean) ?? {}
+
+  /** A list the SKU carries - or, when it carries none, its entries' together. */
+  const ownOrEntries = (...keys) => {
+    const own = keys.map((key) => listOf(variant[key])).find((list) => list.length > 0)
+    return own ?? entries.flatMap((detail) => keys.map((key) => listOf(detail[key])).find((list) => list.length > 0) ?? [])
+  }
+
+  return {
+    source: variant,
+    productId: variant.product_id ?? null,
+    skuCode: textOf(variant.sku_code),
+    // [[name, value]] - the company's own SKU fields, whatever they are.
+    skuDetails: Object.entries(skuDetails),
+    totalQty: variant.total_qty,
+    totalAmount: variant.total_amount,
+    sellingPrice: variant.selling_price,
+    details: entries.map((detail) => readDetail(detail, names)),
+    vendors: listOf(variant.vendor),
+    rawReferences: ownOrEntries('raw_reference'),
+    semiFinishedReferences: ownOrEntries('semi_finished_reference', 'semi_finished'),
+    others: otherFields(variant, VARIANT_KEYS),
+  }
+}
 
 /**
  * THE RATE SHOWN FOR A PRODUCT, in its one row of the table.
@@ -306,6 +342,44 @@ export const readProducts = (rows, warehouseNames = null) =>
     })
 
 /**
+ * THE CATEGORIES A PRODUCT CAN BE OF, as they are compared: without
+ * capitals, and with any run of spaces, hyphens or underscores read as one
+ * space - so "Semi-Finished", " semi finished " and "SEMI_FINISHED" are
+ * one category. The product's own `category` is never changed; only the
+ * comparison is forgiving.
+ */
+export const PRODUCT_CATEGORY = Object.freeze({
+  FINISHED: 'finished',
+  SEMI_FINISHED: 'semi finished',
+  RAW_MATERIAL: 'raw material',
+})
+
+const categoryKey = (value) => textOf(value).toLowerCase().replace(/[\s_-]+/g, ' ')
+
+/**
+ * WHICH REFERENCES A CATEGORY HAS - what it is made from:
+ *
+ *   Raw Material    neither
+ *   Semi-Finished   raw materials only
+ *   Finished        raw materials and semi-finished goods
+ *   anything else   neither
+ *
+ * `category` is the text itself (a form's Category value, say), compared
+ * the forgiving way above.
+ */
+export const referencesOfCategory = (category) => {
+  const key = categoryKey(category)
+
+  return {
+    raw: key === PRODUCT_CATEGORY.FINISHED || key === PRODUCT_CATEGORY.SEMI_FINISHED,
+    semiFinished: key === PRODUCT_CATEGORY.FINISHED,
+  }
+}
+
+/** Whether a product (as readProducts gives it) is of one of PRODUCT_CATEGORY. */
+export const isProductCategory = (product, category) => categoryKey(product?.category) === category
+
+/**
  * WHETHER A PRODUCT HAS RAW AND SEMI-FINISHED REFERENCES AT ALL - which is
  * its category's to say, not its data's:
  *
@@ -313,12 +387,120 @@ export const readProducts = (rows, warehouseNames = null) =>
  *   Semi-Finished, Raw Material   no
  *   anything else, or none        no - only a Finished product is known to
  *
- * The category is compared without its capitals or the spaces around it
- * (" finished " is Finished); the product keeps it exactly as it was sent.
+ * The category is compared as isProductCategory compares it; the product
+ * keeps it exactly as it was sent.
  */
-const CATEGORY_WITH_REFERENCES = 'finished'
+export const hasMaterialReferences = (product) => isProductCategory(product, PRODUCT_CATEGORY.FINISHED)
 
-export const hasMaterialReferences = (product) => textOf(product?.category).toLowerCase() === CATEGORY_WITH_REFERENCES
+/* ------------------------------------------------------------------ */
+/* Edit - a SKU's saved values, for the Product form                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * WHAT ONE SKU WAS SAVED WITH, for the Product form to start an edit from.
+ * A product is edited one SKU at a time: each SKU is its own record, named
+ * by its `product_id` (see updateProduct in Services/inventoryService).
+ *
+ *   product, variant, entry   the product row, the SKU and its (first, not
+ *               deleted) `product_details` entry, as the backend sent them -
+ *               what savedValue looks a field up in
+ *   sku         its SKU details { name: value }
+ *   warehouses  that entry's stock, as the form's lines take it (text)
+ *   vendors     its `vendor` list - [{ id, name }]
+ *   references  { raw, semiFinished } - its current references
+ *   pastVersion its `past_version` - { version_1: {...}, ... } - or {}
+ */
+const textOrEmpty = (value) => (value === null || value === undefined ? '' : String(value))
+
+/** A reference with its SKU attributes under `sku_details` only. */
+const withSkuDetailsKey = (reference) => {
+  if (!isPlainObject(reference) || !('sku_detail' in reference)) return reference
+
+  const { sku_detail: older, ...rest } = reference
+  return { ...rest, sku_details: filledObject(rest.sku_details) ?? (isPlainObject(older) ? older : {}) }
+}
+
+export const productEditSource = (product, variant) => {
+  const entry = variant.details[0]?.source ?? {}
+
+  return {
+    product: product.source,
+    variant: variant.source,
+    entry,
+    sku: Object.fromEntries(variant.skuDetails),
+    warehouses: listOf(entry.warehouse)
+      .filter(isPlainObject)
+      .map((warehouse) => ({
+        warehouse: textOrEmpty(pick(warehouse, ['id', 'warehouse_id'])),
+        warehouse_quantity: textOrEmpty(warehouse.warehouse_quantity),
+        level: textOrEmpty(warehouse.level),
+        shelf: textOrEmpty(warehouse.shelf),
+        rack_no: textOrEmpty(warehouse.rack_no),
+      })),
+    vendors: variant.vendors,
+    // A reference saved before its SKU attributes were named `sku_details`
+    // (they were `sku_detail`) is read under the one name, so an edit
+    // shows them and sends them back under `sku_details` alone. The
+    // history in `past_version` is never rewritten.
+    references: {
+      raw: variant.rawReferences.map(withSkuDetailsKey),
+      semiFinished: variant.semiFinishedReferences.map(withSkuDetailsKey),
+    },
+    pastVersion: filledObject(variant.source.past_version) ?? filledObject(entry.past_version) ?? {},
+  }
+}
+
+/** A name as compared loosely: no capitals, nothing but letters and digits ("HSN Code" = hsn_code). */
+const looseKey = (name) => String(name ?? '').toLowerCase().replace(/[^a-z0-9]/g, '')
+
+/**
+ * The list's FIXED keys, by the loose name a form field may have for them
+ * where the loose names differ - "Unit" is `per_unit`, a product's
+ * "Quantity" its entry's `product_quantity`.
+ */
+const FIXED_KEYS = {
+  unit: 'per_unit',
+  quantity: 'product_quantity',
+  itemname: 'product_name',
+  hsn: 'hsn_code',
+}
+
+/** Whether a form field is the product's category - what decides its references. */
+export const isCategoryField = (fieldName) => looseKey(fieldName) === 'category'
+
+/** Whether a form field is the product's name - what an edit may not change. */
+export const isProductNameField = (fieldName) => ['productname', 'itemname'].includes(looseKey(fieldName))
+
+const isScalar = (value) => ['string', 'number', 'boolean'].includes(typeof value)
+
+/**
+ * A FORM FIELD'S SAVED VALUE, looked up in `objects` in the order given:
+ *
+ *   1. under the field's own name, exactly - a Customised Field is saved,
+ *      and listed, under its `field_name`
+ *   2. under a fixed key of the list that is the same name loosely -
+ *      "Product Name" is `product_name`, "HSN Code" `hsn_code`
+ *   3. under the fixed key FIXED_KEYS gives the name
+ *
+ * Only a plain value counts (text, a number, yes/no) - never a list or an
+ * object. undefined when none of them has one.
+ */
+export const savedValue = (objects, fieldName) => {
+  const plain = objects.filter(isPlainObject)
+  const wanted = looseKey(fieldName)
+
+  const exact = plain.find((object) => isScalar(object[fieldName]))
+  if (exact) return exact[fieldName]
+
+  for (const object of plain) {
+    const key = Object.keys(object).find((name) => looseKey(name) === wanted && isScalar(object[name]))
+    if (key) return object[key]
+  }
+
+  const fixed = FIXED_KEYS[wanted]
+  const holder = fixed ? plain.find((object) => isScalar(object[fixed])) : undefined
+  return holder ? holder[fixed] : undefined
+}
 
 /** Every warehouse allocation of a SKU, across its entries. */
 export const variantWarehouses = (variant) => variant.details.flatMap((detail) => detail.warehouses)

@@ -269,6 +269,53 @@ export const updateIntelligereProduct = (id, payload) => api.put(PRODUCT_URL, { 
 export const isProductAlreadyExists = (response) => /already exists/i.test(String(response?.msg ?? ''))
 
 /* ------------------------------------------------------------------ */
+/* Importing products from a CSV - the same two endings as ledgers     */
+/* ------------------------------------------------------------------ */
+
+const PRODUCT_CSV_IMPORT_URL = 'inventory/product_csv_import/'
+
+/**
+ * The blank CSV the user fills in, beside the ledger one in Assets/format
+ * and downloaded the same way - its contents come through the bundle (`?raw`)
+ * and are written out under the name below (see LEDGER_CSV_FORMAT_FILE in
+ * ledgerService for why).
+ *
+ *   Product Name, Group, HSN Code, Quantity, Unit, Rate, GST Rate, Description
+ */
+export const PRODUCT_CSV_FORMAT_FILE = 'Product Detail format.csv'
+export { default as PRODUCT_CSV_FORMAT_CONTENT } from '@/Assets/format/ProductFormat.csv?raw'
+
+/**
+ * Sends the filled-in CSV up.
+ *
+ *   POST inventory/product_csv_import/   multipart: file, company_id, user_erp_type
+ *
+ * ONE ENDPOINT, TWO ANSWERS - the ERP the caller declares decides which:
+ *
+ *   intelligere   the products are created there and then:
+ *                 { "msg": "2 product created successfully" }
+ *   tally         nothing is created yet: the reply is the parsed rows,
+ *                 [{ product_name, group_name, hsn, quantity, unit, rate,
+ *                    gst_rate, description }], which the screen sends on to
+ *                 Tally whole (buildTallyProductImportMessage).
+ *
+ * `erpType` is 'tally' or 'intelligere', read by the screen from the profile
+ * in the store. Multipart is named for this one call, as for the ledger
+ * import: the shared axios instance would otherwise send the FormData as JSON.
+ */
+export const importProductCsv = ({ companyId, erpType, file }) => {
+  const body = new FormData()
+
+  body.append('file', file)
+  body.append('company_id', companyId)
+  body.append('user_erp_type', erpType)
+
+  return api.post(PRODUCT_CSV_IMPORT_URL, body, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+}
+
+/* ------------------------------------------------------------------ */
 /* Tally - over the WebSocket                                         */
 /* ------------------------------------------------------------------ */
 
@@ -280,6 +327,7 @@ export const isProductAlreadyExists = (response) => /already exists/i.test(Strin
 export const TALLY_PRODUCT_FETCH_MODULE = 'tally_product_fetch'
 export const TALLY_PRODUCT_CREATE_MODULE = 'tally_product_create'
 export const TALLY_PRODUCT_ALTER_MODULE = 'tally_product_alter'
+export const TALLY_STOCK_GROUP_CREATE_MODULE = 'product_group_create'
 
 /**
  * The Sync Now payload:
@@ -300,6 +348,30 @@ export const buildFetchProductsMessage = (companyName) => ({
 const createdBy = () => getEmail() || ''
 
 /**
+ * Adds a STOCK GROUP in Tally - the header's "Add Stock Group Creation":
+ *
+ *   { "payload": { "module_name": "product_group_create",
+ *                  "company_name": "<active company>",
+ *                  "data": { "Name": "<new group>",
+ *                            "Under": "<the group it sits under>",
+ *                            "created_by": "<signed-in user's email>" } } }
+ *
+ * `Under` is a group's `group_name`, as the group list gives it. The reply
+ * comes back under `return_module_name: "product_group_create"`.
+ */
+export const buildTallyStockGroupCreateMessage = ({ companyName, name, under }) => ({
+  payload: {
+    module_name: TALLY_STOCK_GROUP_CREATE_MODULE,
+    company_name: companyName,
+    data: {
+      Name: String(name ?? '').trim(),
+      Under: String(under ?? '').trim(),
+      created_by: createdBy(),
+    },
+  },
+})
+
+/**
  * Adds a product in Tally. `data` is a LIST, of the one product:
  *
  *   { "payload": { "module_name": "tally_product_create",
@@ -314,6 +386,23 @@ export const buildTallyProductCreateMessage = (companyName, form) => ({
     module_name: TALLY_PRODUCT_CREATE_MODULE,
     company_name: companyName,
     data: [{ ...fieldValues(BASIC_PRODUCT_ERP.TALLY, form), created_by: createdBy() }],
+  },
+})
+
+/**
+ * A CSV import's rows, on to Tally - the import's second half. The reply of
+ * importProductCsv goes as `data` WHOLE: every row, exactly as the backend
+ * parsed it, in one message under the same module as a single create:
+ *
+ *   { "payload": { "module_name": "tally_product_create",
+ *                  "company_name": "<active company>",
+ *                  "data": [ ...the reply... ] } }
+ */
+export const buildTallyProductImportMessage = (companyName, rows) => ({
+  payload: {
+    module_name: TALLY_PRODUCT_CREATE_MODULE,
+    company_name: companyName,
+    data: rows,
   },
 })
 

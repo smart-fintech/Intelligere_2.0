@@ -7,16 +7,23 @@
  *
  *   productFields(rows)                  the fields a product has, in order
  *   buildProductSteps(rows, { skuActive })   those fields cut into steps
+ *   applicableSteps(steps, form)         ... without the reference fields the
+ *                                        chosen Category has no use for
  *   productInputKind(field)              which control a field is drawn with
  *   productOptions(field)                a dropdown field's choices
  *   productFieldSpan(field)              how wide the field is, of 12
  *   checkProductStep(step, form)         everything wrong with a step
  *   collectProductValues(steps, form)    the values, ready for the payload
+ *   prefillProductForm(steps, saved)     the form, filled from a saved SKU (Edit)
  *
  * and, for warehouse stock, which is not made of fields:
  *
  *   lockAllocations(allocations, warehouse)   the lines, all in one warehouse
  *   validateAllocations(allocations)     what is wrong with each line
+ *
+ * and, for raw-material and semi-finished references:
+ *
+ *   validateReferenceDraft(draft)        what is wrong with one about to be added
  *   allocationTotalError(allocations, quantity)   ... and with them together
  *   collectAllocations(allocations)      the lines, ready for the payload
  *
@@ -45,6 +52,8 @@ import {
   isProductQuantityField,
   perSkuFieldRank,
 } from '@/Constants/inventory'
+import { toInputDate } from '@/Utils/date'
+import { isCategoryField, referencesOfCategory, savedValue } from './productList'
 
 /* ------------------------------------------------------------------ */
 /* Reading one field                                                  */
@@ -71,16 +80,18 @@ console.info("isSkuFields: ", isSkuField);
  *
  *   text | number | dropdown | date | file | long-text   the plain types
  *   vendor        one of the company's vendors (vendor_select)
+ *   raw-material  } references to the company's own products: a SKU of a
+ *   semi-finished } Raw Material (raw_material) or Semi-Finished
+ *                 } (semi_finished) product, a quantity and a wastage,
+ *                 } as many as the user adds - see "References" below
  *   unsupported   a field this stage of the Product form cannot fill in
  *
  * A special field asks for its behaviour in `option_type` (with
  * `field_type: "custom"`), or names it as its `field_type`; both are looked
- * at. `raw_material` and `semi_finished` choose from the company's own
- * products, which needs the product list - a later stage - so they, a
- * `custom` field asking for nothing this form knows, and any type it has
- * never heard of are all `unsupported`: shown, so the user can see the field
- * exists, but not filled in, not validated and not sent. A field with no
- * type at all is a text box.
+ * at. A `custom` field asking for nothing this form knows, and any type it
+ * has never heard of, are `unsupported`: shown, so the user can see the
+ * field exists, but not filled in, not validated and not sent. A field with
+ * no type at all is a text box.
  */
 export const PRODUCT_INPUT = Object.freeze({
   TEXT: 'text',
@@ -90,13 +101,18 @@ export const PRODUCT_INPUT = Object.freeze({
   FILE: 'file',
   LONG_TEXT: 'long-text',
   VENDOR: 'vendor',
+  RAW_MATERIAL: 'raw-material',
+  SEMI_FINISHED: 'semi-finished',
   UNSUPPORTED: 'unsupported',
 })
 
+/** Whether a kind holds a list of references rather than one value. */
+export const isReferenceInput = (kind) => kind === PRODUCT_INPUT.RAW_MATERIAL || kind === PRODUCT_INPUT.SEMI_FINISHED
+
 const SPECIAL_KINDS = {
   [PRODUCT_FIELD_VENDOR_SELECT]: PRODUCT_INPUT.VENDOR,
-  [PRODUCT_FIELD_RAW_MATERIAL]: PRODUCT_INPUT.UNSUPPORTED,
-  [PRODUCT_FIELD_SEMI_FINISHED]: PRODUCT_INPUT.UNSUPPORTED,
+  [PRODUCT_FIELD_RAW_MATERIAL]: PRODUCT_INPUT.RAW_MATERIAL,
+  [PRODUCT_FIELD_SEMI_FINISHED]: PRODUCT_INPUT.SEMI_FINISHED,
 }
 
 const PLAIN_KINDS = {
@@ -310,6 +326,61 @@ export const buildProductSteps = (rows, { skuActive = false } = {}) => {
   return steps
 }
 
+/**
+ * THE STEPS AS THE FORM SHOWS THEM NOW - the reference fields the product's
+ * Category has no use for taken out (referencesOfCategory):
+ *
+ *   Raw Material    no raw-material and no semi-finished field
+ *   Semi-Finished   the raw-material field only
+ *   Finished        both
+ *
+ * The Category is the value of the company's field called "Category" (any
+ * capitals or spacing), wherever it is - filled in once, or in the first
+ * SKU entry. A field with no value yet, or a category not listed above,
+ * has neither. A company with no Category field at all keeps both, as
+ * before.
+ *
+ * Worked out on every draw, so changing Category shows or hides them at
+ * once. Everything the form does - draw, check, send - goes by these
+ * steps, so a field taken out is neither required nor sent (its list goes
+ * as []). Its value stays in the form: choosing a category that has it
+ * again brings it back as it was. A step left with nothing in it is left
+ * out; step 1 never is.
+ */
+export const applicableSteps = (steps, { values = {}, skuSets = [] } = {}) => {
+  const categoryField = steps.flatMap(stepFields).find((field) => isCategoryField(productFieldName(field)))
+  if (!categoryField) return steps
+
+  const name = productFieldName(categoryField)
+  const shown = referencesOfCategory(values[name] || skuSets[0]?.values?.[name] || '')
+
+  const keep = (field) => {
+    const kind = productInputKind(field)
+    if (kind === PRODUCT_INPUT.RAW_MATERIAL) return shown.raw
+    if (kind === PRODUCT_INPUT.SEMI_FINISHED) return shown.semiFinished
+    return true
+  }
+
+  return steps
+    .map((step) => ({
+      ...step,
+      groups: step.groups.map((group) => ({
+        ...group,
+        fields: group.fields.filter(keep),
+        ...(group.key === PRODUCT_GROUP.SKU
+          ? { skuFields: group.skuFields.filter(keep), detailFields: group.detailFields.filter(keep) }
+          : {}),
+      })),
+    }))
+    .filter(
+      (step, index) =>
+        index === 0 ||
+        step.groups.some(
+          (group) => group.fields.length > 0 || group.key === PRODUCT_GROUP.SKU || group.key === PRODUCT_GROUP.WAREHOUSE,
+        ),
+    )
+}
+
 /** The SKU group of the form - what each SKU entry is made of - or undefined for a product without SKUs. */
 export const skuGroupOf = (steps) =>
   steps.flatMap((step) => step.groups).find((group) => group.key === PRODUCT_GROUP.SKU)
@@ -325,12 +396,19 @@ export const stepFields = (step) => (step?.groups ?? []).flatMap((group) => grou
 /* Values                                                             */
 /* ------------------------------------------------------------------ */
 
-/** What a field holds before anything is entered: no file, or empty text. */
-export const emptyProductValue = (field) => (productInputKind(field) === PRODUCT_INPUT.FILE ? null : '')
+/** What a field holds before anything is entered: no file, no references, or empty text. */
+export const emptyProductValue = (field) => {
+  const kind = productInputKind(field)
+  if (kind === PRODUCT_INPUT.FILE) return null
+  return isReferenceInput(kind) ? [] : ''
+}
 
-/** Whether a value is "nothing entered": no value, no file, or only spaces. */
+/** Whether a value is "nothing entered": no value, no file, no references, or only spaces. */
 const isBlank = (value) =>
-  value === null || value === undefined || (typeof value === 'string' && value.trim() === '')
+  value === null ||
+  value === undefined ||
+  (typeof value === 'string' && value.trim() === '') ||
+  (Array.isArray(value) && value.length === 0)
 
 /** A number as people type one: 12, 12.5, .5, -3 - no letters, no "1e5". */
 const NUMBER_PATTERN = /^-?(\d+\.?\d*|\.\d+)$/
@@ -354,7 +432,9 @@ export const validateProductField = (field, value) => {
   const kind = productInputKind(field)
   if (kind === PRODUCT_INPUT.UNSUPPORTED) return undefined
 
+  // A required reference field wants at least one reference added (OK).
   if (isBlank(value)) return field.is_required === true ? `${productFieldName(field)} is required` : undefined
+  if (isReferenceInput(kind)) return undefined
 
   if (kind === PRODUCT_INPUT.NUMBER && !NUMBER_PATTERN.test(String(value).trim())) return 'Enter a valid number'
   if (kind === PRODUCT_INPUT.DATE && !isRealDate(String(value))) return 'Enter a valid date'
@@ -388,8 +468,9 @@ export const validateProductField = (field, value) => {
  *                 (Quantity, Expiry Date, Unit Rate), by field name
  *   allocations   its own warehouse lines - see "Warehouse allocation" below
  *
- * The form starts with one and "Add SKU" appends another; each is drawn
- * from the same fields and keeps its own values. `id` is only the entry's
+ * The form starts with one and "Add SKU" appends another, a copy of the
+ * entry above it (copySkuSet); each is drawn from the same fields and
+ * keeps its own values. `id` is only the entry's
  * own key on screen. NOTHING is shared between two entries - each has its
  * own `values` object and its own `allocations` list - so typing into one
  * cannot reach another.
@@ -402,6 +483,31 @@ export const validateProductField = (field, value) => {
 
 /** A new, empty SKU entry - nothing in it is copied from any other. */
 export const emptySkuSet = (id) => ({ id, values: {}, allocations: [] })
+
+/** A value of its own: a list or an object copied all the way down; a File (never changed) as it is. */
+const ownCopy = (value) => {
+  if (value === null || typeof value !== 'object') return value
+  if (typeof File !== 'undefined' && value instanceof File) return value
+  return structuredClone(value)
+}
+
+/**
+ * A new SKU entry that starts as a COPY OF ANOTHER - what Add SKU makes,
+ * from the entry above it, since the next SKU of a product is usually the
+ * last one with a field or two changed.
+ *
+ * Everything the entry holds is copied: its SKU fields, its own fields
+ * (Quantity, Expiry Date, Unit Rate and any other), anything else it holds,
+ * and every warehouse line - warehouse, quantity, level, shelf and rack.
+ * The copy is its own all the way down: lists and objects are copied, not
+ * shared, and each line gets a new key from `newLineId()` - so changing
+ * the copy changes nothing in the entry it came from.
+ */
+export const copySkuSet = (id, from, newLineId) => ({
+  id,
+  values: Object.fromEntries(Object.entries(from?.values ?? {}).map(([name, value]) => [name, ownCopy(value)])),
+  allocations: (from?.allocations ?? []).map((line) => ({ ...line, id: newLineId() })),
+})
 
 /** Whether anything has been put into an entry - what makes removing it worth asking about. */
 export const skuSetHasData = (set) =>
@@ -514,6 +620,11 @@ export const checkProductStep = (step, { steps, values, skuSets, allocations }, 
  *             product's own warehouse lines.
  *   vendors   [{ id, name }] - the vendor each vendor field holds
  *   files     { name: File } for the File fields that hold one
+ *   references   { raw: [...], semiFinished: [...] } - what the
+ *             raw-material and semi-finished fields filled in once hold,
+ *             each reference exactly as it was added (already in the
+ *             request's shape - see buildProductReference). A SKU entry
+ *             with such a field of its own has `references` too.
  *
  * Each value is what the backend takes for its type, not what the box held:
  *
@@ -526,6 +637,8 @@ export const checkProductStep = (step, { steps, values, skuSets, allocations }, 
  *                     identifier and the name the company knows it by
  *   file              not here - under `files`, by its field's name (and,
  *                     for a file that belongs to one SKU entry, its number)
+ *   raw-material,     not here - under `references`
+ *   semi-finished
  *
  * A field left empty is still sent ("" - or null for a date), so every
  * product, and every SKU entry, carries the same keys. An `unsupported`
@@ -539,13 +652,19 @@ export const collectProductValues = (steps, { values, skuSets, allocations }, { 
   const fields = []
   const vendors = []
   const files = {}
+  const references = emptyReferences()
 
-  const put = (field, source, target, fileKey = (name) => name) => {
+  const put = (field, source, target, fileKey = (name) => name, into = references) => {
     const name = productFieldName(field)
     const kind = productInputKind(field)
     const value = source[name]
 
     if (kind === PRODUCT_INPUT.UNSUPPORTED) return
+
+    if (isReferenceInput(kind)) {
+      if (Array.isArray(value)) into[REFERENCE_LIST[kind]].push(...value)
+      return
+    }
 
     if (kind === PRODUCT_INPUT.FILE) {
       if (value) files[fileKey(name)] = value
@@ -580,16 +699,163 @@ export const collectProductValues = (steps, { values, skuSets, allocations }, { 
 
   const details = skuGroup
     ? skuSets.map((set, index) => {
-        const detail = { sku: [], fields: [], warehouses: collectAllocations(set.allocations) }
+        const detail = {
+          sku: [],
+          fields: [],
+          warehouses: collectAllocations(set.allocations),
+          references: emptyReferences(),
+        }
         const fileKey = (name) => `${name} [SKU ${index + 1}]`
 
-        skuGroup.skuFields.forEach((field) => put(field, set.values, detail.sku, fileKey))
-        skuGroup.detailFields.forEach((field) => put(field, set.values, detail.fields, fileKey))
+        skuGroup.skuFields.forEach((field) => put(field, set.values, detail.sku, fileKey, detail.references))
+        skuGroup.detailFields.forEach((field) => put(field, set.values, detail.fields, fileKey, detail.references))
         return detail
       })
-    : [{ sku: [], fields: [], warehouses: collectAllocations(allocations) }]
+    : [{ sku: [], fields: [], warehouses: collectAllocations(allocations), references: emptyReferences() }]
 
-  return { fields, details, vendors, files }
+  return { fields, details, vendors, files, references }
+}
+
+/* ------------------------------------------------------------------ */
+/* Edit - the form, filled from what a SKU was saved with               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * THE FORM, FILLED FROM A SAVED SKU - `saved` is productEditSource's
+ * answer. What it gives the form to start from:
+ *
+ *   { values, skuValues, skuLines, lines }
+ *
+ *   values      the fields filled in once, by field name
+ *   skuValues   the SKU entry's own (a product with SKUs): its SKU fields
+ *               and its Quantity, Expiry Date and Unit Rate
+ *   skuLines    its warehouse lines (a product with SKUs)
+ *   lines       the product's warehouse lines (a product without)
+ *
+ * Each field is looked up by its name (savedValue): a SKU field in the SKU's
+ * details first, a per-SKU field in the entry first, any other field in the
+ * product first. A value is put into the form the way the form holds it -
+ * a date as YYYY-MM-DD, anything else as text. A vendor field holds its
+ * vendor's id (the first vendor for the first such field, and so on); a
+ * raw-material or semi-finished field the SKU's current references (the
+ * first such field of each kind takes them all, so none is sent twice).
+ * A file cannot be put back into a file box, and a field nothing is found
+ * for starts empty.
+ */
+export const prefillProductForm = (steps, saved) => {
+  const values = {}
+  const skuValues = {}
+  const given = new Set()
+  let vendorIndex = 0
+
+  const fill = (field, target, objects) => {
+    const name = productFieldName(field)
+    const kind = productInputKind(field)
+
+    if (kind === PRODUCT_INPUT.UNSUPPORTED || kind === PRODUCT_INPUT.FILE) return
+
+    if (kind === PRODUCT_INPUT.VENDOR) {
+      const vendor = saved.vendors[vendorIndex]
+      vendorIndex += 1
+      if (vendor?.id !== undefined && vendor?.id !== null) target[name] = String(vendor.id)
+      return
+    }
+
+    if (isReferenceInput(kind)) {
+      if (given.has(kind)) return
+      given.add(kind)
+      target[name] = [...(kind === PRODUCT_INPUT.RAW_MATERIAL ? saved.references.raw : saved.references.semiFinished)]
+      return
+    }
+
+    const value = savedValue(objects, name)
+    if (value === undefined) return
+
+    target[name] = kind === PRODUCT_INPUT.DATE ? toInputDate(value) : String(value).trim()
+  }
+
+  const ofProduct = [saved.product, saved.variant, saved.entry]
+  const ofEntry = [saved.entry, saved.variant, saved.product]
+
+  steps.forEach((step) => {
+    step.groups.forEach((group) => {
+      if (group.key === PRODUCT_GROUP.SKU) {
+        group.skuFields.forEach((field) => fill(field, skuValues, [saved.sku, ...ofEntry]))
+        group.detailFields.forEach((field) => fill(field, skuValues, ofEntry))
+        return
+      }
+
+      // Without SKUs a field marked `sku_field` is a normal one - but it was
+      // saved among the SKU details all the same.
+      group.fields.forEach((field) =>
+        fill(field, values, isSkuField(field) ? [saved.sku, ...ofEntry] : isDetailField(field) ? ofEntry : ofProduct),
+      )
+    })
+  })
+
+  const hasSkus = Boolean(skuGroupOf(steps))
+
+  return {
+    values,
+    skuValues,
+    skuLines: hasSkus ? saved.warehouses : [],
+    lines: hasSkus ? [] : saved.warehouses,
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* References - raw materials and semi-finished goods                  */
+/* ------------------------------------------------------------------ */
+
+/*
+ * A raw-material or semi-finished field holds a LIST of references, each
+ * added with OK in ProductReferencePicker: one SKU of one of the
+ * company's products, how much of it goes in, and how much is wasted.
+ * The form keeps each reference exactly as the request carries it
+ * (buildProductReference in Services/inventoryService), so nothing has to
+ * be worked out again when the product is saved.
+ *
+ * What is being chosen, before OK, is a draft:
+ *
+ *   { product, sku, qty, wastage }   product and sku are the chosen
+ *                                    options' values; the two amounts are
+ *                                    text as typed
+ */
+
+/** Which list of `references` a kind of field adds to. */
+const REFERENCE_LIST = {
+  [PRODUCT_INPUT.RAW_MATERIAL]: 'raw',
+  [PRODUCT_INPUT.SEMI_FINISHED]: 'semiFinished',
+}
+
+const emptyReferences = () => ({ raw: [], semiFinished: [] })
+
+/**
+ * What is wrong with a draft, as `{ product, sku, qty, wastage }`
+ * messages - empty when it can be added. The amounts follow the rules of
+ * a warehouse quantity: digits and one decimal point, never a minus.
+ * The quantity has to be more than 0; the wastage may be 0.
+ *
+ * `skuIds` is the SKUs the chosen product offers, and `taken` the SKUs
+ * this field already holds a reference to (but not the one being
+ * edited): a SKU is referenced once, and changed by editing it.
+ */
+export const validateReferenceDraft = (draft, { skuIds = [], taken = [] } = {}) => {
+  const errors = {}
+
+  if (!draft.product) errors.product = 'Select a product'
+  else if (!draft.sku || !skuIds.includes(draft.sku)) errors.sku = 'Select a SKU'
+  else if (taken.includes(draft.sku)) errors.sku = 'This SKU is already added - edit it in the list instead'
+
+  const qty = quantityOf(draft.qty)
+  if (isBlank(draft.qty)) errors.qty = 'Quantity is required'
+  else if (qty === null) errors.qty = 'Enter a valid quantity'
+  else if (qty === 0) errors.qty = 'Must be more than 0'
+
+  if (isBlank(draft.wastage)) errors.wastage = 'Wastage is required'
+  else if (quantityOf(draft.wastage) === null) errors.wastage = 'Enter a valid wastage'
+
+  return errors
 }
 
 /* ------------------------------------------------------------------ */
@@ -606,8 +872,9 @@ export const collectProductValues = (steps, { values, skuSets, allocations }, { 
  * warehouse's identifier as text ('' until one is chosen); the other four
  * are text exactly as typed, under the names the backend gives them.
  *
- * No allocation is needed at all. But a line that exists is complete: a
- * warehouse, how much is there, and where in it - level, shelf and rack.
+ * No allocation is needed at all. But a line that exists names its
+ * warehouse and how much is there; where in it - level, shelf and rack -
+ * is optional, and sent as typed ('' when left empty).
  * And however many lines there are, together they cannot hold more than
  * the quantity they belong to: a SKU entry's lines are held to that
  * entry's own quantity, never to another's.
@@ -716,10 +983,6 @@ export const validateAllocations = (allocations) =>
     if (isBlank(allocation.warehouse_quantity)) found.warehouse_quantity = 'Quantity is required'
     else if (quantityOf(allocation.warehouse_quantity) === null) found.warehouse_quantity = 'Enter a valid quantity'
     else if (quantityOf(allocation.warehouse_quantity) === 0) found.warehouse_quantity = 'Must be more than 0'
-
-    if (isBlank(allocation.level)) found.level = 'Level is required'
-    if (isBlank(allocation.shelf)) found.shelf = 'Shelf is required'
-    if (isBlank(allocation.rack_no)) found.rack_no = 'Rack No. is required'
 
     if (Object.keys(found).length > 0) errors[allocation.id] = found
     return errors

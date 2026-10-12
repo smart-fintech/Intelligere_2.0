@@ -66,18 +66,47 @@
  * failure leaves everything as it was typed; a success shows the backend's
  * own message and hands over to `onSaved`, which closes the dialog.
  *
+ * ------------------------------------------------------------------
+ * EDIT - ONE SKU AT A TIME
+ * ------------------------------------------------------------------
+ * With `edit` the same dialog edits one saved SKU (each SKU is its own
+ * record, named by its `product_id`). It opens filled from what the SKU
+ * was saved with (prefillProductForm), the product's name cannot be
+ * changed, there is no Add SKU (it is one SKU), and Save sends PUT with
+ * that `product_id` (updateProduct) instead of creating a product.
+ * Since the form starts full, Cancel always asks before throwing changes
+ * away.
+ *
+ * A Finished or Semi-Finished product can also start a NEW VERSION of its
+ * references (the one Add Version button, above the reference fields - one
+ * action for both): the raw-material AND semi-finished references the
+ * fields hold at that moment are archived together as the next
+ * `version<n>` of its `past_version` (an empty list as []), and both
+ * fields start empty for the new references. One version per edit: the
+ * button is gone once used, so a second click cannot archive twice.
+ * Undo version puts both fields back as they were. Nothing is sent until
+ * Save - Cancel keeps nothing - and the history it already has is always
+ * sent back as it was.
+ *
  * Props:
  *   open, onOpenChange   controlled by the Products page, the same as Modal
- *   steps        from buildProductSteps - never empty
+ *   steps        from buildProductSteps - never empty. The dialog shows them
+ *                through applicableSteps: the reference fields follow the
+ *                Category chosen in the form
  *   companyName  the active company's name - sent with the product, never typed
  *   vendors      useVendorOptions(), for a vendor field
  *   warehouses   useWarehouseOptions(), for warehouse stock
+ *   products     useProducts() - the page's own product list, which a
+ *                raw-material or semi-finished field chooses from
  *   singleWarehouse   the company's plan allows one warehouse - see above
+ *   edit         null to add a product, or the SKU to edit:
+ *                { productId, saved: productEditSource(...), versioning }
+ *                - `versioning` is whether Add Version is offered
  *   onSaved(response)   after a successful save
  */
 
 import { useRef, useState } from 'react'
-import { ArrowLeft, ArrowRight } from 'lucide-react'
+import { ArrowLeft, ArrowRight, History, Undo2 } from 'lucide-react'
 
 import { ConfirmPopover } from '@/Components/Common/ConfirmPopover'
 import { InlineAlert, RetryButton } from '@/Components/Common/DataList'
@@ -85,20 +114,34 @@ import { Modal } from '@/Components/Common/Modal'
 import { Stepper } from '@/Components/Common/Stepper'
 import { Button } from '@/Components/ui/button'
 import { toast } from '@/Library/toast'
-import { buildProductPayload, createProduct } from '@/Services/inventoryService'
+import {
+  buildProductPayload,
+  buildProductUpdatePayload,
+  createProduct,
+  nextPastVersionKey,
+  pastVersionOf,
+  updateProduct,
+} from '@/Services/inventoryService'
 import {
   allocationTotalError,
   checkProductStep,
   collectProductValues,
+  applicableSteps,
+  copySkuSet,
   emptyAllocation,
   emptyProductValue,
   emptySkuSet,
+  isReferenceInput,
   lockAllocations,
+  prefillProductForm,
   PRODUCT_GROUP,
   productFieldName,
+  productInputKind,
   productQuantity,
+  skuGroupOf,
   skuSetHasData,
 } from '../productForm'
+import { isProductNameField } from '../productList'
 import ProductFieldInput from './ProductFieldInput'
 import ProductSkuEntries from './ProductSkuEntries'
 import ProductWarehouseAllocation from './ProductWarehouseAllocation'
@@ -109,16 +152,21 @@ const FORM_ID = 'product-form'
 const NO_ERRORS = { fields: {}, sets: {}, lines: {} }
 
 /** Whether a value is "something entered" - what makes the form worth asking about before it is thrown away. */
-const isFilled = (value) => (typeof value === 'string' ? value.trim() !== '' : Boolean(value))
+const isFilled = (value) => {
+  if (typeof value === 'string') return value.trim() !== ''
+  return Array.isArray(value) ? value.length > 0 : Boolean(value)
+}
 
 export default function ProductFormModal({
   open,
   onOpenChange,
-  steps,
+  steps: formSteps,
   companyName,
   vendors,
   warehouses,
+  products,
   singleWarehouse = false,
+  edit = null,
   onSaved,
 }) {
   // The numbers the next SKU entry and the next warehouse line get - only
@@ -128,13 +176,37 @@ export default function ProductFormModal({
   const skuSetCount = useRef(1)
   const lineCount = useRef(0)
 
+  // Edit: the form as the SKU was saved - worked out once, as the dialog
+  // opens (it gets a new `key` every time). Saved lines are numbered
+  // apart from new ones, so no two share a key.
+  const [initial] = useState(() => {
+    if (!edit) return null
+    const filled = prefillProductForm(formSteps, edit.saved)
+    const numbered = (lines, prefix) => lines.map((line, index) => ({ id: `${prefix}-${index}`, ...line }))
+
+    return {
+      values: filled.values,
+      skuSet: { id: 1, values: filled.skuValues, allocations: numbered(filled.skuLines, 'saved-sku') },
+      allocations: numbered(filled.lines, 'saved'),
+    }
+  })
+
   // What is filled in once, by field name. A field not touched yet is
   // simply absent, and reads as its type's empty value.
-  const [values, setValues] = useState({})
+  const [values, setValues] = useState(() => initial?.values ?? {})
   // One entry per SKU - always at least one. See the note at the top.
-  const [heldSkuSets, setSkuSets] = useState(() => [emptySkuSet(1)])
+  const [heldSkuSets, setSkuSets] = useState(() => [initial?.skuSet ?? emptySkuSet(1)])
   // The warehouse lines of a product without SKUs.
-  const [heldAllocations, setAllocations] = useState([])
+  const [heldAllocations, setAllocations] = useState(() => initial?.allocations ?? [0])
+  // Edit: the new version started with Add Version, or null -
+  // { key, archive: { raw, semiFinished }, before: { values, sku } }.
+  const [newVersion, setNewVersion] = useState(null)
+
+  // The steps as shown now: the reference fields the Category chosen has
+  // no use for are out (applicableSteps) - worked out on every draw, so a
+  // change of Category shows or hides them at once. Everything below goes
+  // by these.
+  const steps = applicableSteps(formSteps, { values, skuSets: heldSkuSets })
   // What the last check found - see checkProductStep.
   const [errors, setErrors] = useState(NO_ERRORS)
   const [stepIndex, setStepIndex] = useState(0)
@@ -160,7 +232,9 @@ export default function ProductFormModal({
     ? heldSkuSets.map((set) => ({ ...set, allocations: lock(set.allocations) }))
     : heldSkuSets
 
+  // An edit starts full, so it always asks before its changes are thrown away.
   const hasEntries =
+    Boolean(edit) ||
     Object.values(values).some(isFilled) ||
     skuSets.length > 1 ||
     skuSets.some(skuSetHasData) ||
@@ -203,11 +277,13 @@ export default function ProductFormModal({
     clearSkuError(setId, 'fields', (fields) => ({ ...fields, [name]: undefined }))
   }
 
-  /** Add SKU: a new, empty entry after the others - nothing is copied into it. */
+  /** Add SKU: a new entry after the others - a full copy of the last one, as it is now (copySkuSet). */
   const addSkuSet = () => {
-    // Made here, not inside the updater below, which must stay pure.
+    // Numbered, and copied, here - not inside the updater below, which
+    // must stay pure. Its warehouse lines get keys of their own.
     skuSetCount.current += 1
-    const set = emptySkuSet(skuSetCount.current)
+    const set = copySkuSet(skuSetCount.current, heldSkuSets[heldSkuSets.length - 1], () => newLine().id)
+
     setSkuSets((previous) => [...previous, set])
   }
 
@@ -264,6 +340,79 @@ export default function ProductFormModal({
     setErrors((previous) => ({ ...previous, lines: { ...previous.lines, [id]: undefined } }))
   }
 
+  /* ---------------- Versions (edit) ----------------
+     ONE action for both reference fields - see the note at the top. The
+     reference fields are the product's own (in `values`) and, when a
+     reference field is a SKU field, the SKU entry's - all of them, shown
+     or not, so the new version starts with every list empty. */
+  const referenceNames = (fields) =>
+    fields.filter((field) => isReferenceInput(productInputKind(field))).map(productFieldName)
+  const skuReferenceNames = referenceNames(skuGroupOf(formSteps)?.fields ?? [])
+  const productReferenceNames = referenceNames(
+    formSteps.flatMap((entry) =>
+      entry.groups.filter((group) => group.key !== PRODUCT_GROUP.SKU).flatMap((group) => group.fields),
+    ),
+  )
+
+  /** `names` of an object, each set to what `from` holds for it ([] for nothing). */
+  const withReferences = (object, names, from) => ({
+    ...object,
+    ...Object.fromEntries(names.map((name) => [name, from?.[name] ?? []])),
+  })
+
+  const versioning = edit?.versioning
+    ? {
+        key: newVersion?.key ?? null,
+        onStart: () => {
+          // Once per edit - a second click must not archive the new lists.
+          if (newVersion) return
+
+          // Both lists exactly as they would be sent now - the product's
+          // and the SKU entry's together (collectProductValues).
+          const collected = collectProductValues(steps, { values, skuSets, allocations })
+          const entry = collected.details[0]?.references
+          const archive = {
+            raw: [...collected.references.raw, ...(entry?.raw ?? [])],
+            semiFinished: [...collected.references.semiFinished, ...(entry?.semiFinished ?? [])],
+          }
+
+          setNewVersion({
+            key: nextPastVersionKey(edit.saved.pastVersion),
+            archive,
+            // What Undo puts back.
+            before: {
+              values: withReferences({}, productReferenceNames, values),
+              sku: withReferences({}, skuReferenceNames, heldSkuSets[0]?.values),
+            },
+          })
+
+          // Both fields start empty for the new version.
+          setValues((previous) => withReferences(previous, productReferenceNames, {}))
+          setSkuSets((previous) =>
+            previous.map((set) => ({ ...set, values: withReferences(set.values, skuReferenceNames, {}) })),
+          )
+        },
+        onUndo: () => {
+          if (!newVersion) return
+          const { before } = newVersion
+
+          setNewVersion(null)
+          setValues((previous) => withReferences(previous, productReferenceNames, before.values))
+          setSkuSets((previous) =>
+            previous.map((set, index) =>
+              index === 0 ? { ...set, values: withReferences(set.values, skuReferenceNames, before.sku) } : set,
+            ),
+          )
+        },
+      }
+    : null
+
+  // The step the one Version button is on: the first that shows a
+  // reference field - none while the Category shows neither.
+  const versionStep = steps.findIndex((entry) =>
+    entry.groups.some((group) => group.fields.some((field) => isReferenceInput(productInputKind(field)))),
+  )
+
   /* ---------------- Moving ---------------- */
   // `final`: the check before saving - see checkProductStep.
   const check = (entry, final = false) => checkProductStep(entry, { steps, values, skuSets, allocations }, { final })
@@ -297,18 +446,30 @@ export default function ProductFormModal({
     setSubmitting(true)
 
     try {
-      const { fields, details, vendors: chosenVendors, files } = collectProductValues(
+      const { fields, details, vendors: chosenVendors, files, references } = collectProductValues(
         steps,
         { values, skuSets, allocations },
         { vendorOptions: vendors.options },
       )
-      const payload = buildProductPayload({ companyName, fields, details, vendors: chosenVendors })
-      const response = await createProduct(payload, files)
+      const product = { companyName, fields, details, vendors: chosenVendors, references }
+
+      // Edit: the history as it was, plus - with a new version - the
+      // references the SKU was saved with, under the new key.
+      const pastVersion = edit
+        ? {
+            ...edit.saved.pastVersion,
+            ...(newVersion ? { [newVersion.key]: pastVersionOf(newVersion.archive) } : {}),
+          }
+        : null
+
+      const response = edit
+        ? await updateProduct(buildProductUpdatePayload({ ...product, productId: edit.productId, pastVersion }), files)
+        : await createProduct(buildProductPayload(product), files)
 
       // The backend's own message, and the SKU code it gave the product
       // when it made one. Nothing else in the reply is this form's to show.
       toast.success(
-        response?.msg || 'Product saved successfully',
+        response?.msg || (edit ? 'Product updated successfully' : 'Product saved successfully'),
         response?.sku_code ? { description: `SKU Code: ${response.sku_code}` } : undefined,
       )
       onSaved?.(response)
@@ -351,9 +512,11 @@ export default function ProductFormModal({
           errors={errors.sets}
           vendors={vendors}
           warehouses={warehouses}
+          products={products}
           singleWarehouse={singleWarehouse}
           disabled={submitting}
-          onAdd={addSkuSet}
+          // An edit is of one SKU - see the note at the top.
+          onAdd={edit ? undefined : addSkuSet}
           onRemove={removeSkuSet}
           onValueChange={setSkuValue}
           onAddLine={addSkuLine}
@@ -398,7 +561,10 @@ export default function ProductFormModal({
                 value={values[name] ?? emptyProductValue(field)}
                 error={errors.fields[name]}
                 disabled={submitting}
+                // An edit may change everything but the product's name.
+                readOnly={Boolean(edit) && isProductNameField(name)}
                 vendors={vendors}
+                products={products}
                 onChange={(value) => setValue(name, value)}
               />
             )
@@ -412,7 +578,7 @@ export default function ProductFormModal({
     <Modal
       open={open}
       onOpenChange={onOpenChange}
-      title="Add Product"
+      title={edit ? 'Edit Product' : 'Add Product'}
       // The fields are sized in twelfths of the row, which wants the width.
       size="xxl"
       // With something entered, or while saving, only Cancel closes it - see
@@ -449,7 +615,7 @@ export default function ProductFormModal({
               dialog draws its footer. */}
           {isLastStep ? (
             <Button type="submit" form={FORM_ID} loading={submitting}>
-              {submitting ? 'Saving...' : 'Save Product'}
+              {submitting ? 'Saving...' : edit ? 'Update Product' : 'Save Product'}
             </Button>
           ) : (
             <Button type="submit" form={FORM_ID}>
@@ -478,6 +644,27 @@ export default function ProductFormModal({
           <InlineAlert action={<RetryButton onClick={vendors.retry} />}>
             Vendors could not be loaded. {vendors.error}
           </InlineAlert>
+        ) : null}
+
+        {/* THE ONE VERSION BUTTON - for both reference fields, on the step
+            where they start (see "Versions" above). */}
+        {versioning && openIndex === versionStep ? (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-muted/30 px-3 py-2">
+            <p className="text-xs text-muted-foreground">
+              {versioning.key
+                ? `New version started. The previous raw and semi-finished references will be saved as ${versioning.key}.`
+                : 'Raw and semi-finished references. Add Version keeps the current ones as a past version and starts both lists afresh.'}
+            </p>
+            {versioning.key ? (
+              <Button type="button" variant="ghost" size="sm" icon={Undo2} disabled={submitting} onClick={versioning.onUndo}>
+                Undo version
+              </Button>
+            ) : (
+              <Button type="button" variant="outline" size="sm" icon={History} disabled={submitting} onClick={versioning.onStart}>
+                Add Version
+              </Button>
+            )}
+          </div>
         ) : null}
 
         {step.groups.map(renderGroup)}

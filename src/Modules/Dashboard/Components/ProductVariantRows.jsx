@@ -25,8 +25,13 @@
  *
  * Props:
  *   product   one product, as readProducts gives it
+ *   onEditSku(variant)   optional - each SKU gets an Edit, on its first
+ *             line (a SKU without a `product_id` cannot be saved, so has none)
  */
 
+import { Pencil } from 'lucide-react'
+
+import { Button } from '@/Components/ui/button'
 import { cn } from '@/Library/utils'
 import { formatDate } from '@/Utils/date'
 import { orDash } from '@/Utils/display'
@@ -35,6 +40,10 @@ import { displayValue } from '../productList'
 /** The eight columns, and the least width the grid is drawn at before it scrolls. */
 const GRID =
   'grid min-w-[56rem] grid-cols-[minmax(6.5rem,1fr)_minmax(11rem,2.4fr)_4.75rem_6rem_5.5rem_minmax(7.5rem,1.3fr)_5.5rem_6.25rem] gap-x-3'
+
+/** The same, with a ninth, narrow column for each SKU's Edit. */
+const GRID_WITH_EDIT =
+  'grid min-w-[58rem] grid-cols-[minmax(6.5rem,1fr)_minmax(11rem,2.4fr)_4.75rem_6rem_5.5rem_minmax(7.5rem,1.3fr)_5.5rem_6.25rem_2rem] gap-x-3'
 
 const HEADINGS = ['SKU Code', 'SKU Details', 'SKU Qty', 'SKU Amount', 'Unit Rate', 'Warehouse', 'Wh. Qty', 'Expiry Date']
 
@@ -58,17 +67,20 @@ const linesOf = (variant) => {
   }))
 }
 
-export default function ProductVariantRows({ product }) {
+export default function ProductVariantRows({ product, onEditSku }) {
+  const grid = onEditSku ? GRID_WITH_EDIT : GRID
+
   if (product.variants.length === 0) {
     return <p className="px-3 py-4 text-center text-xs text-muted-foreground">No SKU or warehouse details for this product.</p>
   }
 
   return (
     <div className="overflow-x-auto px-3 py-2">
-      <div className={cn(GRID, 'border-b border-border pb-1.5 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase')}>
+      <div className={cn(grid, 'border-b border-border pb-1.5 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase')}>
         {HEADINGS.map((heading) => (
           <span key={heading}>{heading}</span>
         ))}
+        {onEditSku ? <span className="sr-only">Edit</span> : null}
       </div>
 
       {product.variants.map((variant, variantIndex) =>
@@ -76,7 +88,7 @@ export default function ProductVariantRows({ product }) {
           <div
             key={`${variantIndex}-${lineIndex}`}
             className={cn(
-              GRID,
+              grid,
               'items-start py-1.5 text-xs text-foreground',
               // A rule between two SKUs; the lines of one SKU sit together.
               firstOfVariant && variantIndex > 0 && 'border-t border-border/60',
@@ -110,6 +122,22 @@ export default function ProductVariantRows({ product }) {
             )}
 
             <span>{firstOfDetail ? formatDate(detail?.expiryDate) : ''}</span>
+
+            {onEditSku ? (
+              firstOfVariant && variant.productId !== null ? (
+                <Button
+                  type="button"
+                  variant="iconEdit"
+                  size="icon-sm"
+                  icon={Pencil}
+                  tooltip="Edit this SKU"
+                  aria-label={`Edit SKU ${variant.skuCode || variantIndex + 1}`}
+                  onClick={() => onEditSku(variant)}
+                />
+              ) : (
+                <span />
+              )
+            ) : null}
           </div>
         )),
       )}

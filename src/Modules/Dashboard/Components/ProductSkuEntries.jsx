@@ -28,8 +28,10 @@
  * - and each has its own values and its own warehouse lines, so typing into
  * one can never reach another.
  *
- * ADDING a SKU appends an empty entry under the last: nothing is copied from
- * the one before. REMOVING one that has anything in it asks first, beside
+ * ADDING a SKU appends an entry under the last, a copy of everything the
+ * last entry holds right now (copySkuSet) - its SKU fields, quantity,
+ * dates, rate and warehouse lines. The copy is its own: changing it
+ * changes nothing above. REMOVING one that has anything in it asks first, beside
  * the button; an empty one just goes. The last entry cannot be removed - a
  * product with SKUs has at least one.
  *
@@ -39,10 +41,12 @@
  *   sets         [{ id, values, allocations }] - see emptySkuSet
  *   errors       { [entry id]: { fields, lines, total } }, from checkProductStep
  *   vendors, warehouses   useVendorOptions(), useWarehouseOptions()
+ *   products     useProducts(), for a raw-material or semi-finished field
  *   singleWarehouse   the company's plan allows one warehouse - every
  *                entry's stock is kept in it (see ProductWarehouseAllocation)
  *   disabled     the form is saving
- *   onAdd()                                       a new, empty entry
+ *   onAdd()      a new entry - without it there is no Add SKU (an edit
+ *                is of one SKU)
  *   onRemove(entryId)
  *   onValueChange(entryId, fieldName, value)
  *   onAddLine(entryId)                            a new warehouse line
@@ -72,6 +76,7 @@ export default function ProductSkuEntries({
   errors,
   vendors,
   warehouses,
+  products,
   singleWarehouse = false,
   disabled,
   onAdd,
@@ -95,9 +100,11 @@ export default function ProductSkuEntries({
           <span className="font-normal text-muted-foreground"> ({sets.length})</span>
         </h3>
 
-        <Button type="button" variant="outline" size="sm" icon={Plus} disabled={disabled} onClick={onAdd}>
-          Add SKU
-        </Button>
+        {onAdd ? (
+          <Button type="button" variant="default" size="sm" icon={Plus} disabled={disabled} onClick={onAdd}>
+            Add SKU
+          </Button>
+        ) : null}
       </div>
 
       <div className="space-y-3">
@@ -125,6 +132,7 @@ export default function ProductSkuEntries({
                     error={found.fields?.[name]}
                     disabled={disabled}
                     vendors={vendors}
+                    products={products}
                     onChange={(value) => onValueChange(set.id, name, value)}
                   />
                 )

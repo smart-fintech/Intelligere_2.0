@@ -2,7 +2,9 @@
  * The active company's product groups, as the choices of the Product form's
  * Group dropdown:
  *
- *   const groups = useProductGroups()
+ *   const groups = useProductGroups()          asked for at once
+ *   const groups = useProductGroups(isOpen)    only once `enabled` is true -
+ *                                              'idle', and nothing fetched, before
  *
  *   status    'idle' | 'loading' | 'ready' | 'failed'
  *   options   [{ value, label }] - both the group's `group_name`, which is
@@ -16,6 +18,11 @@
  * never handed out: until the answer for THIS company is in, `options` is
  * empty. A reload keeps the groups already there until the new ones arrive,
  * so an open dropdown is not emptied under the user.
+ *
+ * refreshProductGroups() reloads the groups for EVERY screen using this hook
+ * at that moment - what a new group created elsewhere (the header's Add
+ * Stock Group Creation) calls, so the Product form's Group dropdown has it
+ * too.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -25,15 +32,27 @@ import { getProductGroups } from '@/Services/productService'
 
 const NO_GROUPS = []
 
-export default function useProductGroups() {
+/** The reload of every mounted useProductGroups - see refreshProductGroups. */
+const reloaders = new Set()
+
+export const refreshProductGroups = () => reloaders.forEach((reload) => reload())
+
+export default function useProductGroups(enabled = true) {
   const { activeCompanyName: companyName } = useActiveCompany()
 
   const [state, setState] = useState({ status: 'loading', groups: NO_GROUPS, error: null, forKey: null })
   const [attempt, setAttempt] = useState(0)
   const request = useRef(null)
 
+  // Signed up for refreshProductGroups for as long as this screen is here.
   useEffect(() => {
-    if (!companyName) return
+    const reload = () => setAttempt((count) => count + 1)
+    reloaders.add(reload)
+    return () => reloaders.delete(reload)
+  }, [])
+
+  useEffect(() => {
+    if (!enabled || !companyName) return
 
     const requestKey = `${companyName}#${attempt}`
     if (request.current === requestKey) return
@@ -53,9 +72,9 @@ export default function useProductGroups() {
           forKey: companyName,
         }))
       })
-  }, [companyName, attempt])
+  }, [enabled, companyName, attempt])
 
-  const mine = Boolean(companyName) && state.forKey === companyName
+  const mine = enabled && Boolean(companyName) && state.forKey === companyName
   const groups = mine ? state.groups : NO_GROUPS
 
   const options = useMemo(() => {
@@ -72,7 +91,7 @@ export default function useProductGroups() {
   }, [groups])
 
   return {
-    status: !companyName ? 'idle' : mine ? state.status : 'loading',
+    status: !enabled || !companyName ? 'idle' : mine ? state.status : 'loading',
     options,
     error: mine ? state.error : null,
     reload: () => {

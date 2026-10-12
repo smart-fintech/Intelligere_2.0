@@ -282,8 +282,9 @@ export const PRODUCT_FIELDS_PER_STEP = 12
  * its `field_type`; the Product form checks both.
  *
  *   vendor_select    one of the company's vendors (Inventory Master > Vendor)
- *   raw_material     } chosen from the company's own products - which needs
- *   semi_finished    } the product list, a later stage of this module
+ *   raw_material     } references to the company's own products - a SKU of
+ *   semi_finished    } a Raw Material / Semi-Finished product, with a
+ *                    } quantity and a wastage (ProductReferencePicker)
  */
 export const PRODUCT_FIELD_VENDOR_SELECT = 'vendor_select'
 export const PRODUCT_FIELD_RAW_MATERIAL = 'raw_material'

@@ -53,8 +53,12 @@
  * shows.
  *
  * THERE IS NO DELETE: how a simple product is removed has not been
- * confirmed (see the note in productService), so a row has Edit only. And
- * the CSV card is drawn but not connected - see ProductCsvUpload.
+ * confirmed (see the note in productService), so a row has Edit only.
+ *
+ * THE CSV CARD imports many products at once - POST
+ * inventory/product_csv_import/, then for Tally the parsed rows on over the
+ * WebSocket - and reloads the list (and the groups, which a file can add
+ * to) when it has finished. See ProductCsvUpload.
  *
  * The list itself comes through Hooks/useProducts - the same call, and the
  * same hook, the full SKU product page uses.
@@ -96,7 +100,7 @@ import ProductTable from './ProductTable'
 const SYNC_TIMEOUT_MS = 5 * 60 * 1000
 
 export default function BasicProducts() {
-  const { activeCompanyName: companyName } = useActiveCompany()
+  const { activeCompanyId: companyId, activeCompanyName: companyName } = useActiveCompany()
   const companyStatus = useSelector(selectCompanyStatus)
 
   // Tally, or - for everyone else - Intelligere. See "Which ERP" at the top.
@@ -324,7 +328,15 @@ export default function BasicProducts() {
     // on anything narrower than `lg`, form first - as on Ledger Details.
     <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
       <div className="w-full shrink-0 space-y-4 lg:w-[32%]">
-        <ProductCsvUpload />
+        <ProductCsvUpload
+          companyId={companyId}
+          companyName={companyName}
+          isTally={isTally}
+          onImported={() => {
+            reload()
+            groups.reload()
+          }}
+        />
 
         {/* `key` is what fills the form in when a different row is chosen
             for editing, and empties it after a save: React remounts it, so

@@ -242,7 +242,17 @@ function ReferenceTab({ product, read, first, empty }) {
 }
 
 /** The properties that lead a reference's columns, when it has them. */
-const REFERENCE_FIRST = ['product_name', 'id', 'product_id', 'sku_code', 'quantity', 'wastage', 'sku_details']
+const REFERENCE_FIRST = [
+  'Product Name',
+  'product_name',
+  'id',
+  'product_id',
+  'sku_code',
+  'qty',
+  'quantity',
+  'wastage',
+  'sku_details',
+]
 
 const countOf = (product, read) => product.variants.reduce((total, variant) => total + read(variant).length, 0)
 

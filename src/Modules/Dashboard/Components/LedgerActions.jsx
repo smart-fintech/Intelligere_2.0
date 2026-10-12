@@ -2,8 +2,11 @@
  * The "Add Ledger" button in the Ledger page's heading, and the two modals
  * behind it.
  *
- *   Tally         Add Ledger Group  /  Add Ledger Creation
+ *   Tally         Add Ledger Group  /  Add Ledger Creation  /  Add Stock Group Creation
  *   Intelligere   Add Ledger Creation
+ *
+ * Add Stock Group Creation (StockGroupModal) is Tally's too: it creates a
+ * stock group in Tally over the WebSocket, for products to be filed under.
  *
  * Ledger groups are a Tally idea - Intelligere's come as a fixed list from
  * the API - so that option is simply not offered to an Intelligere user. The
@@ -38,7 +41,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
-import { FolderPlus, Plus, UserPlus } from 'lucide-react'
+import { FolderPlus, Layers, Plus, UserPlus } from 'lucide-react'
 
 import { ActionDropdown } from '@/Components/Common/ActionDropdown'
 import { Modal } from '@/Components/Common/Modal'
@@ -53,10 +56,12 @@ import { selectIsTallyErp } from '@/Store/Slices/profileSlice'
 import { fetchLedgerGroups, fetchLedgers, selectLedgerGroups } from '@/Store/Slices/ledgerSlice'
 import LedgerForm from './LedgerForm'
 import LedgerGroupModal from './LedgerGroupModal'
+import StockGroupModal from './StockGroupModal'
 
 /** What the dropdown reports back - see onSelect below. */
 const ADD_LEDGER = 'ledger_creation'
 const ADD_LEDGER_GROUP = 'ledger_group'
+const ADD_STOCK_GROUP = 'stock_group'
 
 /**
  * How long a save waits before the ledgers are read back.
@@ -108,6 +113,8 @@ export default function LedgerActions() {
       ? [{ label: 'Add Ledger Group', value: ADD_LEDGER_GROUP, icon: FolderPlus }]
       : []),
     { label: 'Add Ledger Creation', value: ADD_LEDGER, icon: UserPlus },
+    // Tally only, like the ledger group.
+    ...(isTally ? [{ label: 'Add Stock Group Creation', value: ADD_STOCK_GROUP, icon: Layers }] : []),
   ]
 
   /** Reloads the ledger list - the same thunk the page's Refresh uses. */
@@ -138,7 +145,8 @@ export default function LedgerActions() {
        button is on every page, and only the Ledger page loads them by
        itself; both thunks refuse a duplicate request (see their
        `condition`), so from the Ledger page these are no-ops. */
-    dispatch(fetchLedgerGroups())
+    // (The stock group modal reads its own list - product groups - as it opens.)
+    if (value !== ADD_STOCK_GROUP) dispatch(fetchLedgerGroups())
     // Only the ledger form needs the banks - the group modal has no such field.
     if (value === ADD_LEDGER) dispatch(fetchBankOptions())
 
@@ -233,6 +241,15 @@ export default function LedgerActions() {
         groups={groups}
         onCreated={reloadGroups}
       />
+
+      {/* ---------------- Add Stock Group Creation (Tally only) ---------------- */}
+      {isTally ? (
+        <StockGroupModal
+          open={openModal === ADD_STOCK_GROUP}
+          onOpenChange={(next) => setOpenModal(next ? ADD_STOCK_GROUP : null)}
+          companyName={activeCompanyName}
+        />
+      ) : null}
     </>
   )
 }

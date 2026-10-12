@@ -12,6 +12,9 @@
  *   opening the tab / company change   the list   POST { company_name }
  *   Refresh / Retry                    the list
  *   Save in the dialog                 POST { company_name, custom_fields }, then the list again
+ *   Save Sequence                      the same POST, once for each field whose
+ *                                      field_order moved, then the list again
+ *                                      (see CustomFieldSequenceModal)
  *
  * After a save the list is read again from the backend rather than patched
  * by hand, so the table always shows what is really saved. Searching,
@@ -30,7 +33,7 @@
 
 import { useMemo, useState } from 'react'
 import { useSelector } from 'react-redux'
-import { AlertCircle, Pencil, Plus, RefreshCw, SlidersHorizontal } from 'lucide-react'
+import { AlertCircle, ArrowUpDown, Pencil, Plus, RefreshCw, SlidersHorizontal } from 'lucide-react'
 
 import { InlineAlert, ListSkeleton, RetryButton, StateMessage } from '@/Components/Common/DataList'
 import { YesNo } from '@/Components/Common/DetailList'
@@ -53,6 +56,7 @@ import { cn } from '@/Library/utils'
 import { selectCompanyStatus } from '@/Store/Slices/companySlice'
 import { orDash } from '@/Utils/display'
 import CustomFieldFormModal from './CustomFieldFormModal'
+import CustomFieldSequenceModal from './CustomFieldSequenceModal'
 
 const SEARCH_FIELDS = ['field_name']
 
@@ -141,10 +145,35 @@ export default function CustomFields() {
     reload()
   }
 
+  /* ---------------- The Sequence dialog ----------------
+     Its own `session` key for the same reason: each opening starts from the
+     order the fields are in now. */
+  const [sequence, setSequence] = useState({ open: false, session: 0 })
+
+  const openSequence = () => setSequence((previous) => ({ open: true, session: previous.session + 1 }))
+  const closeSequence = () => setSequence((previous) => ({ ...previous, open: false }))
+
   const addButton = (
     <Button type="button" size="sm" icon={Plus} onClick={() => openDialog(null)} disabled={!companyName}>
       Add Custom Field
     </Button>
+  )
+
+  // Beside Add Custom Field once there is something to put in order.
+  const listActions = (
+    <div className="flex items-center gap-2">
+      <Button
+        type="button"
+        size="sm"
+        variant="default"
+        icon={ArrowUpDown}
+        onClick={openSequence}
+        disabled={!companyName || loading || current.rows.length < 2}
+      >
+        Sequence Fields
+      </Button>
+      {addButton}
+    </div>
   )
 
   /* ---------------- What fills the card ---------------- */
@@ -190,7 +219,7 @@ export default function CustomFields() {
           view={view}
           searchPlaceholder="Search field name"
           moreFilters={MORE_FILTERS}
-          actions={addButton}
+          actions={listActions}
         />
 
         {view.total === 0 ? (
@@ -330,6 +359,21 @@ export default function CustomFields() {
         fields={current.rows}
         companyName={companyName}
         onSaved={handleSaved}
+      />
+
+      <CustomFieldSequenceModal
+        key={`sequence-${sequence.session}`}
+        open={sequence.open}
+        onOpenChange={(next) => {
+          if (!next) closeSequence()
+        }}
+        fields={current.rows}
+        companyName={companyName}
+        onSaved={() => {
+          closeSequence()
+          reload()
+        }}
+        onPartlySaved={reload}
       />
     </>
   )

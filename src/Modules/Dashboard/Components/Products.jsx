@@ -8,8 +8,9 @@
  * and drawn by ProductTable, the one product table both Product pages use:
  * a row per product, search and filters (SKU code, SKU attributes,
  * warehouse, expiry), a row that opens onto its SKUs and warehouses, and
- * the full details behind the eye. There is no Edit on a row here: how
- * this endpoint changes a product has not been confirmed.
+ * the full details behind the eye. EDIT is per SKU - each SKU is its own
+ * record, named by its `product_id` - and opens the same dialog filled
+ * from what that SKU was saved with (see ProductFormModal).
  *
  * A product's stock names its warehouse by id, so the company's warehouses
  * are read as well, to put names to them.
@@ -22,6 +23,9 @@
  *   SKU on or off        the company's Master Details        useMasterDetails
  *   its vendors          the Vendor list                     useVendorOptions
  *   its warehouses       the Warehouse list                  useWarehouseOptions
+ *   what it is made of   the products above, again           useProducts
+ *                        (a raw-material or semi-finished field
+ *                        chooses from them - no request of its own)
  *
  * The fields and the Master Details are read from the store, shared with
  * the tabs that own them, so opening this section after either of those
@@ -64,6 +68,7 @@ import useVendorOptions from '@/Hooks/useVendorOptions'
 import useWarehouseOptions from '@/Hooks/useWarehouseOptions'
 import { cn } from '@/Library/utils'
 import { hasSingleWarehouseLimit, isSkuManagementEnabled } from '@/Services/inventoryService'
+import { isProductCategory, PRODUCT_CATEGORY, productEditSource } from '../productList'
 import { selectCompanyStatus } from '@/Store/Slices/companySlice'
 import {
   buildProductSteps,
@@ -121,9 +126,24 @@ export default function Products() {
      `session` changes on every opening and is the dialog's `key`, so each
      one starts from an empty form - and, counting from zero, says whether
      the dialog has ever been opened. */
-  const [dialog, setDialog] = useState({ open: false, session: 0 })
+  const [dialog, setDialog] = useState({ open: false, session: 0, edit: null })
 
-  const openDialog = () => setDialog((previous) => ({ open: true, session: previous.session + 1 }))
+  const openDialog = () => setDialog((previous) => ({ open: true, session: previous.session + 1, edit: null }))
+
+  /** Edit one SKU: the dialog, filled from what it was saved with. Versions
+      are for products made from others - Finished and Semi-Finished. */
+  const openEdit = (product, variant) =>
+    setDialog((previous) => ({
+      open: true,
+      session: previous.session + 1,
+      edit: {
+        productId: variant.productId,
+        saved: productEditSource(product, variant),
+        versioning:
+          isProductCategory(product, PRODUCT_CATEGORY.FINISHED) ||
+          isProductCategory(product, PRODUCT_CATEGORY.SEMI_FINISHED),
+      },
+    }))
   const closeDialog = () => setDialog((previous) => ({ ...previous, open: false }))
 
   // The vendors are asked for once the dialog has been opened, and only
@@ -171,7 +191,16 @@ export default function Products() {
     // The company has products: the list. Whether another can be ADDED is
     // the Add Product button's business, above - a product list does not
     // wait for the form's fields.
-    if (products.rows.length > 0) return <ProductTable rows={products.rows} warehouseNames={warehouseNames} />
+    // Edit waits for the form's fields, like Add Product.
+    if (products.rows.length > 0) {
+      return (
+        <ProductTable
+          rows={products.rows}
+          warehouseNames={warehouseNames}
+          onEditSku={ready ? openEdit : undefined}
+        />
+      )
+    }
 
     // Not in yet: a placeholder, never "add your first product" for a
     // moment to a company that has a hundred.
@@ -283,6 +312,8 @@ export default function Products() {
           companyName={companyName}
           vendors={vendors}
           warehouses={warehouses}
+          products={products}
+          edit={dialog.edit}
           // The plan allows one warehouse: all stock goes to it, unasked.
           singleWarehouse={hasSingleWarehouseLimit(activeCompany)}
           onSaved={handleSaved}

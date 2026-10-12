@@ -440,6 +440,9 @@ export const getProducts = async (companyName) => {
  */
 export const isSkuManagementEnabled = (masterDetails) => masterDetails?.sku === true
 
+/** No references at all - a product whose form has no raw-material or semi-finished field. */
+const NO_REFERENCES = { raw: [], semiFinished: [] }
+
 /**
  * THE BODY OF A PRODUCT - AND THE ONE PLACE IT IS BUILT.
  *
@@ -456,7 +459,7 @@ export const isSkuManagementEnabled = (masterDetails) => masterDetails?.sku === 
  *         "Quantity": "300",                          <- the per-SKU fields,
  *         "Expiry Date": null,                           also under their
  *         "Unit Rate": "120",                            own names
- *         "semi_finished": [],
+ *         "semi_finished_reference": [],
  *         "raw_reference": [] },
  *       { ...the next SKU entry: its own sku_details, warehouse, quantity,
  *            expiry date and rate... } ],
@@ -470,7 +473,7 @@ export const isSkuManagementEnabled = (masterDetails) => masterDetails?.sku === 
  *
  * The only keys that are not field names are the structure itself:
  * `company_name`, `product_details`, and inside an entry `sku_details`,
- * `warehouse`, `semi_finished` and `raw_reference`, then `vendor`. They win
+ * `warehouse`, `raw_reference` and `semi_finished_reference`, then `vendor`. They win
  * over a field that happens to share a name with one.
  *
  * `product_details` HAS ONE ENTRY PER SKU, and each entry is that SKU's
@@ -486,9 +489,12 @@ export const isSkuManagementEnabled = (masterDetails) => masterDetails?.sku === 
  * at the top level, so a product's quantity is always found in the same
  * place whether it has SKUs or not.
  *
- * `semi_finished` and `raw_reference` are always [] for now, in every entry:
- * the fields that would fill them pick from the company's own products,
- * which needs the product list - a later stage.
+ * `raw_reference` and `semi_finished_reference` are the references the company's
+ * raw-material and semi-finished fields hold (see buildProductReference
+ * for one). A field filled in once for the product puts its references in
+ * EVERY entry - the same rule as a per-SKU field filled in once; a field
+ * inside a SKU entry puts them in that entry alone. With no such field
+ * both stay [].
  *
  * What is handed in is already typed, sorted and split between the product
  * and its entries (see collectProductValues in Modules/Dashboard/productForm):
@@ -499,13 +505,15 @@ export const isSkuManagementEnabled = (masterDetails) => masterDetails?.sku === 
  *                fields: [{ name, value }],   on screen
  *                warehouses: [{ id, warehouse_quantity, level, shelf, rack_no }] }]
  *   vendors   [{ id, name }]
+ *   references   { raw: [...], semiFinished: [...] } - the product's own;
+ *             a detail's own are in its `references`, the same shape
  *
  * `company_name` says whose product it is, the same way the Master Details
  * and Customised Fields calls name their company.
  */
 const named = (list) => Object.fromEntries(list.map(({ name, value }) => [name, value]))
 
-export const buildProductPayload = ({ companyName, fields = [], details = [], vendors = [] }) => {
+export const buildProductPayload = ({ companyName, fields = [], details = [], vendors = [], references = NO_REFERENCES }) => {
   // A per-SKU field filled in once - a product without SKUs - belongs to
   // every entry there is, which is then the only one.
   const ofProduct = fields.filter(({ name }) => perSkuFieldRank(name) === -1)
@@ -522,12 +530,43 @@ export const buildProductPayload = ({ companyName, fields = [], details = [], ve
       ...named(detail.fields),
       sku_details: named(detail.sku),
       warehouse: detail.warehouses,
-      semi_finished: [],
-      raw_reference: [],
+      // The references filled in once for the product belong to every
+      // entry, as a per-SKU field filled in once does; a SKU entry's own
+      // follow them.
+      raw_reference: [...references.raw, ...(detail.references?.raw ?? [])],
+      semi_finished_reference: [...references.semiFinished, ...(detail.references?.semiFinished ?? [])],
     })),
     vendor: vendors,
   }
 }
+
+/**
+ * ONE RAW-MATERIAL OR SEMI-FINISHED REFERENCE, as a `product_details`
+ * entry carries it in `raw_reference` or `semi_finished_reference`:
+ *
+ *   { "id": 227, "qty": "1", "wastage": "3",
+ *     "sku_code": "KNI-KNI-185-GRE-010",
+ *     "sku_details": { "Size": "M", "Color": "Grey", ... },
+ *     "Product Name": "Knitted Cotton Fabric" }
+ *
+ *   id            the referenced SKU's `product_id`, exactly as the
+ *                 product list gave it
+ *   qty, wastage  as typed, trimmed - text, as this endpoint takes its
+ *                 quantities
+ *   sku_code      the SKU's code ('' for a SKU without one)
+ *   sku_details    what the SKU is made of ({} for one with no details)
+ *   Product Name  the referenced product's name
+ *
+ * Built when the user presses OK, and kept in the form as it is here.
+ */
+export const buildProductReference = ({ id, productName, skuCode, skuDetails, qty, wastage }) => ({
+  id,
+  qty: String(qty ?? '').trim(),
+  wastage: String(wastage ?? '').trim(),
+  sku_code: skuCode ?? '',
+  sku_details: skuDetails ?? {},
+  'Product Name': productName ?? '',
+})
 
 /**
  * Creates a product.
@@ -547,6 +586,23 @@ export const buildProductPayload = ({ companyName, fields = [], details = [], ve
  * multipart stops that, and axios then leaves the header to the browser,
  * which writes it with the boundary.
  */
+/** The product body as multipart - see createProduct. Shared by create and update. */
+const productFormData = (payload, files = {}) => {
+  const body = new FormData()
+
+  Object.entries(payload).forEach(([name, value]) => {
+    body.append(name, value !== null && typeof value === 'object' ? JSON.stringify(value) : (value ?? ''))
+  })
+
+  Object.entries(files).forEach(([name, file]) => {
+    if (file != null) body.append(name, file)
+  })
+
+  return body
+}
+
+const MULTIPART = { headers: { 'Content-Type': 'multipart/form-data' } }
+
 export const createProduct = (payload, files = {}) => {
   // OLD implementation - JSON without a file, multipart only with one.
   // Retained for reference.
@@ -563,18 +619,75 @@ export const createProduct = (payload, files = {}) => {
   // return api.post(PRODUCT_URL, body, { headers: { 'Content-Type': 'multipart/form-data' } })
 
   // NEW implementation - always FormData.
-  const body = new FormData()
-
-  Object.entries(payload).forEach(([name, value]) => {
-    body.append(name, value !== null && typeof value === 'object' ? JSON.stringify(value) : (value ?? ''))
-  })
-
-  Object.entries(files).forEach(([name, file]) => {
-    if (file != null) body.append(name, file)
-  })
-
-  return api.post(PRODUCT_URL, body, { headers: { 'Content-Type': 'multipart/form-data' } })
+  return api.post(PRODUCT_URL, productFormData(payload, files), MULTIPART)
 }
+
+/* ------------------------------------------------------------------ */
+/* Editing a product - one SKU at a time                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ *   PUT  inventory/product/   the same body as a create, for ONE SKU, with
+ *                             that SKU's `product_id` at the top
+ *
+ * Every SKU of a product is its own record, named by the `product_id` its
+ * `sku_variants` entry carries - so an edit is of one SKU: the product's
+ * fields, and that SKU's one `product_details` entry. The body is built
+ * exactly as a create's (buildProductPayload), and sent the same way
+ * (multipart, see createProduct).
+ *
+ * PAST VERSIONS. The entry also carries `past_version`, next to
+ * `raw_reference` and `semi_finished_reference`:
+ *
+ *   "raw_reference": [ ...the references now ],
+ *   "semi_finished_reference": [ ... ],
+ *   "past_version": {
+ *     "version1": { "raw_reference": [...], "semi_finished_reference": [...] },
+ *     "version2": { ... } }
+ *
+ * The history the SKU already has is sent back whole - never changed, never
+ * dropped. When the user starts a new version (Add Version, on a Finished or
+ * Semi-Finished product) BOTH reference lists, as the form held them at that
+ * moment, are added to it together under the next key (nextPastVersionKey),
+ * and the lists the user then builds become the current references. Only
+ * on Save - nothing is sent before.
+ */
+export const buildProductUpdatePayload = ({ productId, pastVersion = {}, ...product }) => {
+  const payload = buildProductPayload(product)
+
+  return {
+    product_id: productId,
+    ...payload,
+    product_details: payload.product_details.map((detail) => ({ ...detail, past_version: pastVersion })),
+  }
+}
+
+/**
+ * The key the next past version is saved under: `version<n>`, one past
+ * the highest number the history already has - `version1` for a SKU
+ * with none. The history's own spelling is kept: one written
+ * `version_1, version_2` goes on with `version_3`. Older keys are never
+ * touched.
+ */
+export const nextPastVersionKey = (pastVersion) => {
+  const found = Object.keys(pastVersion ?? {})
+    .map((key) => /^version(_?)(\d+)$/i.exec(key))
+    .filter(Boolean)
+
+  const next = found.length > 0 ? Math.max(...found.map((match) => Number(match[2]))) + 1 : 1
+  const separator = found.length > 0 && found.every((match) => match[1] === '_') ? '_' : ''
+
+  return `version${separator}${next}`
+}
+
+/** One past version: both reference lists as they were - an empty one as []. */
+export const pastVersionOf = (references) => ({
+  raw_reference: references?.raw ?? [],
+  semi_finished_reference: references?.semiFinished ?? [],
+})
+
+/** Saves an edited SKU - see buildProductUpdatePayload. */
+export const updateProduct = (payload, files = {}) => api.put(PRODUCT_URL, productFormData(payload, files), MULTIPART)
 
 /* ------------------------------------------------------------------ */
 /* Sample invoices - the formats the Invoice Format field offers       */

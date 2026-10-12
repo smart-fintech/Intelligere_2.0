@@ -19,15 +19,21 @@
  *               Remove button, so the choice is still there to see after
  *               going to another step and back
  *   vendor      a dropdown of the company's vendors
+ *   raw-material, semi-finished   a list of references to the company's
+ *               own products, added one at a time (ProductReferencePicker)
+ *               - always the whole row, whatever its size
  *   unsupported a greyed-out box that says so (see productInputKind)
  *
  * Props:
  *   field      the customised field, as the backend sent it
- *   value      what the form holds for it: text, or a File (or null) for a file
+ *   value      what the form holds for it: text, a File (or null) for a
+ *              file, or the references added for a reference field
  *   error      the message to show under it
  *   disabled   the form is saving
+ *   readOnly   shown but not to be changed (the product's name, in an edit)
  *   onChange(value)
  *   vendors    useVendorOptions() - only read for a vendor field
+ *   products   useProducts() - only read for a reference field
  *
  * It takes its own place in the grid it is drawn in - see spanClass below -
  * so put it straight inside a `grid grid-cols-12`.
@@ -41,13 +47,16 @@ import { formatBytes } from '@/Components/Common/Loader'
 import { Button } from '@/Components/ui/button'
 import { Input } from '@/Components/ui/input'
 import { cn } from '@/Library/utils'
+import { PRODUCT_CATEGORY } from '../productList'
 import {
+  isReferenceInput,
   PRODUCT_INPUT,
   productFieldName,
   productFieldSpan,
   productInputKind,
   productOptions,
 } from '../productForm'
+import ProductReferencePicker from './ProductReferencePicker'
 
 /** A long list of options gets a search box; a short one does not need it. */
 const SEARCHABLE_FROM = 8
@@ -107,7 +116,24 @@ const spanClass = (field, kind) => {
   )
 }
 
-export default function ProductFieldInput({ field, value, error, disabled, onChange, vendors }) {
+/** Which products a reference field offers. */
+const REFERENCE_CATEGORY = {
+  [PRODUCT_INPUT.RAW_MATERIAL]: PRODUCT_CATEGORY.RAW_MATERIAL,
+  [PRODUCT_INPUT.SEMI_FINISHED]: PRODUCT_CATEGORY.SEMI_FINISHED,
+}
+
+export default function ProductFieldInput({
+  field,
+  value,
+  error,
+  disabled: busy,
+  readOnly = false,
+  onChange,
+  vendors,
+  products,
+}) {
+  // A read-only field is drawn as a disabled one: seen, never changed.
+  const disabled = busy || readOnly
   const id = useId()
   const label = productFieldName(field)
   const kind = productInputKind(field)
@@ -149,6 +175,20 @@ export default function ProductFieldInput({ field, value, error, disabled, onCha
         searchable={vendors.options.length >= SEARCHABLE_FROM}
         searchPlaceholder="Search vendor..."
         onValueChange={onChange}
+      />
+    )
+  }
+
+  // A row of its own: a product, a SKU, two amounts, OK - and the list.
+  if (isReferenceInput(kind)) {
+    return (
+      <ProductReferencePicker
+        {...common}
+        className="col-span-12"
+        category={REFERENCE_CATEGORY[kind]}
+        value={value}
+        onChange={onChange}
+        products={products}
       />
     )
   }
