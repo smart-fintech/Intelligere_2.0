@@ -39,6 +39,8 @@
  *   sets         [{ id, values, allocations }] - see emptySkuSet
  *   errors       { [entry id]: { fields, lines, total } }, from checkProductStep
  *   vendors, warehouses   useVendorOptions(), useWarehouseOptions()
+ *   singleWarehouse   the company's plan allows one warehouse - every
+ *                entry's stock is kept in it (see ProductWarehouseAllocation)
  *   disabled     the form is saving
  *   onAdd()                                       a new, empty entry
  *   onRemove(entryId)
@@ -70,6 +72,7 @@ export default function ProductSkuEntries({
   errors,
   vendors,
   warehouses,
+  singleWarehouse = false,
   disabled,
   onAdd,
   onRemove,
@@ -179,6 +182,7 @@ export default function ProductSkuEntries({
                   totalError={totalError}
                   quantity={quantity}
                   warehouses={warehouses}
+                  singleWarehouse={singleWarehouse}
                   disabled={disabled}
                   onAdd={() => onAddLine(set.id)}
                   onChange={(lineId, property, value) => onChangeLine(set.id, lineId, property, value)}

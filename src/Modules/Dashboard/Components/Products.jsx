@@ -37,7 +37,7 @@
  *
  * That alone decides between the two forms: a product with SKUs (the SKU
  * Details section in step 1, an entry per SKU, each with its own stock) and
- * a product without (one product, with a Warehouse step). It is never
+ * a product without (one product, its stock under its main fields). It is never
  * worked out from the fields - a field marked `sku_field` says which fields
  * the SKU details are, not whether there are any - and the company's plan
  * (`premium_modules`) has no say in the form at all. Until the Master
@@ -63,7 +63,7 @@ import useProducts from '@/Hooks/useProducts'
 import useVendorOptions from '@/Hooks/useVendorOptions'
 import useWarehouseOptions from '@/Hooks/useWarehouseOptions'
 import { cn } from '@/Library/utils'
-import { isSkuManagementEnabled } from '@/Services/inventoryService'
+import { hasSingleWarehouseLimit, isSkuManagementEnabled } from '@/Services/inventoryService'
 import { selectCompanyStatus } from '@/Store/Slices/companySlice'
 import {
   buildProductSteps,
@@ -77,7 +77,7 @@ import ProductFormModal from './ProductFormModal'
 import ProductTable from './ProductTable'
 
 export default function Products() {
-  const { activeCompanyId: companyId, activeCompanyName: companyName } = useActiveCompany()
+  const { activeCompany, activeCompanyId: companyId, activeCompanyName: companyName } = useActiveCompany()
   const companyStatus = useSelector(selectCompanyStatus)
 
   const customFields = useCustomFields()
@@ -283,6 +283,8 @@ export default function Products() {
           companyName={companyName}
           vendors={vendors}
           warehouses={warehouses}
+          // The plan allows one warehouse: all stock goes to it, unasked.
+          singleWarehouse={hasSingleWarehouseLimit(activeCompany)}
           onSaved={handleSaved}
         />
       ) : null}

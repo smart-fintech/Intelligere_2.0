@@ -22,11 +22,20 @@
  *
  * The rows are this tab's alone, so they are kept here rather than in the
  * store.
+ *
+ * ------------------------------------------------------------------
+ * A PLAN WITH ONE WAREHOUSE
+ * ------------------------------------------------------------------
+ * A company whose `features` lists "Single Warehouse" (see
+ * hasSingleWarehouseLimit) may have one warehouse and no more. Once it has
+ * one, Create Warehouse is off and a line above the list says why. That is
+ * all it changes: the warehouse it has can still be seen, edited and
+ * deleted - and deleting it makes room to create one again.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSelector } from 'react-redux'
-import { AlertCircle, Plus, RefreshCw, Warehouse } from 'lucide-react'
+import { AlertCircle, Info, Plus, RefreshCw, Warehouse } from 'lucide-react'
 
 import { ListSkeleton, InlineAlert, RetryButton, RowActions, StateMessage } from '@/Components/Common/DataList'
 import { YesNo } from '@/Components/Common/DetailList'
@@ -45,7 +54,12 @@ import { useListView } from '@/Hooks/useListView'
 import useMasterDetails from '@/Hooks/useMasterDetails'
 import { toast } from '@/Library/toast'
 import { cn } from '@/Library/utils'
-import { deleteWarehouse, getWarehouseId, getWarehouses } from '@/Services/inventoryService'
+import {
+  deleteWarehouse,
+  getWarehouseId,
+  getWarehouses,
+  hasSingleWarehouseLimit,
+} from '@/Services/inventoryService'
 import { selectCompanyStatus } from '@/Store/Slices/companySlice'
 import { orDash } from '@/Utils/display'
 import WarehouseFormModal from './WarehouseFormModal'
@@ -60,7 +74,7 @@ const FILTER_FIELDS = {
 const NOT_LOADED = { status: 'loading', rows: [], error: null }
 
 export default function Warehouses() {
-  const { activeCompanyId: companyId } = useActiveCompany()
+  const { activeCompany, activeCompanyId: companyId } = useActiveCompany()
   const companyStatus = useSelector(selectCompanyStatus)
 
   // The company's Master Details - their `business_type` decides which
@@ -173,8 +187,18 @@ export default function Warehouses() {
     }
   }
 
+  // The plan allows one warehouse, and the company has it - see the note
+  // at the top. Counted on the rows as loaded, never on a filtered view.
+  const atLimit = hasSingleWarehouseLimit(activeCompany) && rows.length > 0
+
   const createButton = (
-    <Button type="button" size="sm" icon={Plus} onClick={() => openDialog(null)} disabled={!companyId}>
+    <Button
+      type="button"
+      size="sm"
+      icon={Plus}
+      onClick={() => openDialog(null)}
+      disabled={!companyId || atLimit}
+    >
       Create Warehouse
     </Button>
   )
@@ -218,6 +242,15 @@ export default function Warehouses() {
 
     return (
       <>
+        {/* Why Create Warehouse is off - a plain note, not an error. */}
+        {atLimit ? (
+          <p className="mb-3 flex items-center gap-2 rounded-md border border-border bg-muted/40 px-2.5 py-2 text-xs text-muted-foreground">
+            <Info className="size-3.5 shrink-0" />
+            Your company&apos;s plan supports only one warehouse, so another cannot be created. You can still edit
+            this one.
+          </p>
+        ) : null}
+
         <TableFilters view={view} searchPlaceholder="Search name, contact or address" actions={createButton} />
 
         {view.total === 0 ? (

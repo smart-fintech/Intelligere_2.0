@@ -15,14 +15,15 @@
  *
  * and, for warehouse stock, which is not made of fields:
  *
+ *   lockAllocations(allocations, warehouse)   the lines, all in one warehouse
  *   validateAllocations(allocations)     what is wrong with each line
  *   allocationTotalError(allocations, quantity)   ... and with them together
  *   collectAllocations(allocations)      the lines, ready for the payload
  *
  * What the form holds is `values` (what is filled in once), `skuSets`
  * (one entry per SKU, each with its own values and warehouse lines) and
- * `allocations` (the warehouse lines of a product without SKUs) - see
- * "SKU entries" below.
+ * `allocations` (the warehouse lines of a product without SKUs, in step 1)
+ * - see "SKU entries" below.
  *
  * Nothing here knows a field by name. "Item Name" and "Color" are whatever
  * the backend sent; a company with different fields gets a different form.
@@ -234,14 +235,20 @@ const detailRank = (field) => perSkuFieldRank(productFieldName(field))
  *   else. In particular they are not counted for the top row: step 1 starts
  *   with the first PRODUCT_MAIN_FIELD_COUNT of the fields that are left, so
  *   when Quantity moves into the SKU entries the next field moves up into
- *   its place. And there is no Warehouse step - the stock is each SKU's own.
+ *   its place. The stock is each SKU's own, inside its entry.
  *
  * A PRODUCT WITHOUT SKUs  (anything else)
  *
  *   There is no SKU group. Every field is a normal one, a field marked
  *   `sku_field` included - marking it does not make it vanish - and each is
- *   drawn once, where the field order puts it. One last step, "Warehouse",
- *   is where the product's stock is kept.
+ *   drawn once, where the field order puts it. Step 1 ends with the
+ *   WAREHOUSE group instead: where the product's stock is kept, right
+ *   under its main fields. The group is not made of fields (it has none)
+ *   - the form draws the warehouse allocation for it.
+ *
+ * So where the stock is kept is ALWAYS in step 1 and in one place only: a
+ * SKU's inside its entry, a product's under its main fields. There is no
+ * step of its own for it.
  *
  * Either way the normal fields after the first seven follow in steps of at
  * most PRODUCT_FIELDS_PER_STEP, still in field order. A step is only made
@@ -282,6 +289,9 @@ export const buildProductSteps = (rows, { skuActive = false } = {}) => {
         detailFields: perSku,
         withWarehouse: true,
       })
+    } else {
+      // Without SKUs the stock is the product's own: under its main fields.
+      groups.push({ key: PRODUCT_GROUP.WAREHOUSE, title: null, fields: [] })
     }
 
     steps.push({ key: 'main', title: 'Main Details', groups })
@@ -297,18 +307,6 @@ export const buildProductSteps = (rows, { skuActive = false } = {}) => {
     })
   })
 
-  // Without SKUs, where the stock is kept comes last, once the product
-  // itself is described. The step is not made of fields (its group has
-  // none) - the form draws the warehouse allocation for it - and it is only
-  // ever added to a form that has steps, never as a form of its own.
-  if (!hasSkus && steps.length > 0) {
-    steps.push({
-      key: 'warehouse',
-      title: 'Warehouse',
-      groups: [{ key: PRODUCT_GROUP.WAREHOUSE, title: null, fields: [] }],
-    })
-  }
-
   return steps
 }
 
@@ -316,7 +314,7 @@ export const buildProductSteps = (rows, { skuActive = false } = {}) => {
 export const skuGroupOf = (steps) =>
   steps.flatMap((step) => step.groups).find((group) => group.key === PRODUCT_GROUP.SKU)
 
-/** Whether a step is where the warehouse allocation is filled in. */
+/** Whether a step is where the warehouse allocation of a product without SKUs is filled in. */
 export const isWarehouseStep = (step) =>
   (step?.groups ?? []).some((group) => group.key === PRODUCT_GROUP.WAREHOUSE)
 
@@ -398,8 +396,8 @@ export const validateProductField = (field, value) => {
  *
  * A product without SKUs has no entries on screen: its quantity, rate and
  * expiry date are normal fields in `values`, and its stock is the one
- * `allocations` list of the Warehouse step. (The form still holds one empty
- * entry, which is simply never drawn or sent.)
+ * `allocations` list, under the main fields of step 1. (The form still
+ * holds one empty entry, which is simply never drawn or sent.)
  */
 
 /** A new, empty SKU entry - nothing in it is copied from any other. */
@@ -419,6 +417,13 @@ const validateFields = (fields, values) =>
     return errors
   }, {})
 
+/** Where a step comes in the form. */
+const stepIndexOf = (steps, key) => steps.findIndex((entry) => entry.key === key)
+
+/** The step the quantity field is in, or -1 when the company's product has none. */
+const quantityStepIndex = (steps) =>
+  steps.findIndex((entry) => stepFields(entry).some((field) => isProductQuantityField(productFieldName(field))))
+
 /**
  * EVERYTHING WRONG WITH ONE STEP.
  *
@@ -430,7 +435,7 @@ const validateFields = (fields, values) =>
  *            lines (see validateAllocations) and what is wrong with those
  *            lines taken together (see allocationTotalError). An entry with
  *            nothing wrong is not in it.
- *   lines, total   the same two, for the Warehouse step of a product
+ *   lines, total   the same two, for the warehouse lines of a product
  *            without SKUs
  *   passes   nothing is wrong anywhere in the step
  *
@@ -441,8 +446,15 @@ const validateFields = (fields, values) =>
  * `form` is what the form holds - `values`, `skuSets`, `allocations` - and
  * `steps` the whole form: the quantity field may be in another step than the
  * warehouse lines it limits.
+ *
+ * `final` is the check before saving, when every step has been seen. It
+ * matters for one case: a product without SKUs has its warehouse lines in
+ * step 1, and a company may have put its Quantity field in a LATER step.
+ * Stock entered against a quantity the user has not reached yet is not
+ * held against step 1 on Next - they could never get to the box that
+ * settles it - but it is on the final check, like everything else.
  */
-export const checkProductStep = (step, { steps, values, skuSets, allocations }) => {
+export const checkProductStep = (step, { steps, values, skuSets, allocations }, { final = false } = {}) => {
   const fields = {}
   const sets = {}
   let lines = {}
@@ -464,8 +476,12 @@ export const checkProductStep = (step, { steps, values, skuSets, allocations }) 
         }
       })
     } else if (group.key === PRODUCT_GROUP.WAREHOUSE) {
+      const quantity = productQuantity(steps, values)
+      // Not entered yet, and its box is in a step still to come.
+      const notReached = !final && !quantity.entered && quantityStepIndex(steps) > stepIndexOf(steps, step.key)
+
       lines = validateAllocations(allocations)
-      total = allocationTotalError(allocations, productQuantity(steps, values))
+      total = notReached ? undefined : allocationTotalError(allocations, quantity)
     } else {
       Object.assign(fields, validateFields(group.fields, values))
     }
@@ -495,7 +511,7 @@ export const checkProductStep = (step, { steps, values, skuSets, allocations }) 
  *             A product with SKUs gives one per SKU entry. A product
  *             without gives exactly one, with no `sku` and no `fields` (its
  *             quantity, rate and expiry are in the top `fields`) and the
- *             Warehouse step's lines.
+ *             product's own warehouse lines.
  *   vendors   [{ id, name }] - the vendor each vendor field holds
  *   files     { name: File } for the File fields that hold one
  *
@@ -606,6 +622,21 @@ export const emptyAllocation = (id) => ({
   shelf: '',
   rack_no: '',
 })
+
+/**
+ * THE LINES, ALL IN ONE WAREHOUSE - for a company whose plan allows only
+ * one (see hasSingleWarehouseLimit in Services/inventoryService).
+ *
+ * `warehouse` is that warehouse's identifier as text, or '' while it is
+ * not known (the list is still loading, failed, or is empty). Every line
+ * comes back holding it, whatever it held before - so no line of such a
+ * company can name a second warehouse, and while the one warehouse is not
+ * known every line fails validateAllocations ("Select a warehouse")
+ * rather than being sent with a warehouse nobody chose. Nothing else of a
+ * line is touched, and a line already right is returned as it is.
+ */
+export const lockAllocations = (allocations, warehouse) =>
+  allocations.map((line) => (line.warehouse === warehouse ? line : { ...line, warehouse }))
 
 /** A quantity as people type one - no minus: stock in a warehouse is not negative. */
 const QUANTITY_PATTERN = /^(\d+\.?\d*|\.\d+)$/

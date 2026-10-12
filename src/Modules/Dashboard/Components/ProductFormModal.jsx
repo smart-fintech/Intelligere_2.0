@@ -16,10 +16,24 @@
  *                 expiry date and rate, and its own warehouse lines
  *                 (ProductSkuEntries, in step 1, where the user adds and
  *                 removes them)
- *   allocations   the lines of the Warehouse step - a product without SKUs
+ *   allocations   the warehouse lines of a product without SKUs, under
+ *                 the main fields of step 1
  *
  * A product with SKUs uses the first two; one without uses the first and
  * the last (its one SKU entry is never shown, and stays empty).
+ *
+ * ------------------------------------------------------------------
+ * A COMPANY WITH ONE WAREHOUSE
+ * ------------------------------------------------------------------
+ * `singleWarehouse` says the company's plan allows only one. Its stock
+ * then has one place to go, so nobody is asked to choose: every warehouse
+ * line - the product's, and each SKU entry's - is read as holding the
+ * company's one warehouse (lockAllocations), in what is drawn, what is
+ * checked and what is sent alike, whatever the line itself holds. While
+ * that warehouse is not known (the list is loading, or could not be read)
+ * no line can be added, and one that exists fails its check rather than
+ * being sent without a warehouse. Quantities, and the checks on them, are
+ * untouched.
  *
  * ------------------------------------------------------------------
  * MOVING BETWEEN STEPS
@@ -58,6 +72,7 @@
  *   companyName  the active company's name - sent with the product, never typed
  *   vendors      useVendorOptions(), for a vendor field
  *   warehouses   useWarehouseOptions(), for warehouse stock
+ *   singleWarehouse   the company's plan allows one warehouse - see above
  *   onSaved(response)   after a successful save
  */
 
@@ -78,6 +93,7 @@ import {
   emptyAllocation,
   emptyProductValue,
   emptySkuSet,
+  lockAllocations,
   PRODUCT_GROUP,
   productFieldName,
   productQuantity,
@@ -95,7 +111,16 @@ const NO_ERRORS = { fields: {}, sets: {}, lines: {} }
 /** Whether a value is "something entered" - what makes the form worth asking about before it is thrown away. */
 const isFilled = (value) => (typeof value === 'string' ? value.trim() !== '' : Boolean(value))
 
-export default function ProductFormModal({ open, onOpenChange, steps, companyName, vendors, warehouses, onSaved }) {
+export default function ProductFormModal({
+  open,
+  onOpenChange,
+  steps,
+  companyName,
+  vendors,
+  warehouses,
+  singleWarehouse = false,
+  onSaved,
+}) {
   // The numbers the next SKU entry and the next warehouse line get - only
   // ever read in a handler. Entry 1 is the one every form starts with, and
   // one counter numbers every line, so no two lines share a key whichever
@@ -107,9 +132,9 @@ export default function ProductFormModal({ open, onOpenChange, steps, companyNam
   // simply absent, and reads as its type's empty value.
   const [values, setValues] = useState({})
   // One entry per SKU - always at least one. See the note at the top.
-  const [skuSets, setSkuSets] = useState(() => [emptySkuSet(1)])
-  // The lines of the Warehouse step - a product without SKUs.
-  const [allocations, setAllocations] = useState([])
+  const [heldSkuSets, setSkuSets] = useState(() => [emptySkuSet(1)])
+  // The warehouse lines of a product without SKUs.
+  const [heldAllocations, setAllocations] = useState([])
   // What the last check found - see checkProductStep.
   const [errors, setErrors] = useState(NO_ERRORS)
   const [stepIndex, setStepIndex] = useState(0)
@@ -123,13 +148,25 @@ export default function ProductFormModal({ open, onOpenChange, steps, companyNam
   const step = steps[openIndex]
   const isLastStep = openIndex === steps.length - 1
 
+  /* One warehouse: every line is read as holding it - see the note at the
+     top. '' while it is not known, which no check lets through. Everything
+     below - drawing, checking, sending - works from these two, never from
+     the lines as they are held. */
+  const onlyWarehouse = warehouses.options[0]?.value ?? ''
+  const lock = (lines) => (singleWarehouse ? lockAllocations(lines, onlyWarehouse) : lines)
+
+  const allocations = lock(heldAllocations)
+  const skuSets = singleWarehouse
+    ? heldSkuSets.map((set) => ({ ...set, allocations: lock(set.allocations) }))
+    : heldSkuSets
+
   const hasEntries =
     Object.values(values).some(isFilled) ||
     skuSets.length > 1 ||
     skuSets.some(skuSetHasData) ||
     allocations.length > 0
 
-  /* The Warehouse step's lines against the product's quantity - a product
+  /* The product's warehouse lines against its quantity - a product
      without SKUs. Worked out on every draw rather than on Next, so it is
      right whichever of the two the user has just changed (see
      allocationTotalError). Each SKU entry does the same for its own lines. */
@@ -228,7 +265,8 @@ export default function ProductFormModal({ open, onOpenChange, steps, companyNam
   }
 
   /* ---------------- Moving ---------------- */
-  const check = (entry) => checkProductStep(entry, { steps, values, skuSets, allocations })
+  // `final`: the check before saving - see checkProductStep.
+  const check = (entry, final = false) => checkProductStep(entry, { steps, values, skuSets, allocations }, { final })
 
   // No total is kept: each is worked out on every draw, where it is shown.
   const showErrors = (checked) => setErrors({ fields: checked.fields, sets: checked.sets, lines: checked.lines })
@@ -247,10 +285,10 @@ export default function ProductFormModal({ open, onOpenChange, steps, companyNam
 
   const save = async () => {
     // Every step, not just this one - see the note at the top.
-    const failing = steps.findIndex((entry) => !check(entry).passes)
+    const failing = steps.findIndex((entry) => !check(entry, true).passes)
 
     if (failing !== -1) {
-      showErrors(check(steps[failing]))
+      showErrors(check(steps[failing], true))
       setStepIndex(failing)
       if (failing !== openIndex) toast.error(`Please complete "${steps[failing].title}" first.`)
       return
@@ -313,6 +351,7 @@ export default function ProductFormModal({ open, onOpenChange, steps, companyNam
           errors={errors.sets}
           vendors={vendors}
           warehouses={warehouses}
+          singleWarehouse={singleWarehouse}
           disabled={submitting}
           onAdd={addSkuSet}
           onRemove={removeSkuSet}
@@ -324,7 +363,7 @@ export default function ProductFormModal({ open, onOpenChange, steps, companyNam
       )
     }
 
-    // A product without SKUs: its stock, on a step of its own.
+    // A product without SKUs: its stock, under its main fields.
     if (group.key === PRODUCT_GROUP.WAREHOUSE) {
       return (
         <ProductWarehouseAllocation
@@ -334,6 +373,7 @@ export default function ProductFormModal({ open, onOpenChange, steps, companyNam
           totalError={totalError}
           quantity={quantity}
           warehouses={warehouses}
+          singleWarehouse={singleWarehouse}
           disabled={submitting}
           onAdd={addAllocation}
           onChange={changeAllocation}

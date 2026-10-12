@@ -109,6 +109,12 @@ export const INVENTORY_DEFAULT_SECTION_WITHOUT_INVENTORY = 'product'
  */
 export const PREMIUM_MODULE_INVENTORY_MANAGEMENT = 'Inventory Management'
 
+/**
+ * The entry in a company's `features` (tally/user-companies-list/) that
+ * holds it to ONE warehouse. Matched exactly, as the backend writes it.
+ */
+export const COMPANY_FEATURE_SINGLE_WAREHOUSE = 'Single Warehouse'
+
 /* ------------------------------------------------------------------ */
 /* Master Details                                                     */
 /* ------------------------------------------------------------------ */

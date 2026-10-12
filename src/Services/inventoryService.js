@@ -38,6 +38,7 @@
 
 import {
   BUSINESS_TYPE_MANUFACTURER,
+  COMPANY_FEATURE_SINGLE_WAREHOUSE,
   PREMIUM_MODULE_INVENTORY_MANAGEMENT,
   perSkuFieldRank,
 } from '@/Constants/inventory'
@@ -349,6 +350,19 @@ export const saveCustomField = (companyName, field) =>
 export const hasInventoryManagement = (company) =>
   Array.isArray(company?.premium_modules) &&
   company.premium_modules.includes(PREMIUM_MODULE_INVENTORY_MANAGEMENT)
+
+/**
+ * Whether a company's plan holds it to ONE warehouse: its `features` (from
+ * tally/user-companies-list/ too, on the same record) lists
+ * "Single Warehouse", spelt exactly so. A company without the list, or
+ * without that entry, may have as many as it likes.
+ *
+ * `company` is the active company's record - see useActiveCompany. Two
+ * screens ask: the Warehouse tab, which then lets only one be created, and
+ * the Product form, which then puts all of a product's stock in that one.
+ */
+export const hasSingleWarehouseLimit = (company) =>
+  Array.isArray(company?.features) && company.features.includes(COMPANY_FEATURE_SINGLE_WAREHOUSE)
 
 /* ------------------------------------------------------------------ */
 /* Products - the list, for every user                                */

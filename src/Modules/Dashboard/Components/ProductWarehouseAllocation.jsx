@@ -1,9 +1,9 @@
 /**
  * Where stock is kept - one set of warehouse lines of the Product form.
  * Drawn inside each SKU entry for a product with SKUs (that SKU's own
- * stock), and as the Warehouse step for a product without. Either way it is
- * handed one list of lines and the one quantity they are held to, and knows
- * nothing of any other.
+ * stock), and under the main fields of step 1 for a product without.
+ * Either way it is handed one list of lines and the one quantity they are
+ * held to, and knows nothing of any other.
  *
  * A line per place - a warehouse, how much is there, and the level, shelf
  * and rack it sits on. There can be none (stock does not have to be put
@@ -20,12 +20,19 @@
  * rules - a line is complete or it is not there, and the lines together
  * cannot hold more than the product's quantity - are in ../productForm.
  *
+ * A COMPANY WITH ONE WAREHOUSE (`singleWarehouse` - its plan allows no
+ * more) does not choose: every line arrives already holding that
+ * warehouse (the form sees to it, see lockAllocations), its box is shown
+ * but cannot be changed, and a line under the heading says why. Several
+ * lines are still fine - they are racks of the one warehouse.
+ *
  * Props:
  *   allocations   the lines - see emptyAllocation
  *   errors        { [line id]: { property: message } }, from validateAllocations
  *   totalError    what is wrong with the lines taken together, if anything
  *   quantity      the product's own quantity - see productQuantity
  *   warehouses    useWarehouseOptions()
+ *   singleWarehouse   the company's plan allows one warehouse - see above
  *   disabled      the form is saving
  *   onAdd()                          a new, empty line
  *   onChange(id, property, value)    one box of one line changed
@@ -52,6 +59,7 @@ export default function ProductWarehouseAllocation({
   totalError,
   quantity,
   warehouses,
+  singleWarehouse = false,
   disabled,
   onAdd,
   onChange,
@@ -60,6 +68,8 @@ export default function ProductWarehouseAllocation({
   const loading = warehouses.status === 'loading'
   const noWarehouses = warehouses.status === 'ready' && warehouses.options.length === 0
   const allocated = allocatedQuantity(allocations)
+  // The one warehouse of a company held to one - undefined until it is in.
+  const onlyWarehouse = singleWarehouse ? warehouses.options[0] : undefined
 
   return (
     <section className="space-y-3">
@@ -74,6 +84,12 @@ export default function ProductWarehouseAllocation({
               ? `Allocated ${tidyQuantity(allocated)} of ${tidyQuantity(quantity.value)}`
               : `Allocated ${tidyQuantity(allocated)}`}
           </p>
+
+          {onlyWarehouse ? (
+            <p className="text-xs text-muted-foreground">
+              Your plan supports one warehouse, so all stock is kept in {onlyWarehouse.label}.
+            </p>
+          ) : null}
         </div>
 
         <Button
@@ -84,7 +100,7 @@ export default function ProductWarehouseAllocation({
           disabled={disabled || loading || noWarehouses || warehouses.status === 'failed'}
           onClick={onAdd}
         >
-          Add Warehouse
+          {singleWarehouse ? 'Add Stock Location' : 'Add Warehouse'}
         </Button>
       </div>
 
@@ -118,11 +134,12 @@ export default function ProductWarehouseAllocation({
                     label="Warehouse"
                     required
                     className="col-span-2 sm:col-span-4 lg:col-span-4"
-                    placeholder={loading ? 'Loading...' : 'Select warehouse'}
+                    placeholder={loading ? 'Loading...' : singleWarehouse ? 'Not available' : 'Select warehouse'}
                     options={warehouses.options}
                     value={allocation.warehouse}
                     error={found.warehouse}
-                    disabled={disabled || loading}
+                    // One warehouse: already chosen, and not to be changed.
+                    disabled={disabled || loading || singleWarehouse}
                     searchable={warehouses.options.length >= SEARCHABLE_FROM}
                     searchPlaceholder="Search warehouse..."
                     onValueChange={(value) => onChange(allocation.id, 'warehouse', value)}
