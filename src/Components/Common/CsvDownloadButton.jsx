@@ -29,8 +29,9 @@ import { downloadFileFromUrl } from '@/Utils/fileDownload'
  *   payload    what to export - the page builds it, since only the page
  *              knows the selected company or the signed-in user
  *   disabled   true when there is nothing to export yet (no company, say)
+ *   label      the button's text - "Download" unless a page names it
  */
-export function CsvDownloadButton({ payload, disabled = false }) {
+export function CsvDownloadButton({ payload, disabled = false, label = 'Download' }) {
   const [downloading, setDownloading] = useState(false)
   // Set synchronously on click, so a second click in the same instant is
   // turned away even before `downloading` has rendered.
@@ -72,7 +73,7 @@ export function CsvDownloadButton({ payload, disabled = false }) {
       disabled={disabled}
       onClick={handleDownload}
     >
-      {downloading ? 'Downloading...' : 'Download'}
+      {downloading ? 'Downloading...' : label}
     </Button>
   )
 }

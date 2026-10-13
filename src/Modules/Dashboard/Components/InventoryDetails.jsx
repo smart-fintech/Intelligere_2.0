@@ -18,8 +18,11 @@
  * Whether the user has Inventory Management (useInventoryAccess - who they
  * are, and their company's plan) decides what is here at all:
  *
- *   with it      everything above. Product is the full, SKU-based form.
- *   without      Product | Vendor. Product is the simple product list, and
+ *   with it      everything above. Product has its tabs - Inventory (the
+ *                full, SKU-based products: see InventoryOverview), and
+ *                Inventory Adjustments and Transfer Note, Coming Soon.
+ *   without      Product | Vendor. Product is the simple product list, with
+ *                none of Product's tabs (all Inventory Management's), and
  *                the tabs that are part of Inventory Management (Master
  *                Details, Warehouse, Customised Fields) are not offered -
  *                nor reachable by typing their address. Vendor, the one tab
@@ -64,8 +67,9 @@ import useInventoryAccess from '@/Hooks/useInventoryAccess'
 import { cn } from '@/Library/utils'
 import BasicProducts from './BasicProducts'
 import CustomFields from './CustomFields'
+import InventoryOverview from './InventoryOverview'
 import MasterDetails from './MasterDetails'
-import Products from './Products'
+import OpeningStock from './OpeningStock'
 import Vendors from './Vendors'
 import Warehouses from './Warehouses'
 
@@ -80,11 +84,12 @@ import Warehouses from './Warehouses'
  * `ready` to true in Constants/inventory.
  */
 const PAGES_WITH_INVENTORY = {
-  product: Products,
+  'product/inventory': InventoryOverview,
   'inventory-master/master-details': MasterDetails,
   'inventory-master/warehouse': Warehouses,
   'inventory-master/vendor': Vendors,
   'inventory-master/customised-fields': CustomFields,
+  'inventory-master/opening-stock': OpeningStock,
 }
 
 const PAGES_WITHOUT_INVENTORY = {
@@ -100,13 +105,18 @@ const pageId = (section, tab) => (tab ? `${section.key}/${tab.key}` : section.ke
 
 /**
  * The sections a user is offered. Without Inventory Management the tabs
- * that are part of it are taken out, and a section left with no tabs at all
- * goes with them.
+ * that are part of it are taken out. A section left with no tabs at all
+ * goes with them - unless it is a page of its own for this user (Product:
+ * the simple product list), which then simply has no tabs.
  */
-const sectionsFor = (full) =>
-  INVENTORY_SECTIONS.map((section) =>
-    section.tabs && !full ? { ...section, tabs: section.tabs.filter((tab) => !tab.requiresInventory) } : section,
-  ).filter((section) => !section.tabs || section.tabs.length > 0)
+const sectionsFor = (full, pages) =>
+  INVENTORY_SECTIONS.map((section) => {
+    if (!section.tabs || full) return section
+
+    const tabs = section.tabs.filter((tab) => !tab.requiresInventory)
+    if (tabs.length > 0) return { ...section, tabs }
+    return pages[section.key] ? { ...section, tabs: undefined } : null
+  }).filter(Boolean)
 
 export default function InventoryDetails() {
   const access = useInventoryAccess()
@@ -130,8 +140,8 @@ export default function InventoryDetails() {
 function InventoryNavigation({ full }) {
   const [params, setParams] = useSearchParams()
 
-  const sections = useMemo(() => sectionsFor(full), [full])
   const pages = full ? PAGES_WITH_INVENTORY : PAGES_WITHOUT_INVENTORY
+  const sections = useMemo(() => sectionsFor(full, pages), [full, pages])
 
   // The landing section is named, not worked out - see INVENTORY_DEFAULT_SECTION.
   const defaultKey = full ? INVENTORY_DEFAULT_SECTION : INVENTORY_DEFAULT_SECTION_WITHOUT_INVENTORY
@@ -204,7 +214,7 @@ function InventoryNavigation({ full }) {
               onClick={() => chooseSection(entry.key)}
               className={cn(
                 '-mb-px flex cursor-pointer items-center gap-2 border-b-2 px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors outline-none',
-                'focus-visible:ring-[3px] focus-visible:ring-ring/50 focus:rounded-md',
+                'focus-visible:ring-[3px] focus-visible:ring-ring/50',
                 selected ? 'border-brand text-brand' : 'border-transparent text-muted-foreground hover:text-brand',
               )}
             >

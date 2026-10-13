@@ -7,6 +7,9 @@
  *
  * Add Stock Group Creation (StockGroupModal) is Tally's too: it creates a
  * stock group in Tally over the WebSocket, for products to be filed under.
+ * An Intelligere company without Inventory Management gets the same modal
+ * as "Add Product Group Creation", which creates the group through the API
+ * - the place the simple Product form's groups are added now.
  *
  * Ledger groups are a Tally idea - Intelligere's come as a fixed list from
  * the API - so that option is simply not offered to an Intelligere user. The
@@ -52,6 +55,7 @@ import {
   selectActiveCompanyName,
 } from '@/Store/Slices/companySlice'
 import { fetchBankOptions, selectBankNames } from '@/Store/Slices/bankSlice'
+import useInventoryAccess from '@/Hooks/useInventoryAccess'
 import { selectIsTallyErp } from '@/Store/Slices/profileSlice'
 import { fetchLedgerGroups, fetchLedgers, selectLedgerGroups } from '@/Store/Slices/ledgerSlice'
 import LedgerForm from './LedgerForm'
@@ -82,6 +86,10 @@ export default function LedgerActions() {
   const groups = useSelector(selectLedgerGroups)
   const bankNames = useSelector(selectBankNames)
   const isTally = useSelector(selectIsTallyErp)
+  const inventory = useInventoryAccess()
+
+  // Tally always; Intelligere when its products are the simple ones.
+  const offersGroupCreation = isTally || (inventory.known && !inventory.full)
 
   // Which modal is open, or null. One at a time, by definition.
   const [openModal, setOpenModal] = useState(null)
@@ -113,8 +121,16 @@ export default function LedgerActions() {
       ? [{ label: 'Add Ledger Group', value: ADD_LEDGER_GROUP, icon: FolderPlus }]
       : []),
     { label: 'Add Ledger Creation', value: ADD_LEDGER, icon: UserPlus },
-    // Tally only, like the ledger group.
-    ...(isTally ? [{ label: 'Add Stock Group Creation', value: ADD_STOCK_GROUP, icon: Layers }] : []),
+    // See the note at the top for who gets it.
+    ...(offersGroupCreation
+      ? [
+          {
+            label: isTally ? 'Add Stock Group Creation' : 'Add Product Group Creation',
+            value: ADD_STOCK_GROUP,
+            icon: Layers,
+          },
+        ]
+      : []),
   ]
 
   /** Reloads the ledger list - the same thunk the page's Refresh uses. */
@@ -242,12 +258,13 @@ export default function LedgerActions() {
         onCreated={reloadGroups}
       />
 
-      {/* ---------------- Add Stock Group Creation (Tally only) ---------------- */}
-      {isTally ? (
+      {/* ---------------- Add Stock / Product Group Creation ---------------- */}
+      {offersGroupCreation ? (
         <StockGroupModal
           open={openModal === ADD_STOCK_GROUP}
           onOpenChange={(next) => setOpenModal(next ? ADD_STOCK_GROUP : null)}
           companyName={activeCompanyName}
+          isTally={isTally}
         />
       ) : null}
     </>

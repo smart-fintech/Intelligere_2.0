@@ -140,6 +140,7 @@ export default function RoleFormModal({ role, roles = [], companyId, onSaved, on
       closeOnBackdropClick={!submitting}
       closeOnEsc={!submitting}
       showCloseButton={!submitting}
+      autoFocus={false}
       footer={
         <>
           <Button type="button" variant="outline" disabled={submitting} onClick={onClose}>
@@ -160,7 +161,7 @@ export default function RoleFormModal({ role, roles = [], companyId, onSaved, on
             type="text"
             value={form.role_name}
             error={errors.role_name}
-            disabled={submitting}
+            disabled={submitting || editing}
             onChange={(e) => setField('role_name', e.target.value)}
           />
 
@@ -171,7 +172,7 @@ export default function RoleFormModal({ role, roles = [], companyId, onSaved, on
             placeholder="Select Under Role"
             value={form.under_role}
             error={errors.under_role}
-            disabled={submitting}
+            disabled={submitting || editing}
             onValueChange={(value) => setField('under_role', value)}
             options={underRoleOptions.map((name) => ({ value: name, label: name }))}
           />

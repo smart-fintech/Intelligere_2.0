@@ -12,7 +12,18 @@
  * data, the same way Constants/dashboardModules describes the dashboard pages.
  */
 
-import { ClipboardList, Package, Settings2, SlidersHorizontal, Truck, Warehouse } from 'lucide-react'
+import {
+  ArrowLeftRight,
+  Boxes,
+  ClipboardList,
+  FileSpreadsheet,
+  Package,
+  Scale,
+  Settings2,
+  SlidersHorizontal,
+  Truck,
+  Warehouse,
+} from 'lucide-react'
 
 /* ------------------------------------------------------------------ */
 /* The navigation of the Inventory Details page                       */
@@ -47,10 +58,13 @@ import { ClipboardList, Package, Settings2, SlidersHorizontal, Truck, Warehouse 
  *
  * WHO SEES WHAT
  *
- *   with Inventory Management      everything above: Product is the full,
- *                                  SKU-based product form, and Inventory
- *                                  Master has all four tabs
- *   without                        Product (the simple product list) and
+ *   with Inventory Management      everything above: Product has its three
+ *                                  tabs - Inventory (the SKU-based products,
+ *                                  their Custom Report and Expired Products),
+ *                                  Inventory Adjustments and Transfer Note -
+ *                                  and Inventory Master has all four
+ *   without                        Product (the simple product list, with no
+ *                                  tabs - all three are Inventory Management's) and
  *                                  Vendor - the one tab left of Inventory
  *                                  Master, which is then shown as a section
  *                                  under its own name
@@ -64,6 +78,19 @@ export const INVENTORY_SECTIONS = [
     label: 'Product',
     icon: Package,
     ready: true,
+    // Inventory Management's only. Without it Product has no tabs and is
+    // the simple product list itself (see sectionsFor in InventoryDetails).
+    tabs: [
+      { key: 'inventory', label: 'Inventory', icon: Boxes, ready: true, requiresInventory: true },
+      {
+        key: 'inventory-adjustments',
+        label: 'Inventory Adjustments',
+        icon: Scale,
+        ready: false,
+        requiresInventory: true,
+      },
+      { key: 'transfer-note', label: 'Transfer Note', icon: ArrowLeftRight, ready: false, requiresInventory: true },
+    ],
   },
   {
     key: 'inventory-master',
@@ -83,6 +110,7 @@ export const INVENTORY_SECTIONS = [
         ready: true,
         requiresInventory: true,
       },
+      { key: 'opening-stock', label: 'Add Opening Stock', icon: FileSpreadsheet, ready: true, requiresInventory: true },
     ],
   },
 ]

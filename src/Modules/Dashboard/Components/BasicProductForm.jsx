@@ -38,8 +38,9 @@
  * ------------------------------------------------------------------
  * THE DROPDOWNS
  * ------------------------------------------------------------------
- *   Group      the company's product groups, with a "+" beside it to add
- *              one that is not there yet (ProductGroupModal)
+ *   Group      the company's product groups. A new one is added from the
+ *              header's Add menu (StockGroupModal) - it reloads this list
+ *              when it is done (refreshProductGroups)
  *   Unit       the units the backend lists
  *   GST Rate   the GST slabs, and under it what the chosen rate is made of:
  *              CGST + SGST for a sale within the state, IGST for one across
@@ -69,7 +70,6 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { Plus } from 'lucide-react'
 
 import { InlineAlert, RetryButton } from '@/Components/Common/DataList'
 import { Field, FormActions, FormGrid, SelectField } from '@/Components/Common/FormFields'
@@ -92,7 +92,6 @@ import {
   isProductAlreadyExists,
   updateIntelligereProduct,
 } from '@/Services/productService'
-import ProductGroupModal from './ProductGroupModal'
 
 const GST_OPTIONS = toOptions(GST_RATES)
 
@@ -147,23 +146,10 @@ export default function BasicProductForm({ erp, product, companyName, groups, un
   const [errors, setErrors] = useState({})
   const [submitting, setSubmitting] = useState(false)
 
-  // The New Product Group dialog. `session` is its `key`, so each opening
-  // starts empty.
-  const [groupDialog, setGroupDialog] = useState({ open: false, session: 0 })
-
   // One handler for every field; editing a field clears its error.
   const setField = (key, value) => {
     setForm((previous) => ({ ...previous, [key]: value }))
     setErrors((previous) => ({ ...previous, [key]: undefined }))
-  }
-
-  const groupField = fields.find(({ choices }) => choices === BASIC_PRODUCT_CHOICES.GROUPS)
-
-  /** A group was added: the dropdown is read again, and the new one chosen. */
-  const handleGroupCreated = (name) => {
-    setGroupDialog((previous) => ({ ...previous, open: false }))
-    groups.reload()
-    if (groupField) setField(groupField.key, name)
   }
 
   const validate = () => {
@@ -349,38 +335,22 @@ export default function BasicProductForm({ erp, product, companyName, groups, un
       const options = withSaved(groups.options, form[key])
 
       return (
-        // The dropdown, with "+" level with its box (not its label) to add
-        // a group it does not have yet.
-        <div key={key} className="flex items-start gap-1.5">
-          <SelectField
-            id={id}
-            label={label}
-            required={required}
-            className="min-w-0 flex-1"
-            // A list that could not be loaded is simply an empty one - see
-            // "The dropdowns" at the top.
-            placeholder={loading ? 'Loading...' : options.length === 0 ? 'No options' : 'Select'}
-            options={options}
-            value={form[key]}
-            error={errors[key]}
-            disabled={submitting || loading || options.length === 0}
-            searchable={groups.options.length >= SEARCHABLE_FROM}
-            searchPlaceholder="Search group..."
-            onValueChange={(value) => setField(key, value)}
-          />
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            icon={Plus}
-            tooltip="New group"
-            aria-label="New product group"
-            disabled={submitting || !companyName}
-            onClick={() => setGroupDialog((previous) => ({ open: true, session: previous.session + 1 }))}
-            // One label's height down: the 12px label and its 6px gap.
-            className="mt-4.5 size-10"
-          />
-        </div>
+        <SelectField
+          key={key}
+          id={id}
+          label={label}
+          required={required}
+          // A list that could not be loaded is simply an empty one - see
+          // "The dropdowns" at the top.
+          placeholder={loading ? 'Loading...' : options.length === 0 ? 'No options' : 'Select'}
+          options={options}
+          value={form[key]}
+          error={errors[key]}
+          disabled={submitting || loading || options.length === 0}
+          searchable={groups.options.length >= SEARCHABLE_FROM}
+          searchPlaceholder="Search group..."
+          onValueChange={(value) => setField(key, value)}
+        />
       )
     }
 
@@ -513,16 +483,6 @@ export default function BasicProductForm({ erp, product, companyName, groups, un
           </FormActions>
         </form>
       </Panel>
-
-      {/* Outside the form above: a form inside a form would submit both. */}
-      <ProductGroupModal
-        key={groupDialog.session}
-        open={groupDialog.open}
-        onOpenChange={(next) => setGroupDialog((previous) => ({ ...previous, open: next }))}
-        companyName={companyName}
-        existing={groups.options.map((option) => option.value)}
-        onCreated={handleGroupCreated}
-      />
     </>
   )
 }

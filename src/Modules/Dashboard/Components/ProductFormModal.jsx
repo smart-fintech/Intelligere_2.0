@@ -88,6 +88,31 @@
  * Save - Cancel keeps nothing - and the history it already has is always
  * sent back as it was.
  *
+ * ------------------------------------------------------------------
+ * ADD EXISTING PRODUCT
+ * ------------------------------------------------------------------
+ * With `fromExisting` the dialog adds a product the same way - the same
+ * POST, the same payload - but starts from one the company already has.
+ * Step 1 opens with "Select Existing Product" (every product of the list
+ * the page has already read - `products`); choosing one fills the form from
+ * it (prefillProductForm, as an edit is filled) and locks its name, which
+ * is how the backend finds the product the new stock belongs to.
+ *
+ *   a product with a SKU choice to make (several SKUs, or one with a code)
+ *       "Select SKU Code" appears (the shared SkuSelector: the codes, each
+ *       SKU's attributes in a tooltip) - beside Add SKU when the form has SKU
+ *       Details, else beside the product. Choosing one fills everything that
+ *       is that SKU's: its SKU fields, Quantity, Expiry Date, Unit Rate,
+ *       warehouse lines, vendor and references - all of THAT SKU, and a field
+ *       it has no value for is emptied rather than left with another's.
+ *   a product with one SKU and no code
+ *       no SKU choice: that one SKU is the product, filled in at once.
+ *
+ * A new product chosen starts the form again from it (a SKU chosen before
+ * goes with the old product). Add SKU works as ever, from the entry above.
+ * The product has to be chosen before step 1 can be left; a SKU need not
+ * be.
+ *
  * Props:
  *   open, onOpenChange   controlled by the Products page, the same as Modal
  *   steps        from buildProductSteps - never empty. The dialog shows them
@@ -102,14 +127,17 @@
  *   edit         null to add a product, or the SKU to edit:
  *                { productId, saved: productEditSource(...), versioning }
  *                - `versioning` is whether Add Version is offered
+ *   fromExisting   Add Existing Product - see above
  *   onSaved(response)   after a successful save
  */
 
-import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { ArrowLeft, ArrowRight, History, Undo2 } from 'lucide-react'
 
 import { ConfirmPopover } from '@/Components/Common/ConfirmPopover'
 import { InlineAlert, RetryButton } from '@/Components/Common/DataList'
+import { SelectField } from '@/Components/Common/FormFields'
+import { SkuSelector } from '@/Components/Common/SkuSelector'
 import { Modal } from '@/Components/Common/Modal'
 import { Stepper } from '@/Components/Common/Stepper'
 import { Button } from '@/Components/ui/button'
@@ -131,9 +159,12 @@ import {
   emptyAllocation,
   emptyProductValue,
   emptySkuSet,
+  isDetailField,
   isReferenceInput,
+  isSkuField,
   lockAllocations,
   prefillProductForm,
+  PRODUCT_INPUT,
   PRODUCT_GROUP,
   productFieldName,
   productInputKind,
@@ -141,12 +172,15 @@ import {
   skuGroupOf,
   skuSetHasData,
 } from '../productForm'
-import { isProductNameField } from '../productList'
+import { isProductNameField, productEditSource, readProducts } from '../productList'
 import ProductFieldInput from './ProductFieldInput'
 import ProductSkuEntries from './ProductSkuEntries'
 import ProductWarehouseAllocation from './ProductWarehouseAllocation'
 
 const FORM_ID = 'product-form'
+
+/** A SKU option's value: its place in the product's list. */
+const skuByPlace = (_variant, index) => String(index)
 
 /** Nothing wrong anywhere - the shape checkProductStep reports in. */
 const NO_ERRORS = { fields: {}, sets: {}, lines: {} }
@@ -167,6 +201,7 @@ export default function ProductFormModal({
   products,
   singleWarehouse = false,
   edit = null,
+  fromExisting = false,
   onSaved,
 }) {
   // The numbers the next SKU entry and the next warehouse line get - only
@@ -198,6 +233,10 @@ export default function ProductFormModal({
   const [heldSkuSets, setSkuSets] = useState(() => [initial?.skuSet ?? emptySkuSet(1)])
   // The warehouse lines of a product without SKUs.
   const [heldAllocations, setAllocations] = useState(() => initial?.allocations ?? [0])
+  // Add Existing Product: the product and SKU chosen (by their place in
+  // the lists below), and the message under the product picker.
+  const [existing, setExisting] = useState({ product: '', sku: '', error: undefined })
+
   // Edit: the new version started with Add Version, or null -
   // { key, archive: { raw, semiFinished }, before: { values, sku } }.
   const [newVersion, setNewVersion] = useState(null)
@@ -246,6 +285,82 @@ export default function ProductFormModal({
      allocationTotalError). Each SKU entry does the same for its own lines. */
   const quantity = productQuantity(steps, values)
   const totalError = allocationTotalError(allocations, quantity)
+
+  /* ---------------- Add Existing Product ----------------
+     See the note at the top. The products are the page's own list, read
+     the one way every product screen reads it. */
+  const listed = useMemo(() => (fromExisting ? readProducts(products?.rows) : []), [fromExisting, products?.rows])
+  const existingProduct = listed.find((product) => String(product.key) === existing.product) ?? null
+  const existingSkus = existingProduct?.variants ?? []
+  // A choice to make: several SKUs, or one that has a code.
+  const offersSku = existingSkus.length > 1 || existingSkus.some((variant) => variant.skuCode)
+
+  /* The fields that belong to ONE SKU wherever the form draws them: its
+     SKU fields, its Quantity / Expiry Date / Unit Rate, and the vendor and
+     references a SKU carries. Choosing a SKU sets every one of them. */
+  const skuDependentFields = formSteps
+    .flatMap((entry) => entry.groups.filter((group) => group.key !== PRODUCT_GROUP.SKU).flatMap((group) => group.fields))
+    .filter((field) => {
+      const kind = productInputKind(field)
+      return isDetailField(field) || isSkuField(field) || isReferenceInput(kind) || kind === PRODUCT_INPUT.VENDOR
+    })
+
+  /** Saved warehouse lines, each with a key of its own - numbered in a handler only. */
+  const numberLines = (lines) =>
+    lines.map((line) => {
+      lineCount.current += 1
+      return { ...line, id: lineCount.current }
+    })
+
+  /** A product was chosen: the form starts again from it. */
+  const chooseExisting = (key) => {
+    const product = listed.find((entry) => String(entry.key) === key)
+    if (!product) return
+
+    // One SKU with no code is the product itself - no choice to offer.
+    const only = product.variants.length === 1 && !product.variants[0].skuCode ? product.variants[0] : null
+    const filled = prefillProductForm(formSteps, productEditSource(product, only))
+
+    skuSetCount.current += 1
+    setValues(filled.values)
+    setSkuSets([{ id: skuSetCount.current, values: filled.skuValues, allocations: numberLines(filled.skuLines) }])
+    setAllocations(numberLines(filled.lines))
+    setExisting({ product: key, sku: only ? '0' : '', error: undefined })
+    setErrors(NO_ERRORS)
+  }
+
+  /** A SKU was chosen: everything that is a SKU's becomes THIS one's. */
+  const chooseExistingSku = (index) => {
+    const variant = existingSkus[Number(index)]
+    if (!existingProduct || !variant) return
+
+    const filled = prefillProductForm(formSteps, productEditSource(existingProduct, variant))
+
+    // With SKU Details: the first entry is this SKU's, whole. Entries added
+    // after it are the user's own and stay.
+    setSkuSets((previous) =>
+      previous.map((set, place) =>
+        place === 0 ? { id: set.id, values: filled.skuValues, allocations: numberLines(filled.skuLines) } : set,
+      ),
+    )
+    // Without: the SKU's fields among the product's - this SKU's value, or
+    // empty, never another SKU's - and its stock.
+    setValues((previous) => ({
+      ...previous,
+      ...Object.fromEntries(
+        skuDependentFields.map((field) => [productFieldName(field), filled.values[productFieldName(field)] ?? emptyProductValue(field)]),
+      ),
+    }))
+    setAllocations(numberLines(filled.lines))
+    setExisting((previous) => ({ ...previous, sku: index }))
+  }
+
+  /** Step 1 cannot be left without the product it starts from. */
+  const existingMissing = () => {
+    if (!fromExisting || existing.product) return false
+    setExisting((previous) => ({ ...previous, error: 'Select the existing product to add' }))
+    return true
+  }
 
   /* ---------------- Fields filled in once ---------------- */
 
@@ -427,12 +542,19 @@ export default function ProductFormModal({
 
   /** Next: the open step has to pass before the one after it opens. */
   const goNext = () => {
+    if (openIndex === 0 && existingMissing()) return
+
     const checked = check(step)
     showErrors(checked)
     if (checked.passes) setStepIndex(openIndex + 1)
   }
 
   const save = async () => {
+    if (existingMissing()) {
+      setStepIndex(0)
+      return
+    }
+
     // Every step, not just this one - see the note at the top.
     const failing = steps.findIndex((entry) => !check(entry, true).passes)
 
@@ -499,6 +621,27 @@ export default function ProductFormModal({
     </Button>
   )
 
+  /* ---------------- Add Existing Product: its two pickers ---------------- */
+  const existingOptions = listed.map((product) => ({
+    value: String(product.key),
+    label: [product.name || 'Unnamed product', product.group, product.category].filter(Boolean).join(' - '),
+  }))
+
+  // The shared SKU picker: codes only, each SKU's attributes in a tooltip.
+  // An option's value is the SKU's place in the product's list - the same
+  // place chooseExistingSku reads it from.
+  const skuPicker = (
+    <SkuSelector
+      id="existing-sku"
+      label="Select SKU Code"
+      skuVariants={existingSkus.map((variant) => variant.source)}
+      valueOf={skuByPlace}
+      value={existing.sku}
+      disabled={submitting}
+      onChange={chooseExistingSku}
+    />
+  )
+
   /* ---------------- Drawing a group ---------------- */
   const renderGroup = (group) => {
     // A product with SKUs: one entry per SKU, with Add SKU.
@@ -517,6 +660,7 @@ export default function ProductFormModal({
           disabled={submitting}
           // An edit is of one SKU - see the note at the top.
           onAdd={edit ? undefined : addSkuSet}
+          headerExtra={fromExisting && offersSku ? skuPicker : null}
           onRemove={removeSkuSet}
           onValueChange={setSkuValue}
           onAddLine={addSkuLine}
@@ -561,8 +705,9 @@ export default function ProductFormModal({
                 value={values[name] ?? emptyProductValue(field)}
                 error={errors.fields[name]}
                 disabled={submitting}
-                // An edit may change everything but the product's name.
-                readOnly={Boolean(edit) && isProductNameField(name)}
+                // An edit may change everything but the product's name - and
+                // an existing product keeps its own (see the note at the top).
+                readOnly={(Boolean(edit) || (fromExisting && Boolean(existing.product))) && isProductNameField(name)}
                 vendors={vendors}
                 products={products}
                 onChange={(value) => setValue(name, value)}
@@ -578,7 +723,7 @@ export default function ProductFormModal({
     <Modal
       open={open}
       onOpenChange={onOpenChange}
-      title={edit ? 'Edit Product' : 'Add Product'}
+      title={edit ? 'Edit Product' : fromExisting ? 'Add Existing Product' : 'Add Product'}
       // The fields are sized in twelfths of the row, which wants the width.
       size="xxl"
       // With something entered, or while saving, only Cancel closes it - see
@@ -664,6 +809,34 @@ export default function ProductFormModal({
                 Add Version
               </Button>
             )}
+          </div>
+        ) : null}
+
+        {/* Add Existing Product: what the form starts from - on step 1. */}
+        {fromExisting && openIndex === 0 ? (
+          <div className="grid grid-cols-12 items-start gap-3 rounded-md border border-border bg-muted/30 p-3">
+            <SelectField
+              id="existing-product"
+              label="Select Existing Product"
+              required
+              className="col-span-12 sm:col-span-6"
+              placeholder={
+                products?.status === 'loading' && listed.length === 0
+                  ? 'Loading...'
+                  : listed.length === 0
+                    ? 'No products found'
+                    : 'Select product'
+              }
+              options={existingOptions}
+              value={existing.product}
+              error={existing.error}
+              disabled={submitting || listed.length === 0}
+              searchable
+              searchPlaceholder="Search product..."
+              onValueChange={chooseExisting}
+            />
+            {/* Without SKU Details there is no Add SKU to sit beside. */}
+            {offersSku && !skuGroupOf(steps) ? <div className="col-span-12 sm:col-span-6">{skuPicker}</div> : null}
           </div>
         ) : null}
 

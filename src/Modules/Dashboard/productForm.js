@@ -74,7 +74,6 @@ const toNumber = (value) => {
 
 /** Whether a field belongs to the SKU details - strictly `sku_field: true`. */
 export const isSkuField = (field) => field?.sku_field === true
-console.info("isSkuFields: ", isSkuField);
 /**
  * WHICH CONTROL A FIELD IS DRAWN WITH.
  *

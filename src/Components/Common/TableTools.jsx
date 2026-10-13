@@ -1,3 +1,4 @@
+import { useId, useState } from 'react'
 import { ChevronDown, ChevronUp, ChevronsUpDown, Search, SlidersHorizontal, X } from 'lucide-react'
 
 import { Field, fieldLabelClass } from '@/Components/Common/FormFields'
@@ -54,67 +55,179 @@ export const DEFAULT_COLUMN_WIDTH = 160
  * a filter that is out of sight is never forgotten. Without it every filter
  * sits on the row, as on the Bank and Ledger lists.
  *
+ * `moreLayout` says how they are tucked away:
+ *
+ *   'popover'  (default) a small box under the button - for a few short
+ *              dropdowns (Customised Fields' yes/no filters)
+ *   'panel'    a section that opens UNDER the row, the page's full width,
+ *              its filters in a grid of labelled boxes that wraps onto as
+ *              many rows as it needs: one column on a phone, up to four on
+ *              a wide screen. For a list whose extra filters are many, or
+ *              have long names and values - a product's SKU attributes.
+ *              The button opens and closes it, with a chevron that says
+ *              which; `moreTitle` heads it.
+ *
+ * Either way the button counts the tucked filters that are set, so one
+ * out of sight is never forgotten, and Clear clears them with the rest.
+ *
+ * `extra` is a filter that is not a dropdown - a DateRangeFilter, say -
+ * drawn on the row after the dropdowns. Its value is the page's to keep,
+ * so the page's `view.isFiltered` and `view.clear` cover it too.
+ *
  * These are toolbar controls, so they use the compact 32px height (`h-8`,
  * `size="sm"`) rather than the 40px of a form field.
  */
-export function TableFilters({ view, searchPlaceholder = 'Search', actions, moreFilters = [] }) {
+export function TableFilters({
+  view,
+  searchPlaceholder = 'Search',
+  actions,
+  moreFilters = [],
+  moreLayout = 'popover',
+  moreTitle,
+  extra = null,
+}) {
   const fields = Object.entries(view.filterFields)
   const onRow = fields.filter(([field]) => !moreFilters.includes(field))
   const tucked = fields.filter(([field]) => moreFilters.includes(field))
   const tuckedInUse = tucked.filter(([field]) => view.filters[field]).length
+  const moreLabel = `More Filters${tuckedInUse > 0 ? ` (${tuckedInUse})` : ''}`
+
+  // The panel's open state - the popover keeps its own.
+  const [moreOpen, setMoreOpen] = useState(false)
+  const panelId = useId()
+  const asPanel = moreLayout === 'panel' && tucked.length > 0
 
   return (
-    <div className="mb-3 flex flex-wrap items-center gap-2">
-      <Field
-        type="search"
-        icon={Search}
-        value={view.search}
-        onChange={(event) => view.setSearch(event.target.value)}
-        placeholder={searchPlaceholder}
-        aria-label={searchPlaceholder}
-        className="w-full sm:w-64"
-        inputClassName="h-8"
-      />
-
-      {onRow.map(([field, label]) => (
-        <FilterSelect
-          key={field}
-          view={view}
-          field={field}
-          label={label}
-          anyLabel={`All ${label}`}
-          className="w-full sm:w-44"
+    <div className="mb-3 space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Field
+          type="search"
+          icon={Search}
+          value={view.search}
+          onChange={(event) => view.setSearch(event.target.value)}
+          placeholder={searchPlaceholder}
+          aria-label={searchPlaceholder}
+          className="w-full sm:w-64"
+          inputClassName="h-8"
         />
-      ))}
 
-      {tucked.length > 0 ? (
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button type="button" variant="outline" size="sm" icon={SlidersHorizontal}>
-              More Filters{tuckedInUse > 0 ? ` (${tuckedInUse})` : ''}
-            </Button>
-          </PopoverTrigger>
+        {onRow.map(([field, label]) => (
+          <FilterSelect
+            key={field}
+            view={view}
+            field={field}
+            label={label}
+            anyLabel={`All ${label}`}
+            className="w-full sm:w-44"
+          />
+        ))}
 
-          {/* Each one under its own label here, as there is room for it -
-              which also lets the "any" entry be a plain "All". */}
-          <PopoverContent align="start" className="w-64 space-y-2.5 p-3">
+        {extra}
+
+        {asPanel ? (
+          <Button
+            type="button"
+            variant={moreOpen ? 'secondary' : 'outline'}
+            size="sm"
+            icon={SlidersHorizontal}
+            aria-expanded={moreOpen}
+            aria-controls={panelId}
+            onClick={() => setMoreOpen((open) => !open)}
+          >
+            {moreLabel}
+            <ChevronDown className={cn('size-3.5 transition-transform', moreOpen && 'rotate-180')} />
+          </Button>
+        ) : tucked.length > 0 ? (
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button type="button" variant="outline" size="sm" icon={SlidersHorizontal}>
+                {moreLabel}
+              </Button>
+            </PopoverTrigger>
+
+            {/* Each one under its own label here, as there is room for it -
+                which also lets the "any" entry be a plain "All". */}
+            <PopoverContent align="start" className="w-64 space-y-2.5 p-3">
+              {tucked.map(([field, label]) => (
+                <div key={field} className="space-y-1">
+                  <p className={fieldLabelClass}>{label}</p>
+                  <FilterSelect view={view} field={field} label={label} anyLabel="All" className="w-full" />
+                </div>
+              ))}
+            </PopoverContent>
+          </Popover>
+        ) : null}
+
+        {view.isFiltered ? (
+          <Button type="button" variant="ghost" size="sm" icon={X} onClick={view.clear}>
+            Clear
+          </Button>
+        ) : null}
+
+        {actions ? <div className="ml-auto flex items-center gap-2">{actions}</div> : null}
+      </div>
+
+      {/* The panel: under the row, the row's own width, never wider. Each
+          filter is a label over a full-width box in a grid that wraps -
+          a long name is cut short with the whole of it on hover, and a long
+          value inside the box the same way. */}
+      {asPanel && moreOpen ? (
+        <section id={panelId} aria-label={moreTitle || 'More filters'} className="rounded-md border border-border bg-muted/30 p-3">
+          {moreTitle ? (
+            <p className="mb-2.5 text-xs font-semibold text-brand">
+              {moreTitle}
+              <span className="font-normal text-muted-foreground"> ({tucked.length})</span>
+            </p>
+          ) : null}
+
+          <div className="grid grid-cols-1 gap-x-3 gap-y-2.5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {tucked.map(([field, label]) => (
-              <div key={field} className="space-y-1">
-                <p className={fieldLabelClass}>{label}</p>
-                <FilterSelect view={view} field={field} label={label} anyLabel="All" className="w-full" />
+              <div key={field} className="min-w-0 space-y-1">
+                <p className={cn(fieldLabelClass, 'truncate')} title={label}>
+                  {label}
+                </p>
+                <FilterSelect view={view} field={field} label={label} anyLabel="All" className="w-full min-w-0" />
               </div>
             ))}
-          </PopoverContent>
-        </Popover>
+          </div>
+        </section>
       ) : null}
+    </div>
+  )
+}
 
-      {view.isFiltered ? (
-        <Button type="button" variant="ghost" size="sm" icon={X} onClick={view.clear}>
-          Clear
-        </Button>
-      ) : null}
-
-      {actions ? <div className="ml-auto flex items-center gap-2">{actions}</div> : null}
+/**
+ * A date range on the filter row - two of the browser's date boxes, in the
+ * row's compact height:
+ *
+ *   <DateRangeFilter label="Expiry" from={from} to={to} onChange={({ from, to }) => ...} />
+ *
+ * `from` and `to` are YYYY-MM-DD, or '' for an open end. Neither box lets
+ * the other pass it: `to` cannot be set before `from`.
+ */
+export function DateRangeFilter({ label, from = '', to = '', onChange }) {
+  return (
+    <div className="flex w-full flex-wrap items-center gap-1.5 sm:w-auto">
+      <span className="text-xs whitespace-nowrap text-muted-foreground">{label}</span>
+      <Field
+        type="date"
+        value={from}
+        max={to || undefined}
+        onChange={(event) => onChange({ from: event.target.value, to })}
+        aria-label={`${label} from`}
+        className="w-36"
+        inputClassName="h-8"
+      />
+      <span className="text-xs text-muted-foreground">to</span>
+      <Field
+        type="date"
+        value={to}
+        min={from || undefined}
+        onChange={(event) => onChange({ from, to: event.target.value })}
+        aria-label={`${label} to`}
+        className="w-36"
+        inputClassName="h-8"
+      />
     </div>
   )
 }
@@ -135,11 +248,23 @@ function FilterSelect({ view, field, label, anyLabel, className }) {
       value={view.filters[field] || ANY}
       onValueChange={(value) => view.setFilter(field, value === ANY ? '' : value)}
     >
-      <SelectTrigger size="sm" aria-label={`Filter by ${label}`} className={className}>
+      {/* A value too long for its box is cut short with "..." - never
+          spilled over the next control - and shown in full on hover. */}
+      <SelectTrigger
+        size="sm"
+        aria-label={`Filter by ${label}`}
+        title={view.filters[field] || undefined}
+        className={cn(
+          'min-w-0 *:data-[slot=select-value]:block! *:data-[slot=select-value]:min-w-0 *:data-[slot=select-value]:truncate *:data-[slot=select-value]:text-left',
+          className,
+        )}
+      >
         <SelectValue placeholder={label} />
       </SelectTrigger>
 
-      <SelectContent>
+      {/* As wide as its box at least, and never wider than the screen -
+          a long option wraps instead of running off it. */}
+      <SelectContent className="max-w-[min(24rem,calc(100vw-2rem))]">
         <SelectItem value={ANY}>{anyLabel}</SelectItem>
         {(view.filterOptions[field] ?? []).map((option) => (
           <SelectItem key={option} value={option} title={view.filterHints?.[field]?.[option]}>

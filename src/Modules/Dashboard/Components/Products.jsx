@@ -54,8 +54,9 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useSelector } from 'react-redux'
-import { AlertCircle, Package, Plus, RefreshCw } from 'lucide-react'
+import { AlertCircle, CopyPlus, Package, Plus, RefreshCw } from 'lucide-react'
 
+import { ActionDropdown } from '@/Components/Common/ActionDropdown'
 import { InlineAlert, ListSkeleton, RetryButton, StateMessage } from '@/Components/Common/DataList'
 import { Panel } from '@/Components/Common/Panel'
 import { Button } from '@/Components/ui/button'
@@ -128,7 +129,8 @@ export default function Products() {
      the dialog has ever been opened. */
   const [dialog, setDialog] = useState({ open: false, session: 0, edit: null })
 
-  const openDialog = () => setDialog((previous) => ({ open: true, session: previous.session + 1, edit: null }))
+  const openDialog = (fromExisting = false) =>
+    setDialog((previous) => ({ open: true, session: previous.session + 1, edit: null, fromExisting }))
 
   /** Edit one SKU: the dialog, filled from what it was saved with. Versions
       are for products made from others - Finished and Semi-Finished. */
@@ -170,10 +172,21 @@ export default function Products() {
   // every decision above has an answer.
   const ready = Boolean(companyId) && skuSettingKnown && steps.length > 0
 
+  /* Add Product, as a menu of two: the form empty, as ever, or started
+     from a product the company already has (see ProductFormModal). The
+     second needs a product to start from. */
   const addButton = (
-    <Button type="button" size="sm" icon={Plus} onClick={openDialog} disabled={!ready}>
-      Add Product
-    </Button>
+    <ActionDropdown
+      label="Add Product"
+      icon={Plus}
+      size="sm"
+      disabled={!ready}
+      options={[
+        { label: 'Add Product', value: 'new', icon: Plus },
+        { label: 'Add Existing Product', value: 'existing', icon: CopyPlus, disabled: products.rows.length === 0 },
+      ]}
+      onSelect={(value) => openDialog(value === 'existing')}
+    />
   )
 
   /* ---------------- What fills the card ---------------- */
@@ -314,6 +327,7 @@ export default function Products() {
           warehouses={warehouses}
           products={products}
           edit={dialog.edit}
+          fromExisting={Boolean(dialog.fromExisting)}
           // The plan allows one warehouse: all stock goes to it, unasked.
           singleWarehouse={hasSingleWarehouseLimit(activeCompany)}
           onSaved={handleSaved}

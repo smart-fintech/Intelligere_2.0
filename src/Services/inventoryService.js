@@ -398,6 +398,83 @@ export const getProducts = async (companyName) => {
 }
 
 /* ------------------------------------------------------------------ */
+/* The Inventory tab's two other views                                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * THE CUSTOM REPORT - one row per product, its fields under the company's
+ * own names, and its stock:
+ *
+ *   POST inventory/ProductCustomizedReport/   { company_name }
+ *
+ *   [{ "id": 30029, "Product Name": "shirt", "Category": "Semi-Finished",
+ *      "Quantity": "200", "Unit Rate": "900", ...whatever fields the company has,
+ *      "warehouse": [{ "id": "12", "name": "WAREHOUSING 1", "level": "LE-1",
+ *                      "shelf": "SH-2", "rack_no": "Ra-3", "warehouse_quantity": "200" }] }]
+ */
+const CUSTOM_REPORT_URL = 'inventory/ProductCustomizedReport/'
+
+export const getProductCustomReport = async (companyName) => {
+  if (!companyName) return []
+
+  return toList(await api.post(CUSTOM_REPORT_URL, { company_name: companyName }))
+}
+
+/**
+ * THE EXPIRED PRODUCTS - the product list's own shape (see readProducts in
+ * Modules/Dashboard/productList), one record per expired stock, its SKU
+ * carrying `expiry_product_id` beside its `product_id`:
+ *
+ *   POST inventory/expired_products/   { company_name }
+ *
+ * Read-only on screen: an expired record is not edited or removed through
+ * the product's own id.
+ */
+const EXPIRED_PRODUCTS_URL = 'inventory/expired_products/'
+
+export const getExpiredProducts = async (companyName) => {
+  if (!companyName) return []
+
+  return toList(await api.post(EXPIRED_PRODUCTS_URL, { company_name: companyName }))
+}
+
+/* ------------------------------------------------------------------ */
+/* Opening stock - an Excel template, filled in and sent back          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * ONE URL, TWO REQUESTS - the body decides which:
+ *
+ *   POST inventory/inventory_excel/   JSON { company_name }
+ *        -> { "data": "http://.../media/inventory_files/<company>_inventory_template.xlsx" }
+ *        the company's own template, to download (getOpeningStockTemplate)
+ *
+ *   POST inventory/inventory_excel/   multipart: company_name, filed
+ *        -> { "msg": "1 warehouse(s) and 3 product(s) uploaded successfully." }
+ *        the filled-in template (uploadOpeningStock). The file goes under
+ *        `filed` - the backend's own name for it, not `file`.
+ */
+const OPENING_STOCK_URL = 'inventory/inventory_excel/'
+
+/** The template's link - `data` of the reply, or '' when there is none. */
+export const getOpeningStockTemplate = async (companyName) => {
+  if (!companyName) return ''
+
+  const response = await api.post(OPENING_STOCK_URL, { company_name: companyName })
+  return typeof response?.data === 'string' ? response.data.trim() : ''
+}
+
+/** Sends the filled-in template. Multipart is named for this one call, as for every upload. */
+export const uploadOpeningStock = (companyName, file) => {
+  const body = new FormData()
+
+  body.append('company_name', companyName)
+  body.append('filed', file)
+
+  return api.post(OPENING_STOCK_URL, body, { headers: { 'Content-Type': 'multipart/form-data' } })
+}
+
+/* ------------------------------------------------------------------ */
 /* Products - with Inventory Management                               */
 /* ------------------------------------------------------------------ */
 

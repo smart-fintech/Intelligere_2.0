@@ -313,8 +313,13 @@ const distinct = (values) => [...new Set(values.map(textOf).filter(Boolean))]
  *
  * `warehouseNames` is optional: { "<warehouse id>": "name" }.
  */
-export const readProducts = (rows, warehouseNames = null) =>
-  listOf(rows)
+export const readProducts = (rows, warehouseNames = null) => {
+  // A row's key is its first SKU's id - and a list can name the same SKU
+  // twice (the expired products: one record per expiry), so a key already
+  // taken is made unique with the row's place.
+  const taken = new Set()
+
+  return listOf(rows)
     .filter(isPlainObject)
     .map((row, index) => {
       const variants = listOf(row.sku_variants)
@@ -322,9 +327,13 @@ export const readProducts = (rows, warehouseNames = null) =>
         .map((variant) => readVariant(variant, warehouseNames))
       const rate = readRate(variants)
 
+      const first = variants.find((variant) => variant.productId !== null)?.productId ?? `row-${index}`
+      const key = taken.has(first) ? `${first}-${index}` : first
+      taken.add(key)
+
       return {
         source: row,
-        key: variants.find((variant) => variant.productId !== null)?.productId ?? `row-${index}`,
+        key,
         name: textOf(row.product_name),
         hsn: textOf(row.hsn_code),
         group: textOf(row.group),
@@ -340,6 +349,7 @@ export const readProducts = (rows, warehouseNames = null) =>
         others: otherFields(row, PRODUCT_KEYS),
       }
     })
+}
 
 /**
  * THE CATEGORIES A PRODUCT CAN BE OF, as they are compared: without
@@ -397,7 +407,9 @@ export const hasMaterialReferences = (product) => isProductCategory(product, PRO
 /* ------------------------------------------------------------------ */
 
 /**
- * WHAT ONE SKU WAS SAVED WITH, for the Product form to start an edit from.
+ * WHAT ONE SKU WAS SAVED WITH, for the Product form to start from - an
+ * edit, or Add Existing Product. Without a `variant` it is the product's
+ * own values alone, with no SKU, stock, vendor or reference.
  * A product is edited one SKU at a time: each SKU is its own record, named
  * by its `product_id` (see updateProduct in Services/inventoryService).
  *
@@ -420,14 +432,15 @@ const withSkuDetailsKey = (reference) => {
   return { ...rest, sku_details: filledObject(rest.sku_details) ?? (isPlainObject(older) ? older : {}) }
 }
 
-export const productEditSource = (product, variant) => {
-  const entry = variant.details[0]?.source ?? {}
+export const productEditSource = (product, variant = null) => {
+  // No SKU (none chosen yet, or none at all): the product's own values only.
+  const entry = variant?.details[0]?.source ?? {}
 
   return {
     product: product.source,
-    variant: variant.source,
+    variant: variant?.source ?? {},
     entry,
-    sku: Object.fromEntries(variant.skuDetails),
+    sku: variant ? Object.fromEntries(variant.skuDetails) : {},
     warehouses: listOf(entry.warehouse)
       .filter(isPlainObject)
       .map((warehouse) => ({
@@ -437,16 +450,16 @@ export const productEditSource = (product, variant) => {
         shelf: textOrEmpty(warehouse.shelf),
         rack_no: textOrEmpty(warehouse.rack_no),
       })),
-    vendors: variant.vendors,
+    vendors: variant?.vendors ?? [],
     // A reference saved before its SKU attributes were named `sku_details`
     // (they were `sku_detail`) is read under the one name, so an edit
     // shows them and sends them back under `sku_details` alone. The
     // history in `past_version` is never rewritten.
     references: {
-      raw: variant.rawReferences.map(withSkuDetailsKey),
-      semiFinished: variant.semiFinishedReferences.map(withSkuDetailsKey),
+      raw: (variant?.rawReferences ?? []).map(withSkuDetailsKey),
+      semiFinished: (variant?.semiFinishedReferences ?? []).map(withSkuDetailsKey),
     },
-    pastVersion: filledObject(variant.source.past_version) ?? filledObject(entry.past_version) ?? {},
+    pastVersion: filledObject(variant?.source?.past_version) ?? filledObject(entry.past_version) ?? {},
   }
 }
 
@@ -464,6 +477,9 @@ const FIXED_KEYS = {
   itemname: 'product_name',
   hsn: 'hsn_code',
 }
+
+/** Whether a field, by its name, is an expiry date ("Expiry Date", expiry_date). */
+export const isExpiryDateField = (fieldName) => looseKey(fieldName) === 'expirydate'
 
 /** Whether a form field is the product's category - what decides its references. */
 export const isCategoryField = (fieldName) => looseKey(fieldName) === 'category'
@@ -513,18 +529,28 @@ export const variantWarehouses = (variant) => variant.details.flatMap((detail) =
  * THE FILTERS, as `{ [field]: value }` - the shape the table's filter row
  * works in. A field is one of:
  *
- *   PRODUCT_FILTER.SKU_CODE     a SKU's code
- *   PRODUCT_FILTER.WAREHOUSE    a warehouse, by its label
- *   PRODUCT_FILTER.EXPIRY       one of EXPIRY_CHOICES
- *   skuAttributeFilter(name)    one of the company's SKU fields - "Color",
- *                               "Size", whatever they are - and a value of it
+ *   PRODUCT_FILTER.SKU_CODE      a SKU's code
+ *   PRODUCT_FILTER.WAREHOUSE     a warehouse, by its label
+ *   PRODUCT_FILTER.EXPIRY_FROM   } an expiry date range, YYYY-MM-DD - either
+ *   PRODUCT_FILTER.EXPIRY_TO     } end may be left open
+ *   skuAttributeFilter(name)     one of the company's SKU fields - "Color",
+ *                                "Size", whatever they are - and a value of it
  *
  * A product is its SKUs, so the filters are answered per SKU: a product
  * stays when ONE of its SKUs passes EVERY filter that is set. "Color: Red"
  * with "Size: 50m" finds the products that have a red 50m SKU - not those
  * with a red one and, separately, a 50m one.
+ *
+ * THE EXPIRY DATES are each SKU's `product_details[].expiry_date` - never the
+ * product's own - so a SKU passes when one of its entries expires within the
+ * range. An entry with no expiry date is never in a range.
  */
-export const PRODUCT_FILTER = Object.freeze({ SKU_CODE: 'sku_code', WAREHOUSE: 'warehouse', EXPIRY: 'expiry' })
+export const PRODUCT_FILTER = Object.freeze({
+  SKU_CODE: 'sku_code',
+  WAREHOUSE: 'warehouse',
+  EXPIRY_FROM: 'expiry_from',
+  EXPIRY_TO: 'expiry_to',
+})
 
 const ATTRIBUTE_PREFIX = 'sku:'
 
@@ -532,53 +558,25 @@ const ATTRIBUTE_PREFIX = 'sku:'
 export const skuAttributeFilter = (name) => `${ATTRIBUTE_PREFIX}${name}`
 
 /**
- * The expiry choices. Dates are compared as calendar days, in the
- * project's own way of reading a date (Utils/date) - and an entry with no
- * expiry date matches only "No expiry date", never one of the others.
+ * Whether a date falls in a range: `from` and `to` are YYYY-MM-DD, either
+ * '' for an open end. The date is read the project's way (Utils/date), so
+ * "2026-10-10" and "10-10-2026" are one day; one that cannot be read is in
+ * no range.
  */
-export const EXPIRY_CHOICES = Object.freeze({
-  EXPIRED: 'Expired',
-  WITHIN_30: 'Expiring within 30 days',
-  WITHIN_90: 'Expiring within 90 days',
-  HAS_DATE: 'Has an expiry date',
-  NO_DATE: 'No expiry date',
-})
-
-/** How many days from today a date is: negative once it has passed, null when unreadable. */
-const daysFromToday = (value) => {
+export const isWithinDates = (value, from, to) => {
   const date = toInputDate(value)
-  if (!date) return null
+  if (!date) return false
 
-  const [year, month, day] = date.split('-').map(Number)
-  const now = new Date()
-
-  // Both as UTC midnights, so a daylight-saving hour can never make a day.
-  const then = Date.UTC(year, month - 1, day)
-  const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())
-
-  return Math.round((then - today) / 86400000)
+  return (!from || date >= from) && (!to || date <= to)
 }
 
-const matchesExpiry = (detail, choice) => {
-  const days = detail.expiryDate ? daysFromToday(detail.expiryDate) : null
+/** Whether one SKU passes every filter that is set - `range` is the expiry range, or null. */
+const variantMatches = (variant, filters, range) => {
+  if (range && !variant.details.some((detail) => isWithinDates(detail.expiryDate, range.from, range.to))) return false
 
-  if (choice === EXPIRY_CHOICES.NO_DATE) return days === null
-  if (days === null) return false
-
-  if (choice === EXPIRY_CHOICES.EXPIRED) return days < 0
-  if (choice === EXPIRY_CHOICES.WITHIN_30) return days >= 0 && days <= 30
-  if (choice === EXPIRY_CHOICES.WITHIN_90) return days >= 0 && days <= 90
-  return true
-}
-
-/** Whether one SKU passes every filter that is set. */
-const variantMatches = (variant, filters) =>
-  Object.entries(filters).every(([field, value]) => {
-    if (!value) return true
-
+  return Object.entries(filters).every(([field, value]) => {
     if (field === PRODUCT_FILTER.SKU_CODE) return variant.skuCode === value
     if (field === PRODUCT_FILTER.WAREHOUSE) return variantWarehouses(variant).some((warehouse) => warehouse.label === value)
-    if (field === PRODUCT_FILTER.EXPIRY) return variant.details.some((detail) => matchesExpiry(detail, value))
 
     if (field.startsWith(ATTRIBUTE_PREFIX)) {
       const name = field.slice(ATTRIBUTE_PREFIX.length)
@@ -587,6 +585,7 @@ const variantMatches = (variant, filters) =>
 
     return true
   })
+}
 
 /**
  * The products the filters leave - a new list, in the same order. Neither
@@ -594,10 +593,13 @@ const variantMatches = (variant, filters) =>
  * is asked of the backend: this is the rows already loaded, narrowed.
  */
 export const filterProducts = (products, filters) => {
-  const active = Object.fromEntries(Object.entries(filters ?? {}).filter(([, value]) => value))
-  if (Object.keys(active).length === 0) return products
+  const { [PRODUCT_FILTER.EXPIRY_FROM]: from = '', [PRODUCT_FILTER.EXPIRY_TO]: to = '', ...rest } = filters ?? {}
 
-  return products.filter((product) => product.variants.some((variant) => variantMatches(variant, active)))
+  const active = Object.fromEntries(Object.entries(rest).filter(([, value]) => value))
+  const range = from || to ? { from, to } : null
+  if (Object.keys(active).length === 0 && !range) return products
+
+  return products.filter((product) => product.variants.some((variant) => variantMatches(variant, active, range)))
 }
 
 /**
@@ -606,14 +608,16 @@ export const filterProducts = (products, filters) => {
  * with different SKU fields gets different filters.
  *
  *   fields    { [field]: label }      the filters there are, in order: SKU
- *             Code and Warehouse (when any product has one), Expiry Date,
- *             then one per SKU attribute found
+ *             Code and Warehouse (when any product has one), then one per
+ *             SKU attribute found
  *   options   { [field]: [value] }    the choices of each, sorted
  *   hints     { [field]: { [value]: text } }   for SKU Code: what that SKU
  *             is made of, one "name: value" a line - shown when the option
  *             is hovered
  *   attributeFields   the fields that are SKU attributes - the ones a page
  *             tucks behind "More Filters"
+ *   hasExpiry  some SKU has an expiry date - the expiry range is worth
+ *             offering
  */
 export const productFilterOptions = (products) => {
   const variants = products.flatMap((product) => product.variants)
@@ -643,12 +647,9 @@ export const productFilterOptions = (products) => {
     options[PRODUCT_FILTER.WAREHOUSE] = warehouses
   }
 
-  // Offered only when some product HAS an expiry date - a company that
-  // keeps none has no use for the filter.
-  if (variants.some((variant) => variant.details.some((detail) => detail.expiryDate))) {
-    fields[PRODUCT_FILTER.EXPIRY] = 'Expiry Date'
-    options[PRODUCT_FILTER.EXPIRY] = Object.values(EXPIRY_CHOICES)
-  }
+  // The range is offered only when some SKU HAS an expiry date - a company
+  // that keeps none has no use for it.
+  const hasExpiry = variants.some((variant) => variant.details.some((detail) => detail.expiryDate))
 
   // The SKU attributes, in the order the SKUs carry them.
   const attributeFields = []
@@ -664,5 +665,5 @@ export const productFilterOptions = (products) => {
     attributeFields.push(field)
   })
 
-  return { fields, options, hints, attributeFields }
+  return { fields, options, hints, attributeFields, hasExpiry }
 }

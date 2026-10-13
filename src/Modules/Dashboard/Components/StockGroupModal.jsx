@@ -1,5 +1,15 @@
 /**
- * "Add Stock Group Creation" - Tally only, from the header's Add dropdown.
+ * Group creation, from the header's Add dropdown - one modal, two ERPs:
+ *
+ *   Tally         "Add Stock Group Creation" - Company, Stock Group Name,
+ *                 Under - over the WebSocket (below)
+ *   Intelligere   "Add Product Group Creation" - Company and Group Name -
+ *                 POST inventory/product_group_list/
+ *                 { company_name, group_name } (createProductGroup), which
+ *                 answers { msg: "Product group created" }; a name already
+ *                 in the list is refused before it is sent
+ *
+ * THE TALLY ONE:
  *
  * Three fields: the company it is for (shown, not chosen), the name of the
  * new stock group, and the existing group it sits under. Submit sends it to
@@ -20,6 +30,7 @@
  * Props:
  *   open, onOpenChange  the usual controlled-modal pair
  *   companyName         the active company, which is how Tally knows it
+ *   isTally             Tally (the WebSocket) or Intelligere (the API)
  */
 
 import { useEffect, useRef, useState } from 'react'
@@ -31,7 +42,11 @@ import { Button } from '@/Components/ui/button'
 import useProductGroups, { refreshProductGroups } from '@/Hooks/useProductGroups'
 import { useWebSocket } from '@/Hooks/useWebSocket'
 import { toast } from '@/Library/toast'
-import { TALLY_STOCK_GROUP_CREATE_MODULE, buildTallyStockGroupCreateMessage } from '@/Services/productService'
+import {
+  TALLY_STOCK_GROUP_CREATE_MODULE,
+  buildTallyStockGroupCreateMessage,
+  createProductGroup,
+} from '@/Services/productService'
 
 /** Safety net: the longest Submit waits for Tally's stop_loader - as for a ledger group. */
 const TALLY_SAVE_TIMEOUT_MS = 2 * 60 * 1000
@@ -39,7 +54,7 @@ const TALLY_SAVE_TIMEOUT_MS = 2 * 60 * 1000
 /** A long list gets a search box; a short one does not need it. */
 const SEARCHABLE_FROM = 8
 
-export default function StockGroupModal({ open, onOpenChange, companyName }) {
+export default function StockGroupModal({ open, onOpenChange, companyName, isTally = true }) {
   const [name, setName] = useState('')
   const [under, setUnder] = useState('')
   const [errors, setErrors] = useState({})
@@ -112,9 +127,36 @@ export default function StockGroupModal({ open, onOpenChange, companyName }) {
 
   const validate = () => {
     const found = {}
-    if (!name.trim()) found.name = 'Stock group name is required'
-    if (!under) found.under = 'Please select the group it comes under'
+    const trimmed = name.trim()
+
+    if (!trimmed) found.name = isTally ? 'Stock group name is required' : 'Group name is required'
+    else if (!isTally && groups.options.some((option) => option.value.toLowerCase() === trimmed.toLowerCase())) {
+      found.name = 'This group already exists'
+    }
+
+    // Only Tally places a group under another.
+    if (isTally && !under) found.under = 'Please select the group it comes under'
     return found
+  }
+
+  /** Intelligere: one request, answered there and then. */
+  const saveByApi = async () => {
+    savingRef.current = true
+    setSaving(true)
+
+    try {
+      const response = await createProductGroup(companyName, name.trim())
+      finish()
+      toast.success(response?.msg || 'Product group created')
+      refreshProductGroups()
+      reset()
+      onOpenChange?.(false)
+    } catch (failure) {
+      // `failure.message` is the backend's own `msg` (see authService);
+      // what was typed stays, to send again.
+      finish()
+      toast.error(failure.message || 'The group could not be created.')
+    }
   }
 
   const handleSubmit = async (event) => {
@@ -126,7 +168,12 @@ export default function StockGroupModal({ open, onOpenChange, companyName }) {
     if (Object.keys(found).length > 0) return
 
     if (!companyName?.trim()) {
-      toast.error('Select a company before adding a stock group.')
+      toast.error('Select a company before adding a group.')
+      return
+    }
+
+    if (!isTally) {
+      await saveByApi()
       return
     }
 
@@ -169,7 +216,7 @@ export default function StockGroupModal({ open, onOpenChange, companyName }) {
     <Modal
       open={open}
       onOpenChange={handleOpenChange}
-      title="Add Stock Group Creation"
+      title={isTally ? 'Add Stock Group Creation' : 'Add Product Group Creation'}
       size="md"
       closeOnBackdropClick={!saving}
       closeOnEsc={!saving}
@@ -187,10 +234,10 @@ export default function StockGroupModal({ open, onOpenChange, companyName }) {
 
         <Field
           id="stock_group_name"
-          label="Stock Group Name"
+          label={isTally ? 'Stock Group Name' : 'Group Name'}
           required
           autoComplete="off"
-          placeholder="New stock group"
+          placeholder={isTally ? 'New stock group' : 'New product group'}
           value={name}
           error={errors.name}
           disabled={saving}
@@ -200,29 +247,32 @@ export default function StockGroupModal({ open, onOpenChange, companyName }) {
           }}
         />
 
-        {/* Nothing retries on its own; Retry is the only way. */}
-        {groups.status === 'failed' && groups.options.length === 0 ? (
+        {/* Nothing retries on its own; Retry is the only way. (Intelligere has
+            no Under: the list there only guards against a repeated name.) */}
+        {isTally && groups.status === 'failed' && groups.options.length === 0 ? (
           <InlineAlert action={<RetryButton onClick={groups.reload} />}>
             Stock groups could not be loaded. {groups.error}
           </InlineAlert>
         ) : null}
 
-        <SelectField
-          id="stock_group_under"
-          label="Under"
-          required
-          placeholder={underPlaceholder}
-          options={groups.options}
-          value={under}
-          error={errors.under}
-          disabled={saving || groups.options.length === 0}
-          searchable={groups.options.length >= SEARCHABLE_FROM}
-          searchPlaceholder="Search stock group..."
-          onValueChange={(value) => {
-            setUnder(value)
-            setErrors((previous) => ({ ...previous, under: undefined }))
-          }}
-        />
+        {isTally ? (
+          <SelectField
+            id="stock_group_under"
+            label="Under"
+            required
+            placeholder={underPlaceholder}
+            options={groups.options}
+            value={under}
+            error={errors.under}
+            disabled={saving || groups.options.length === 0}
+            searchable={groups.options.length >= SEARCHABLE_FROM}
+            searchPlaceholder="Search stock group..."
+            onValueChange={(value) => {
+              setUnder(value)
+              setErrors((previous) => ({ ...previous, under: undefined }))
+            }}
+          />
+        ) : null}
 
         <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
           <Button type="button" variant="outline" disabled={saving} onClick={() => handleOpenChange(false)}>

@@ -47,6 +47,8 @@
  *   disabled     the form is saving
  *   onAdd()      a new entry - without it there is no Add SKU (an edit
  *                is of one SKU)
+ *   headerExtra  optional - drawn beside Add SKU (Add Existing Product's
+ *                "Select SKU Code")
  *   onRemove(entryId)
  *   onValueChange(entryId, fieldName, value)
  *   onAddLine(entryId)                            a new warehouse line
@@ -79,6 +81,7 @@ export default function ProductSkuEntries({
   products,
   singleWarehouse = false,
   disabled,
+  headerExtra = null,
   onAdd,
   onRemove,
   onValueChange,
@@ -99,6 +102,8 @@ export default function ProductSkuEntries({
           {group.title}
           <span className="font-normal text-muted-foreground"> ({sets.length})</span>
         </h3>
+
+        {headerExtra ? <div className="ml-auto w-full sm:w-80">{headerExtra}</div> : null}
 
         {onAdd ? (
           <Button type="button" variant="default" size="sm" icon={Plus} disabled={disabled} onClick={onAdd}>

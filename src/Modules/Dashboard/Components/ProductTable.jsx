@@ -32,8 +32,15 @@
  *   SKU Code              a SKU's code; hovering a choice shows what that
  *                         SKU is made of
  *   Warehouse             a warehouse some SKU has stock in
- *   More Filters          Expiry Date, and one filter per SKU attribute the
- *                         company's products actually have
+ *   Expiry                a date range on the SKUs' own expiry dates
+ *                         (product_details[].expiry_date) - when any has one
+ *   More Filters          one filter per SKU attribute the company's
+ *                         products actually have - in a "SKU Details"
+ *                         section that opens under the row, its filters
+ *                         in a grid that wraps (TableFilters' 'panel')
+ *
+ * A company whose plan allows one warehouse ("Single Warehouse" in its
+ * `features`) has no Warehouse filter: there is nothing to choose between.
  *
  * Each exists only when the products have something to offer for it, and
  * offers only values that are really there. They work together, and Clear
@@ -57,6 +64,8 @@
  *                    page is busy with something an edit would cut across)
  *   selectedKey      optional - the `key` of the row to tint (the one open
  *                    in a form)
+ *   withCategoryAndAmount   optional - Category and Total Amount columns as
+ *                    well (the Expired Products view)
  */
 
 import { Fragment, useMemo, useState } from 'react'
@@ -65,6 +74,7 @@ import { ChevronDown, ChevronRight, Eye, Package, Pencil } from 'lucide-react'
 import { StateMessage } from '@/Components/Common/DataList'
 import {
   DataTable,
+  DateRangeFilter,
   PlainHead,
   SortableHead,
   TableFilters,
@@ -72,8 +82,10 @@ import {
 } from '@/Components/Common/TableTools'
 import { Button } from '@/Components/ui/button'
 import { TableCell, TableRow } from '@/Components/ui/table'
+import { useActiveCompany } from '@/Hooks/useActiveCompany'
 import useInventoryAccess from '@/Hooks/useInventoryAccess'
 import { useListView } from '@/Hooks/useListView'
+import { hasSingleWarehouseLimit } from '@/Services/inventoryService'
 import { orDash } from '@/Utils/display'
 import { filterProducts, PRODUCT_FILTER, productFilterOptions, readProducts } from '../productList'
 import ProductDetailsModal from './ProductDetailsModal'
@@ -83,6 +95,9 @@ const SEARCH_FIELDS = ['name']
 
 /** The seven columns of data, and the Actions column: the cells an opened row spans. */
 const COLUMN_COUNT = 8
+
+/** No expiry range set. */
+const NO_RANGE = { from: '', to: '' }
 
 /** The Actions column: room for its heading, then for each button it holds. */
 const ACTIONS_WIDTH = { base: 36, details: 60, edit: 36 }
@@ -95,6 +110,7 @@ export default function ProductTable({
   onEditSku,
   editDisabled = false,
   selectedKey,
+  withCategoryAndAmount = false,
 }) {
   // The arrow and the eye - see the note at the top.
   const { full: detailed } = useInventoryAccess()
@@ -103,24 +119,48 @@ export default function ProductTable({
   const hasActions = detailed || canEdit
   const actionsWidth = ACTIONS_WIDTH.base + (detailed ? ACTIONS_WIDTH.details : 0) + (canEdit ? ACTIONS_WIDTH.edit : 0)
 
+  // One warehouse: no Warehouse filter - see the note at the top.
+  const { activeCompany } = useActiveCompany()
+  const singleWarehouse = hasSingleWarehouseLimit(activeCompany)
+
+  const columnCount = COLUMN_COUNT + (withCategoryAndAmount ? 2 : 0)
+
   const products = useMemo(() => readProducts(rows, warehouseNames), [rows, warehouseNames])
-  const offered = useMemo(() => productFilterOptions(products), [products])
+  const offered = useMemo(() => {
+    const all = productFilterOptions(products)
+    if (!singleWarehouse) return all
+
+    const fields = Object.fromEntries(Object.entries(all.fields).filter(([field]) => field !== PRODUCT_FILTER.WAREHOUSE))
+    return { ...all, fields }
+  }, [products, singleWarehouse])
 
   /* ---------------- Filters ----------------
      Kept as { field: value }. A value the products no longer offer - the
      list was read again and that SKU is gone - is not applied, so a stale
      choice can never hide every row with nothing on screen to explain it. */
   const [chosen, setChosen] = useState({})
+  // The expiry range, kept apart: it is typed, not chosen from a list.
+  const [expiry, setExpiry] = useState(NO_RANGE)
+  const expirySet = Boolean(offered.hasExpiry && (expiry.from || expiry.to))
 
   const filters = useMemo(
     () =>
       Object.fromEntries(
-        Object.entries(chosen).filter(([field, value]) => value && offered.options[field]?.includes(value)),
+        Object.entries(chosen).filter(
+          ([field, value]) => value && field in offered.fields && offered.options[field]?.includes(value),
+        ),
       ),
     [chosen, offered],
   )
 
-  const filtered = useMemo(() => filterProducts(products, filters), [products, filters])
+  const filtered = useMemo(
+    () =>
+      filterProducts(
+        products,
+        expirySet ? { ...filters, [PRODUCT_FILTER.EXPIRY_FROM]: expiry.from, [PRODUCT_FILTER.EXPIRY_TO]: expiry.to } : filters,
+      ),
+    [products, filters, expiry, expirySet],
+  )
 
   // Searching, sorting and paging - on the products the filters left.
   const view = useListView(filtered, { searchFields: SEARCH_FIELDS })
@@ -138,16 +178,29 @@ export default function ProductTable({
       setChosen((previous) => ({ ...previous, [field]: value }))
       view.setPage(1)
     },
-    isFiltered: view.isFiltered || Object.keys(filters).length > 0,
+    isFiltered: view.isFiltered || Object.keys(filters).length > 0 || expirySet,
     clear: () => {
       setChosen({})
+      setExpiry(NO_RANGE)
       view.clear()
     },
   }
 
-  // Expiry Date and the SKU attributes go behind "More Filters": a company
-  // with seven SKU fields would otherwise have a filter row three lines deep.
-  const moreFilters = [PRODUCT_FILTER.EXPIRY, ...offered.attributeFields]
+  // The SKU attributes go behind "More Filters": a company with seven SKU
+  // fields would otherwise have a filter row three lines deep.
+  const moreFilters = offered.attributeFields
+
+  const expiryFilter = offered.hasExpiry ? (
+    <DateRangeFilter
+      label="Expiry"
+      from={expiry.from}
+      to={expiry.to}
+      onChange={(range) => {
+        setExpiry(range)
+        view.setPage(1)
+      }}
+    />
+  ) : null
 
   /* ---------------- Opened rows, and the details dialog ---------------- */
   const [expanded, setExpanded] = useState([])
@@ -174,7 +227,15 @@ export default function ProductTable({
 
   return (
     <>
-      <TableFilters view={filterView} searchPlaceholder="Search product name" moreFilters={moreFilters} actions={actions} />
+      <TableFilters
+        view={filterView}
+        searchPlaceholder="Search product name"
+        moreFilters={moreFilters}
+        moreLayout="panel"
+        moreTitle="SKU Details"
+        extra={expiryFilter}
+        actions={actions}
+      />
 
       {view.total === 0 ? (
         <StateMessage icon={Package} title="No matching products">
@@ -199,9 +260,19 @@ export default function ProductTable({
               <SortableHead view={view} field="unit" width={90}>
                 Unit
               </SortableHead>
+              {withCategoryAndAmount ? (
+                <SortableHead view={view} field="category" width={130}>
+                  Category
+                </SortableHead>
+              ) : null}
               <SortableHead view={view} field="quantity">
                 Quantity
               </SortableHead>
+              {withCategoryAndAmount ? (
+                <SortableHead view={view} field="totalAmount" width={120}>
+                  Total Amount
+                </SortableHead>
+              ) : null}
               <SortableHead view={view} field="gstRate" width={100}>
                 GST Rate
               </SortableHead>
@@ -229,7 +300,9 @@ export default function ProductTable({
                   <TableCell>{orDash(product.hsn)}</TableCell>
                   <TableCell title={product.group || undefined}>{orDash(product.group)}</TableCell>
                   <TableCell>{orDash(product.unit)}</TableCell>
+                  {withCategoryAndAmount ? <TableCell>{orDash(product.category)}</TableCell> : null}
                   <TableCell>{orDash(product.quantity)}</TableCell>
+                  {withCategoryAndAmount ? <TableCell>{orDash(product.totalAmount)}</TableCell> : null}
                   <TableCell>{orDash(product.gstRate)}</TableCell>
                   <TableCell>{orDash(product.rate)}</TableCell>
                   {hasActions ? (
@@ -279,7 +352,7 @@ export default function ProductTable({
                     column (see "A ROW THAT OPENS" in DataTable). */}
                 {open ? (
                   <TableRow className="hover:bg-transparent">
-                    <TableCell colSpan={COLUMN_COUNT} wrap className="bg-muted/40 p-0">
+                    <TableCell colSpan={columnCount} wrap className="bg-muted/40 p-0">
                       <ProductVariantRows
                         product={product}
                         onEditSku={onEditSku ? (variant) => onEditSku(product, variant) : undefined}

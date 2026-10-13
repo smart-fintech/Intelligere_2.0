@@ -68,6 +68,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useSelector } from 'react-redux'
 import { AlertCircle, CloudDownload, Package, RefreshCw } from 'lucide-react'
 
+import { CsvDownloadButton } from '@/Components/Common/CsvDownloadButton'
 import { InlineAlert, ListSkeleton, RetryButton, StateMessage } from '@/Components/Common/DataList'
 import { Loader } from '@/Components/Common/Loader'
 import { Panel } from '@/Components/Common/Panel'
@@ -80,6 +81,7 @@ import useVendorOptions from '@/Hooks/useVendorOptions'
 import { useWebSocket } from '@/Hooks/useWebSocket'
 import { toast } from '@/Library/toast'
 import { cn } from '@/Library/utils'
+import { CSV_SOURCES } from '@/Services/csvService'
 import {
   BASIC_PRODUCT_ERP,
   TALLY_PRODUCT_FETCH_MODULE,
@@ -319,6 +321,15 @@ export default function BasicProducts() {
         selectedKey={editingProduct?.key}
         onEdit={(product) => setEditing({ product: toBasicProduct(product), company: companyName })}
         editDisabled={syncing}
+        // The export the Ledger list has, for products: the backend builds
+        // the file for the company the header is on, by name.
+        actions={
+          <CsvDownloadButton
+            label="Download Product CSV"
+            payload={{ source: CSV_SOURCES.PRODUCT, company_name: companyName }}
+            disabled={!companyName}
+          />
+        }
       />
     )
   }

@@ -15,6 +15,8 @@
  *   Bank Details      { source: 'bank_details',   company_name }   the selected company
  *   Ledger Details    { source: 'ledger_details', company_name }   the selected company
  *   Company Details   { source: 'companydata',    email }          the signed-in user
+ *   Product           { source: 'product_details', company_name }  the selected company
+ *                     (the simple Product page - no Inventory Management)
  */
 
 import { api } from '@/Services/authService'
@@ -26,6 +28,7 @@ export const CSV_SOURCES = {
   BANK: 'bank_details',
   LEDGER: 'ledger_details',
   COMPANY: 'companydata',
+  PRODUCT: 'product_details',
 }
 
 /**
