@@ -33,7 +33,9 @@ import { ENV } from '@/Config/env'
  *   TALLY_CATEGORY / ERP          decide whether requests carry the
  *                                 activecompanyid header (authService)
  *   UUID                          profile, referrals, socket identity
- *   ACTIVE_COMPANY_ID             { company_id } of the company being worked
+ *   ROLE                          the signed-in user's role ("MainUser", ...),
+ *                                 sent when asking for companies
+ *   ACTIVE_COMPANY_ID            { company_id } of the company being worked
  *                                 in - see getActiveCompanyId below
  *   IS_ADMIN                      which login page logout returns to
  */
@@ -46,6 +48,7 @@ export const STORAGE_KEYS = {
   TALLY_CATEGORY: 'tc',
   ERP: 'erp',
   UUID: 'uuid',
+  ROLE: 'role',
 }
 
 /**
@@ -55,15 +58,18 @@ export const STORAGE_KEYS = {
  * next logout.
  *
  *   acn            the company name - it is in the company list, by company_id
- *   role, is_sm,   saved at sign-in but never read by any screen
- *   tm_ut, ftd
+ *   is_sm, tm_ut,  saved at sign-in but never read by any screen
+ *   ftd
+ *
+ * `role` was on this list until the company list began to send it - it is a
+ * current key again (STORAGE_KEYS.ROLE) and must stay off it.
  *   mac_ad,        declared but never written or read
  *   active_status,
  *   tally_status
  */
 const OBSOLETE_KEYS = [
   'acn',
-  'role',
+  // 'role',
   'is_sm',
   'tm_ut',
   'ftd',
@@ -176,6 +182,9 @@ export const getTC = () => getItem(STORAGE_KEYS.TALLY_CATEGORY)
 export const getERP = () => getItem(STORAGE_KEYS.ERP)
 export const isAdmin = () => getItem(STORAGE_KEYS.IS_ADMIN) === 'true'
 export const getUuid = () => getItem(STORAGE_KEYS.UUID)
+// The role the user signed in with - "MainUser", or a sub user's. Null for a
+// session that began before it was kept, until the next sign-in.
+export const getRole = () => getItem(STORAGE_KEYS.ROLE)
 
 /* ------------------------------------------------------------------ */
 /* The company being worked in                                        */

@@ -1,34 +1,38 @@
 /**
  * The Product Details dialog - everything the backend holds about one
- * product, opened from the eye on its row. Read-only.
+ * product, opened from the eye on one of its SKUs (in its opened row) and
+ * handed the product with that SKU alone, so every tab is that SKU's.
+ * Read-only.
  *
  * Five tabs, so nothing is one long page:
  *
  *   General                  the product itself
- *   SKU Variants             each SKU: its code, what it is made of, its
- *                            rate, quantity, dates and any other field it
- *                            carries
- *   Warehouse                where each SKU's stock is kept
+ *   SKU Variants             each SKU: its code, stock, selling rate, its
+ *                            sku_details and its own fields (Width,
+ *                            Manufacturing Date ...)
+ *   Warehouse                each SKU's product_details entries - quantity,
+ *                            rate, expiry, when added - and where the stock
+ *                            of each is kept
  *   Vendor                   who it is bought from
- *   Materials & References   what it is made from, in two sections:
+ *   Materials & References   what it is made from, and its past versions:
  *                              Raw References            (raw_reference)
  *                              Semi-Finished References  (semi_finished_reference)
+ *                              Version History           (past_version)
  *
  * A tab says how many things it holds, so an empty one is known to be empty
  * before it is opened - and says so plainly when it is.
  *
- * MATERIALS & REFERENCES GOES BY THE PRODUCT'S CATEGORY. Only a Finished
- * product is made from other goods, so only a Finished product has the two
- * sections - each one drawn even when it is empty, saying so. For a
- * Semi-Finished or Raw Material product (or any other category) neither
- * section is drawn; the tab says why instead. The rule itself is
- * hasMaterialReferences, in productList.
+ * MATERIALS & REFERENCES GOES BY THE PRODUCT'S CATEGORY, by the same rule
+ * as the Product form (referencesOfCategory, in productList): a Finished
+ * product has both sections, a Semi-Finished one Raw References only, a Raw
+ * Material (or any other category) neither - the tab says why instead.
  *
- * IT NAMES NO FIELD OF THE COMPANY'S. A SKU's attributes, a product's extra
- * fields and the columns of a reference are whatever the reply carries:
- * each part shows the properties it knows, then every other one it was sent
- * (`others`, see productList) - so a field added to the reply appears here
- * by itself. Deleted entries were already left out when the list was read.
+ * IT NAMES NO FIELD OF THE COMPANY'S. The reply is read in ONE place,
+ * productList: each part here shows the properties it knows, then the
+ * company's own fields (`others`) - so a field added tomorrow appears here
+ * by itself. Ids, GUIDs and flags are kept off screen there too. A company
+ * field with no value is left out; a known field with none is "--". A
+ * YYYY-MM-DD date reads the project's way (DD-MM-YYYY).
  *
  * Opened only by a user with Inventory Management - the eye that opens it
  * is not drawn for anyone else (see ProductTable).
@@ -36,6 +40,7 @@
  * Props:
  *   open, onOpenChange   controlled by the product table, the same as Modal
  *   product              the product, as readProducts gives it - or null
+ *   description          optional - a line under the title (which SKU)
  */
 
 import { useState } from 'react'
@@ -45,11 +50,18 @@ import { Modal } from '@/Components/Common/Modal'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/Components/ui/table'
 import { cn } from '@/Library/utils'
 import { formatDate } from '@/Utils/date'
-import { displayValue, fieldLabel, hasMaterialReferences, variantWarehouses } from '../productList'
+import { displayValue, fieldLabel, referencesOfCategory, variantWarehouses } from '../productList'
 
 /* ------------------------------------------------------------------ */
 /* Small pieces                                                       */
 /* ------------------------------------------------------------------ */
+
+/** A value as shown: a YYYY-MM-DD date the project's way, anything else as displayValue reads it. */
+const readable = (value) =>
+  typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value.trim()) ? formatDate(value.trim()) : displayValue(value)
+
+/** Whether a value has anything to show - 0 and No do; '', null, [] and {} do not. */
+const isFilled = (value) => displayValue(value) !== '--'
 
 /** A tab with nothing in it. */
 function Empty({ children }) {
@@ -60,28 +72,28 @@ function Empty({ children }) {
   )
 }
 
-/** What a SKU is called in a heading: its code, or its place when it has none. */
-const variantTitle = (variant, index, count) =>
-  variant.skuCode || (count > 1 ? `SKU ${index + 1}` : 'Product')
-
-/** A heading over one SKU's part of a tab - only worth drawing when there are several. */
+/** A heading over one SKU's part of a tab - only worth drawing when there are several, or it has a code. */
 function VariantHeading({ variant, index, count }) {
   if (count <= 1 && !variant.skuCode) return null
 
-  return <h4 className="text-xs font-semibold text-brand">{variantTitle(variant, index, count)}</h4>
+  return <h4 className="text-xs font-semibold text-brand">{variant.skuCode || `SKU ${index + 1}`}</h4>
 }
 
-/** `others` as detail rows - the fields nobody listed, shown all the same. */
-const otherItems = (others) =>
-  others.map(({ key, label, value }) => (
-    <DetailItem key={key} label={label}>
-      {displayValue(value)}
-    </DetailItem>
-  ))
+/** The company's own fields as detail rows - those with a value, less any in `skip`. */
+const otherItems = (others, skip = []) =>
+  others
+    .filter(({ key, value }) => isFilled(value) && !skip.includes(key))
+    .map(({ key, label, value }) => (
+      <DetailItem key={key} label={label}>
+        {readable(value)}
+      </DetailItem>
+    ))
 
 /**
  * A plain table for a tab: `columns` is [{ key, label }], `rows` a list of
- * objects read by those keys. Cells wrap, so a long value is read in full.
+ * objects read by those keys. A key a row does not have is a blank cell (a
+ * line under another that already said it); one it has with no value, "--".
+ * Cells wrap, so a long value is read in full.
  */
 function SimpleTable({ columns, rows }) {
   return (
@@ -100,7 +112,7 @@ function SimpleTable({ columns, rows }) {
           <TableRow key={index} className="hover:bg-transparent">
             {columns.map(({ key }) => (
               <TableCell key={key} wrap className="py-2 text-sm">
-                {displayValue(row[key])}
+                {key in row ? readable(row[key]) : ''}
               </TableCell>
             ))}
           </TableRow>
@@ -110,20 +122,25 @@ function SimpleTable({ columns, rows }) {
   )
 }
 
+/** Ids are the backend's, not the user's - never a column. */
+const HIDDEN_COLUMNS = ['id', 'product_id']
+
 /**
  * The columns of some objects nobody has described: every property any of
- * them has, the ones in `first` leading in that order.
+ * them has but an id, the ones in `first` leading in that order.
  */
 const columnsOf = (entries, first = []) => {
-  const keys = [...new Set(entries.flatMap((entry) => Object.keys(entry)))]
+  const keys = [...new Set(entries.flatMap((entry) => Object.keys(entry)))].filter((key) => !HIDDEN_COLUMNS.includes(key))
   const ordered = [...first.filter((key) => keys.includes(key)), ...keys.filter((key) => !first.includes(key))]
 
   return ordered.map((key) => ({ key, label: fieldLabel(key) }))
 }
 
-/** Only the objects of a list - a reference written as a bare value becomes { value }. */
+/** Only the objects of a list - an entry written as a bare value becomes { value }. */
 const asObjects = (entries) =>
   entries.map((entry) => (entry !== null && typeof entry === 'object' && !Array.isArray(entry) ? entry : { value: entry }))
+
+const countOf = (product, read) => product.variants.reduce((total, variant) => total + read(variant).length, 0)
 
 /* ------------------------------------------------------------------ */
 /* The tabs                                                           */
@@ -134,13 +151,12 @@ function GeneralTab({ product }) {
     <DetailList>
       <DetailItem label="Product Name">{product.name}</DetailItem>
       <DetailItem label="Group">{product.group}</DetailItem>
-      <DetailItem label="HSN Code">{product.hsn}</DetailItem>
       <DetailItem label="Category">{product.category}</DetailItem>
+      <DetailItem label="HSN Code">{product.hsn}</DetailItem>
       <DetailItem label="Per Unit">{product.unit}</DetailItem>
       <DetailItem label="GST Rate">{product.gstRate}</DetailItem>
       <DetailItem label="Total Quantity">{displayValue(product.quantity)}</DetailItem>
       <DetailItem label="Total Amount">{displayValue(product.totalAmount)}</DetailItem>
-      <DetailItem label="Selling Price">{product.sellingPrice}</DetailItem>
       {otherItems(product.others)}
     </DetailList>
   )
@@ -151,63 +167,99 @@ function VariantsTab({ product }) {
 
   return (
     <div className="space-y-4">
-      {product.variants.map((variant, index) => (
-        <section key={index} className="space-y-2">
-          <VariantHeading variant={variant} index={index} count={product.variants.length} />
-
-          <DetailList>
-            <DetailItem label="SKU Code">{variant.skuCode}</DetailItem>
-            {/* What this SKU is made of - the company's own SKU fields. */}
-            {variant.skuDetails.map(([name, value]) => (
-              <DetailItem key={name} label={name}>
-                {displayValue(value)}
-              </DetailItem>
-            ))}
-            <DetailItem label="SKU Quantity">{displayValue(variant.totalQty)}</DetailItem>
-            <DetailItem label="SKU Amount">{displayValue(variant.totalAmount)}</DetailItem>
-            <DetailItem label="Selling Price">{displayValue(variant.sellingPrice)}</DetailItem>
-            {otherItems(variant.others)}
-          </DetailList>
-
-          {/* Its entries: a rate, a quantity, its dates - and whatever
-              other fields the entry was saved with. */}
-          {variant.details.map((detail, detailIndex) => (
-            <DetailList key={detailIndex}>
-              <DetailItem label="Unit Rate">{displayValue(detail.unitRate)}</DetailItem>
-              <DetailItem label="Product Quantity">{displayValue(detail.quantity)}</DetailItem>
-              <DetailItem label="Expiry Date">{formatDate(detail.expiryDate)}</DetailItem>
-              {otherItems(detail.others)}
-            </DetailList>
-          ))}
-        </section>
-      ))}
-    </div>
-  )
-}
-
-const WAREHOUSE_COLUMNS = [
-  { key: 'name', label: 'Warehouse Name' },
-  { key: 'id', label: 'Warehouse ID' },
-  { key: 'quantity', label: 'Quantity' },
-  { key: 'level', label: 'Level' },
-  { key: 'shelf', label: 'Shelf' },
-  { key: 'rackNo', label: 'Rack No.' },
-]
-
-function WarehouseTab({ product }) {
-  const stocked = product.variants.filter((variant) => variantWarehouses(variant).length > 0)
-  if (stocked.length === 0) return <Empty>No warehouse allocation for this product.</Empty>
-
-  return (
-    <div className="space-y-4">
       {product.variants.map((variant, index) => {
-        const warehouses = variantWarehouses(variant)
-        if (warehouses.length === 0) return null
+        // Its sku_details first; a field of the same name on the SKU is not repeated.
+        const detailNames = variant.skuDetails.map(([name]) => name)
 
         return (
           <section key={index} className="space-y-2">
             <VariantHeading variant={variant} index={index} count={product.variants.length} />
-            <SimpleTable columns={WAREHOUSE_COLUMNS} rows={warehouses} />
+
+            <DetailList>
+              <DetailItem label="SKU Code">{variant.skuCode}</DetailItem>
+              <DetailItem label="SKU Quantity">{displayValue(variant.totalQty)}</DetailItem>
+              <DetailItem label="SKU Amount">{displayValue(variant.totalAmount)}</DetailItem>
+              <DetailItem label="Selling Rate">{displayValue(variant.sellingPrice)}</DetailItem>
+              {variant.skuDetails
+                .filter(([, value]) => isFilled(value))
+                .map(([name, value]) => (
+                  <DetailItem key={`sku-${name}`} label={name}>
+                    {readable(value)}
+                  </DetailItem>
+                ))}
+              {otherItems(variant.others, detailNames)}
+            </DetailList>
+          </section>
+        )
+      })}
+    </div>
+  )
+}
+
+const STOCK_COLUMNS = [
+  { key: 'srNo', label: 'Sr No.' },
+  { key: 'warehouse', label: 'Warehouse' },
+  { key: 'warehouseQty', label: 'Wh. Qty' },
+  { key: 'unitRate', label: 'Unit Rate' },
+  { key: 'level', label: 'Level' },
+  { key: 'shelf', label: 'Shelf' },
+  { key: 'rackNo', label: 'Rack No.' },
+  { key: 'expiryDate', label: 'Expiry Date' },
+  { key: 'createdAt', label: 'Created At' },
+]
+
+/** The company's own fields with a value, as cells keyed by their label. */
+const otherCells = (others) =>
+  Object.fromEntries(others.filter(({ value }) => isFilled(value)).map(({ label, value }) => [label, value]))
+
+/**
+ * A SKU's stock as table rows: one per warehouse of each entry (an entry
+ * with none still gets one). The entry's own cells are on its first line
+ * only, so two warehouses of one entry read as one entry in two places.
+ */
+const stockRows = (variant) =>
+  variant.details.flatMap((detail) => {
+    const entry = {
+      srNo: detail.srNo,
+      // quantity: detail.quantity,
+      unitRate: detail.unitRate,
+      expiryDate: detail.expiryDate,
+      createdAt: detail.createdAt,
+      ...otherCells(detail.others),
+    }
+
+    return (detail.warehouses.length > 0 ? detail.warehouses : [null]).map((warehouse, index) => ({
+      ...(index === 0 ? entry : {}),
+      ...(warehouse
+        ? {
+            warehouse: warehouse.label,
+            warehouseQty: warehouse.quantity,
+            level: warehouse.level,
+            shelf: warehouse.shelf,
+            rackNo: warehouse.rackNo,
+            ...otherCells(warehouse.others),
+          }
+        : { warehouse: 'No warehouse allocation' }),
+    }))
+  })
+
+function WarehouseTab({ product }) {
+  if (countOf(product, (variant) => variant.details) === 0) return <Empty>No stock entries for this product.</Empty>
+
+  return (
+    <div className="space-y-4">
+      {product.variants.map((variant, index) => {
+        const rows = stockRows(variant)
+        if (rows.length === 0) return null
+
+        // The fixed columns, then any field of the company's own a row has.
+        const known = STOCK_COLUMNS.map(({ key }) => key)
+        const extra = [...new Set(rows.flatMap((row) => Object.keys(row)))].filter((key) => !known.includes(key))
+
+        return (
+          <section key={index} className="space-y-2">
+            <VariantHeading variant={variant} index={index} count={product.variants.length} />
+            <SimpleTable columns={[...STOCK_COLUMNS, ...extra.map((key) => ({ key, label: key }))]} rows={rows} />
           </section>
         )
       })}
@@ -220,9 +272,8 @@ function WarehouseTab({ product }) {
  * as one table per SKU that has any. The columns are the entries' own
  * properties; `first` only says which ones lead.
  */
-function ReferenceTab({ product, read, first, empty }) {
-  const count = product.variants.reduce((total, variant) => total + read(variant).length, 0)
-  if (count === 0) return <Empty>{empty}</Empty>
+function ListTab({ product, read, first, empty }) {
+  if (countOf(product, read) === 0) return <Empty>{empty}</Empty>
 
   return (
     <div className="space-y-4">
@@ -242,21 +293,9 @@ function ReferenceTab({ product, read, first, empty }) {
 }
 
 /** The properties that lead a reference's columns, when it has them. */
-const REFERENCE_FIRST = [
-  'Product Name',
-  'product_name',
-  'id',
-  'product_id',
-  'sku_code',
-  'qty',
-  'quantity',
-  'wastage',
-  'sku_details',
-]
+const REFERENCE_FIRST = ['Product Name', 'product_name', 'sku_code', 'sku_details', 'qty', 'quantity', 'wastage']
 
-const countOf = (product, read) => product.variants.reduce((total, variant) => total + read(variant).length, 0)
-
-/** The two kinds of reference a Finished product has - one section of the tab each. */
+/** The two kinds of reference - one section of the tab each, when the category has it. */
 const REFERENCE_SECTIONS = [
   {
     key: 'raw',
@@ -265,39 +304,88 @@ const REFERENCE_SECTIONS = [
     empty: 'No raw references for this product.',
   },
   {
-    key: 'semi',
+    key: 'semiFinished',
     title: 'Semi-Finished References',
     read: (variant) => variant.semiFinishedReferences,
     empty: 'No semi-finished references for this product.',
   },
 ]
 
-/**
- * Materials & References: the raw and the semi-finished references, one
- * section under the other - for a Finished product only (see the note at
- * the top). Each section is the same per-SKU table the Vendor tab draws.
- */
+/** The sections a product's category has (see the note at the top). */
+const sectionsOf = (product) => {
+  const allowed = referencesOfCategory(product.category)
+  return REFERENCE_SECTIONS.filter(({ key }) => allowed[key])
+}
+
+function SectionTitle({ children, count }) {
+  return (
+    <h3 className="text-sm font-semibold text-foreground">
+      {children} <span className="font-normal text-muted-foreground">({count})</span>
+    </h3>
+  )
+}
+
+/** Each SKU's past versions: the references as they were, one table per kind the category has. */
+function VersionHistory({ product, sections }) {
+  if (countOf(product, (variant) => variant.pastVersions) === 0) return <Empty>No past versions for this product.</Empty>
+
+  return (
+    <div className="space-y-4">
+      {product.variants.map((variant, index) =>
+        variant.pastVersions.map((version) => (
+          <section key={`${index}-${version.key}`} className="space-y-2 rounded-md border border-border p-3">
+            <h4 className="text-xs font-semibold text-brand">
+              {product.variants.length > 1 ? `${variant.skuCode || `SKU ${index + 1}`} - ` : ''}
+              {version.label}
+            </h4>
+            {sections.map(({ key, title }) => {
+              const entries = asObjects(version[key])
+
+              return (
+                <div key={key} className="space-y-1">
+                  <p className="text-xs text-muted-foreground">{title}</p>
+                  {entries.length > 0 ? (
+                    <SimpleTable columns={columnsOf(entries, REFERENCE_FIRST)} rows={entries} />
+                  ) : (
+                    <p className="text-xs text-muted-foreground">None</p>
+                  )}
+                </div>
+              )
+            })}
+          </section>
+        )),
+      )}
+    </div>
+  )
+}
+
+/** Materials & References: the sections the category has, then the version history. */
 function MaterialsTab({ product }) {
-  if (!hasMaterialReferences(product)) {
+  const sections = sectionsOf(product)
+
+  if (sections.length === 0) {
     return (
       <Empty>
         {product.category
-          ? `Raw and semi-finished references apply to Finished products only. This product is ${product.category}.`
-          : 'Raw and semi-finished references apply to Finished products only.'}
+          ? `Raw and semi-finished references apply to Finished and Semi-Finished products only. This product is ${product.category}.`
+          : 'Raw and semi-finished references apply to Finished and Semi-Finished products only.'}
       </Empty>
     )
   }
 
   return (
     <div className="space-y-5">
-      {REFERENCE_SECTIONS.map(({ key, title, read, empty }) => (
+      {sections.map(({ key, title, read, empty }) => (
         <section key={key} className="space-y-2">
-          <h3 className="text-sm font-semibold text-foreground">
-            {title} <span className="font-normal text-muted-foreground">({countOf(product, read)})</span>
-          </h3>
-          <ReferenceTab product={product} read={read} first={REFERENCE_FIRST} empty={empty} />
+          <SectionTitle count={countOf(product, read)}>{title}</SectionTitle>
+          <ListTab product={product} read={read} first={REFERENCE_FIRST} empty={empty} />
         </section>
       ))}
+
+      <section className="space-y-2">
+        <SectionTitle count={countOf(product, (variant) => variant.pastVersions)}>Version History</SectionTitle>
+        <VersionHistory product={product} sections={sections} />
+      </section>
     </div>
   )
 }
@@ -321,12 +409,7 @@ const TABS = [
     label: 'Vendor',
     count: (product) => countOf(product, (variant) => variant.vendors),
     render: (product) => (
-      <ReferenceTab
-        product={product}
-        read={(variant) => variant.vendors}
-        first={['id', 'name']}
-        empty="No vendor for this product."
-      />
+      <ListTab product={product} read={(variant) => variant.vendors} first={['name']} empty="No vendor for this product." />
     ),
   },
   {
@@ -334,10 +417,10 @@ const TABS = [
     label: 'Materials & References',
     // Counted only where the sections are shown - a product of another
     // category has nothing here to count.
-    count: (product) =>
-      hasMaterialReferences(product)
-        ? REFERENCE_SECTIONS.reduce((total, { read }) => total + countOf(product, read), 0)
-        : undefined,
+    count: (product) => {
+      const sections = sectionsOf(product)
+      return sections.length > 0 ? sections.reduce((total, { read }) => total + countOf(product, read), 0) : undefined
+    },
     render: (product) => <MaterialsTab product={product} />,
   },
 ]
@@ -346,7 +429,7 @@ const TABS = [
 /* The dialog                                                         */
 /* ------------------------------------------------------------------ */
 
-export default function ProductDetailsModal({ open, onOpenChange, product }) {
+export default function ProductDetailsModal({ open, onOpenChange, product, description }) {
   const [tabKey, setTabKey] = useState(TABS[0].key)
 
   // Kept mounted through the closing animation, with nothing to draw.
@@ -359,6 +442,7 @@ export default function ProductDetailsModal({ open, onOpenChange, product }) {
       open={open}
       onOpenChange={onOpenChange}
       title={product.name || 'Product Details'}
+      description={description}
       size="xl"
       // Nothing to type in; focus the box itself rather than a tab.
       autoFocus={false}

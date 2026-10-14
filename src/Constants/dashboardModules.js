@@ -37,6 +37,7 @@ import {
 } from 'lucide-react'
 
 import { ROUTES } from '@/Constants/routes'
+import { ACCESS_SECTIONS } from '@/Services/accessService'
 
 /* ------------------------------------------------------------------ */
 /* 1. The pages in the top navigation                                 */
@@ -52,6 +53,10 @@ import { ROUTES } from '@/Constants/routes'
  *          to true on the day the page is built - nothing else changes.
  *   hideWhenActive  optional. true = the link is left out of the navigation
  *          while that page is the one open.
+ *   access optional. The section (ACCESS_SECTIONS) a sub user must be able
+ *          to view for the link to open: without it the link is shown
+ *          disabled (see useModuleNav), and the page itself says what is not
+ *          allowed (SectionAccessGate).
  *
  * The order here IS the order in the bar (drawn through Hooks/useModuleNav),
  * and Modules & Features comes first because it is the page the other four
@@ -81,6 +86,7 @@ export const MODULE_NAV = [
     icon: Banknote,
     path: ROUTES.BANK_DETAILS,
     ready: true,
+    access: ACCESS_SECTIONS.BANK,
   },
   {
     key: 'ledger',
@@ -88,6 +94,7 @@ export const MODULE_NAV = [
     icon: BookOpen,
     path: ROUTES.LEDGER_DETAILS,
     ready: true,
+    access: ACCESS_SECTIONS.LEDGER,
   },
   {
     key: 'inventory',

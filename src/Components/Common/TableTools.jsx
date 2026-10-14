@@ -1,4 +1,4 @@
-import { useId, useState } from 'react'
+import { Fragment, useId, useState } from 'react'
 import { ChevronDown, ChevronUp, ChevronsUpDown, Search, SlidersHorizontal, X } from 'lucide-react'
 
 import { Field, fieldLabelClass } from '@/Components/Common/FormFields'
@@ -236,9 +236,10 @@ export function DateRangeFilter({ label, from = '', to = '', onChange }) {
  * One filter dropdown: "any", then every value the rows hold for that field
  * (see `filterOptions` in useListView).
  *
- * `view.filterHints` is optional: { [field]: { [option]: text } }. An option
- * that has one shows it on hover - for a choice whose own text is a code
- * that says little by itself (a SKU code, and what the SKU is made of).
+ * `view.renderFilterOption(field, option, item)` is optional: it is handed
+ * each option's <SelectItem> and returns what to draw in its place - the
+ * item wrapped in a tooltip, say, for a choice whose own text is a code that
+ * says little by itself (a SKU code, and the SKU's details).
  */
 function FilterSelect({ view, field, label, anyLabel, className }) {
   return (
@@ -266,11 +267,10 @@ function FilterSelect({ view, field, label, anyLabel, className }) {
           a long option wraps instead of running off it. */}
       <SelectContent className="max-w-[min(24rem,calc(100vw-2rem))]">
         <SelectItem value={ANY}>{anyLabel}</SelectItem>
-        {(view.filterOptions[field] ?? []).map((option) => (
-          <SelectItem key={option} value={option} title={view.filterHints?.[field]?.[option]}>
-            {option}
-          </SelectItem>
-        ))}
+        {(view.filterOptions[field] ?? []).map((option) => {
+          const item = <SelectItem value={option}>{option}</SelectItem>
+          return <Fragment key={option}>{view.renderFilterOption ? view.renderFilterOption(field, option, item) : item}</Fragment>
+        })}
       </SelectContent>
     </Select>
   )

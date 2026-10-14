@@ -81,6 +81,14 @@ const pick = (object, names) => {
   return undefined
 }
 
+/**
+ * The first of some properties that holds a value - one the reply may send
+ * under either of two names (`selling_rate` / `selling_price`). Unlike
+ * pick, an empty text does not count, so `expiry_date: ""` gives way to
+ * `Expiry Date: "2030-10-15"`. A 0 does count.
+ */
+const firstFilled = (object, names) => pick(object, names.filter((name) => textOf(object?.[name]) !== ''))
+
 /* ------------------------------------------------------------------ */
 /* How a property and its value read                                  */
 /* ------------------------------------------------------------------ */
@@ -130,6 +138,16 @@ export const displayValue = (value) => {
 }
 
 /**
+ * A SKU's `sku_details` as the SKU tooltip shows them (SkuDetailsTooltip):
+ * [{ name, value }], the value as text, a detail with no value left out.
+ * Only `sku_details` - a variant as readVariant gives it.
+ */
+export const skuDetailPairs = (variant) =>
+  (variant?.skuDetails ?? [])
+    .map(([name, value]) => ({ name, value: displayValue(value) }))
+    .filter(({ value }) => value !== '--')
+
+/**
  * Whatever else an object carries: `[{ key, label, value }]` for every
  * property not in `known`. This is what keeps a field nobody listed from
  * being lost - a screen shows the properties it knows, then these.
@@ -145,14 +163,23 @@ export const otherFields = (object, known = []) =>
 /* Reading a product                                                  */
 /* ------------------------------------------------------------------ */
 
-/** The properties each reader below shows itself - everything else is "other". */
+/**
+ * The properties each reader below shows itself, or keeps off screen (ids,
+ * GUIDs, flags, files) - everything else is "other": a field of the
+ * company's own, shown as it came.
+ */
 const WAREHOUSE_KEYS = ['id', 'warehouse_id', 'name', 'warehouse_name', 'warehouse_quantity', 'level', 'shelf', 'rack_no']
 const DETAIL_KEYS = [
   'Unit Rate',
   'product_quantity',
+  'Quantity',
   'expiry_date',
+  'Expiry Date',
+  'created_at',
+  'sr_no',
   'warehouse',
   'deleted',
+  'past_version',
   // Read into the SKU when the SKU itself does not carry them - see readVariant.
   'sku_details',
   'raw_reference',
@@ -165,12 +192,17 @@ const VARIANT_KEYS = [
   'sku_details',
   'total_qty',
   'total_amount',
+  'selling_rate',
   'selling_price',
   'product_details',
   'vendor',
   'raw_reference',
   'semi_finished_reference',
+  'past_version',
   'deleted',
+  'stockitem_guid',
+  'expiry_product_id',
+  'photo',
 ]
 const PRODUCT_KEYS = [
   'product_name',
@@ -211,13 +243,19 @@ const readWarehouse = (warehouse, names) => {
   }
 }
 
-/** One `product_details` entry: a rate, a quantity, an expiry date, and where the stock is. */
+/**
+ * One `product_details` entry: a rate, a quantity, an expiry date, when it
+ * was added, and where the stock is. The reply may send the quantity and
+ * the expiry date under either of two names - each is read once.
+ */
 const readDetail = (detail, names) => ({
   source: detail,
+  srNo: detail.sr_no ?? null,
   unitRate: detail['Unit Rate'],
-  quantity: detail.product_quantity,
+  quantity: firstFilled(detail, ['product_quantity', 'Quantity']),
   // '' and null both mean "no expiry date".
-  expiryDate: textOf(detail.expiry_date) || null,
+  expiryDate: textOf(firstFilled(detail, ['expiry_date', 'Expiry Date'])) || null,
+  createdAt: textOf(detail.created_at),
   warehouses: listOf(detail.warehouse).filter(isPlainObject).map((warehouse) => readWarehouse(warehouse, names)),
   others: otherFields(detail, DETAIL_KEYS),
 })
@@ -254,11 +292,24 @@ const readVariant = (variant, names) => {
     skuDetails: Object.entries(skuDetails),
     totalQty: variant.total_qty,
     totalAmount: variant.total_amount,
-    sellingPrice: variant.selling_price,
+    sellingPrice: firstFilled(variant, ['selling_rate', 'selling_price']),
     details: entries.map((detail) => readDetail(detail, names)),
     vendors: listOf(variant.vendor),
     rawReferences: ownOrEntries('raw_reference'),
     semiFinishedReferences: ownOrEntries('semi_finished_reference', 'semi_finished'),
+    // Its earlier references - { version1: { raw_reference, semi_finished_reference } }.
+    pastVersions: Object.entries(
+      filledObject(variant.past_version) ?? entries.map((detail) => filledObject(detail.past_version)).find(Boolean) ?? {},
+    )
+      .filter(([, version]) => isPlainObject(version))
+      .map(([key, version]) => ({
+        key,
+        label: key.replace(/^version_?(\d+)$/i, 'Version $1'),
+        raw: listOf(version.raw_reference),
+        semiFinished: listOf(version.semi_finished_reference),
+      })),
+    // The SKU's own fields beside its sku_details (Width, Manufacturing
+    // Date...) - whatever the company has, none of them named here.
     others: otherFields(variant, VARIANT_KEYS),
   }
 }
@@ -481,11 +532,14 @@ const FIXED_KEYS = {
 /** Whether a field, by its name, is an expiry date ("Expiry Date", expiry_date). */
 export const isExpiryDateField = (fieldName) => looseKey(fieldName) === 'expirydate'
 
+/** Whether a form field is the product's HSN code ("HSN Code", "HSN", hsn_code) - offered from the HSN list. */
+export const isHsnField = (fieldName) => ['hsn', 'hsncode'].includes(looseKey(fieldName))
+
 /** Whether a form field is the product's category - what decides its references. */
 export const isCategoryField = (fieldName) => looseKey(fieldName) === 'category'
 
 /** Whether a form field is the product's name - what an edit may not change. */
-export const isProductNameField = (fieldName) => ['productname', 'itemname'].includes(looseKey(fieldName))
+export const isProductNameField = (fieldName) => ['productname', 'itemname', 'category','hsncode','group', 'perunit'].includes(looseKey(fieldName))
 
 const isScalar = (value) => ['string', 'number', 'boolean'].includes(typeof value)
 
@@ -611,9 +665,9 @@ export const filterProducts = (products, filters) => {
  *             Code and Warehouse (when any product has one), then one per
  *             SKU attribute found
  *   options   { [field]: [value] }    the choices of each, sorted
- *   hints     { [field]: { [value]: text } }   for SKU Code: what that SKU
- *             is made of, one "name: value" a line - shown when the option
- *             is hovered
+ *   hints     { [field]: { [value]: [{ name, value }] } }   for SKU Code:
+ *             that SKU's sku_details (skuDetailPairs) - shown in the SKU
+ *             tooltip when the option is hovered
  *   attributeFields   the fields that are SKU attributes - the ones a page
  *             tucks behind "More Filters"
  *   hasExpiry  some SKU has an expiry date - the expiry range is worth
@@ -631,14 +685,13 @@ export const productFilterOptions = (products) => {
   if (skuCodes.length > 0) {
     fields[PRODUCT_FILTER.SKU_CODE] = 'SKU Code'
     options[PRODUCT_FILTER.SKU_CODE] = skuCodes
-    hints[PRODUCT_FILTER.SKU_CODE] = Object.fromEntries(
-      variants
-        .filter((variant) => variant.skuCode && variant.skuDetails.length > 0)
-        .map((variant) => [
-          variant.skuCode,
-          variant.skuDetails.map(([name, value]) => `${name}: ${displayValue(value)}`).join('\n'),
-        ]),
-    )
+    // Every code, with its SKU's details - a code two SKUs share takes the
+    // first one's that has any.
+    const byCode = {}
+    variants.forEach((variant) => {
+      if (variant.skuCode && !byCode[variant.skuCode]?.length) byCode[variant.skuCode] = skuDetailPairs(variant)
+    })
+    hints[PRODUCT_FILTER.SKU_CODE] = byCode
   }
 
   const warehouses = sorted(variants.flatMap((variant) => variantWarehouses(variant).map((warehouse) => warehouse.label)))

@@ -54,7 +54,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useSelector } from 'react-redux'
-import { AlertCircle, CopyPlus, Package, Plus, RefreshCw } from 'lucide-react'
+import { AlertCircle, CopyPlus, Lock, Package, Plus, RefreshCw } from 'lucide-react'
 
 import { ActionDropdown } from '@/Components/Common/ActionDropdown'
 import { InlineAlert, ListSkeleton, RetryButton, StateMessage } from '@/Components/Common/DataList'
@@ -65,9 +65,11 @@ import { useActiveCompany } from '@/Hooks/useActiveCompany'
 import useCustomFields from '@/Hooks/useCustomFields'
 import useMasterDetails from '@/Hooks/useMasterDetails'
 import useProducts from '@/Hooks/useProducts'
+import useSectionAccess from '@/Hooks/useSectionAccess'
 import useVendorOptions from '@/Hooks/useVendorOptions'
 import useWarehouseOptions from '@/Hooks/useWarehouseOptions'
 import { cn } from '@/Library/utils'
+import { ACCESS_SECTIONS } from '@/Services/accessService'
 import { hasSingleWarehouseLimit, isSkuManagementEnabled } from '@/Services/inventoryService'
 import { isProductCategory, PRODUCT_CATEGORY, productEditSource } from '../productList'
 import { selectCompanyStatus } from '@/Store/Slices/companySlice'
@@ -85,6 +87,9 @@ import ProductTable from './ProductTable'
 export default function Products() {
   const { activeCompany, activeCompanyId: companyId, activeCompanyName: companyName } = useActiveCompany()
   const companyStatus = useSelector(selectCompanyStatus)
+  // A sub user's Product Details permissions: the list with View, Add with
+  // Create, Edit with Edit. Anybody else has all three.
+  const access = useSectionAccess(ACCESS_SECTIONS.PRODUCT)
 
   const customFields = useCustomFields()
   const masterDetails = useMasterDetails()
@@ -174,8 +179,9 @@ export default function Products() {
 
   /* Add Product, as a menu of two: the form empty, as ever, or started
      from a product the company already has (see ProductFormModal). The
-     second needs a product to start from. */
-  const addButton = (
+     second needs a product to start from - and shows the products, so it is
+     only for a user who may view them. No button without Create. */
+  const addButton = access.create ? (
     <ActionDropdown
       label="Add Product"
       icon={Plus}
@@ -183,11 +189,20 @@ export default function Products() {
       disabled={!ready}
       options={[
         { label: 'Add Product', value: 'new', icon: Plus },
-        { label: 'Add Existing Product', value: 'existing', icon: CopyPlus, disabled: products.rows.length === 0 },
+        ...(access.view
+          ? [
+              {
+                label: 'Add Existing Product',
+                value: 'existing',
+                icon: CopyPlus,
+                disabled: products.rows.length === 0,
+              },
+            ]
+          : []),
       ]}
       onSelect={(value) => openDialog(value === 'existing')}
     />
-  )
+  ) : null
 
   /* ---------------- What fills the card ---------------- */
   const renderBody = () => {
@@ -201,16 +216,27 @@ export default function Products() {
       )
     }
 
+    // A sub user without View: no list, and no "add your first" - only the
+    // Add Product button above, if they may add.
+    if (!access.view) {
+      return (
+        <StateMessage icon={Lock} title="You cannot view products">
+          Your account has not been given View for Product Details in this company.
+        </StateMessage>
+      )
+    }
+
     // The company has products: the list. Whether another can be ADDED is
     // the Add Product button's business, above - a product list does not
     // wait for the form's fields.
-    // Edit waits for the form's fields, like Add Product.
+    // Edit waits for the form's fields, like Add Product - and is only for
+    // a user who may edit.
     if (products.rows.length > 0) {
       return (
         <ProductTable
           rows={products.rows}
           warehouseNames={warehouseNames}
-          onEditSku={ready ? openEdit : undefined}
+          onEditSku={ready && access.edit ? openEdit : undefined}
         />
       )
     }
@@ -282,26 +308,28 @@ export default function Products() {
     <>
       <Panel
         title="Products"
-        meta={products.rows.length > 0 ? `(Total Count: ${products.rows.length})` : undefined}
+        meta={access.view && products.rows.length > 0 ? `(Total Count: ${products.rows.length})` : undefined}
         actions={
           <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              size="sm"
-              onClick={products.reload}
-              disabled={!companyId || loadingProducts}
-              aria-label="Refresh products"
-            >
-              <RefreshCw className={cn(loadingProducts && companyId && 'animate-spin')} />
-              Refresh
-            </Button>
+            {access.view ? (
+              <Button
+                type="button"
+                size="sm"
+                onClick={products.reload}
+                disabled={!companyId || loadingProducts}
+                aria-label="Refresh products"
+              >
+                <RefreshCw className={cn(loadingProducts && companyId && 'animate-spin')} />
+                Refresh
+              </Button>
+            ) : null}
             {addButton}
           </div>
         }
       >
         {/* The products could not be read. Adding one does not depend on
             that, so the rest of the card carries on underneath. */}
-        {products.status === 'failed' ? (
+        {access.view && products.status === 'failed' ? (
           <InlineAlert action={<RetryButton onClick={products.reload} />}>
             Products could not be loaded. {products.error}
           </InlineAlert>

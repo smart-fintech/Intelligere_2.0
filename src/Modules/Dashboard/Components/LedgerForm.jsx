@@ -58,6 +58,7 @@ import {
   TextareaField,
 } from '@/Components/Common/FormFields'
 import { Panel } from '@/Components/Common/Panel'
+import { SacSelector } from '@/Components/Common/SacSelector'
 import { Button } from '@/Components/ui/button'
 import { GST_RATES, GST_REGISTRATION_TYPES } from '@/Constants/gst'
 import { useGstLookup } from '@/Hooks/useGstLookup'
@@ -643,12 +644,17 @@ export default function LedgerForm({
                 }))}
               />
 
-              <Field
+              {/* The SAC list, searched by the code's opening digits, with
+                  each code's service shown in a tooltip as it is highlighted
+                  - the same field as the Product form's HSN Code, on the same
+                  shared list behaviour. The value is still the code as text,
+                  so the payload is unchanged. */}
+              <SacSelector
                 id="ledger_sac"
                 label="SAC Code"
                 value={form.ledger_sac}
                 disabled={submitting}
-                onChange={(e) => setField('ledger_sac', e.target.value)}
+                onChange={(code) => setField('ledger_sac', code)}
               />
 
               {/* ---- Row 3: Address, full width ---- */}

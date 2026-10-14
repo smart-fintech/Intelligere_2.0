@@ -22,7 +22,7 @@
  * Nothing else about a company is written to the browser.
  */
 
-import { getEmail, setActiveCompanyId } from '@/Library/secureStorage'
+import { getEmail, getRole, setActiveCompanyId } from '@/Library/secureStorage'
 import { api } from '@/Services/authService'
 import { compareToToday, formatLongDate } from '@/Utils/date'
 
@@ -70,7 +70,7 @@ const toCompanyList = (response) => {
 
 
 /**
- * POST tally/user-companies-list/  with  { email }
+ * POST tally/user-companies-list/  with  { email, role }
  *
  * The full company records of the signed-in user: name, GST, address, which
  * modules they have paid for, and - the field that matters most here -
@@ -83,6 +83,10 @@ const toCompanyList = (response) => {
  * The email is not passed in by the caller: it is read from storage, where
  * it was saved at sign-in, so no screen ever has to know it. It is still
  * accepted as an argument for the admin case of looking at somebody else.
+ *
+ * `role` is the signed-in user's own ("MainUser", ...), also saved at
+ * sign-in. A session that has none stored - one begun before it was kept -
+ * sends the email alone, as before, rather than a made-up role.
  */
 const USER_COMPANIES_URL = 'tally/user-companies-list/'
 
@@ -91,7 +95,9 @@ export const getUserCompanies = async (email = getEmail()) => {
   // not worth sending - an empty list reads the same to every caller.
   if (!email) return []
 
-  return toCompanyList(await api.post(USER_COMPANIES_URL, { email }))
+  const role = getRole()
+
+  return toCompanyList(await api.post(USER_COMPANIES_URL, role ? { email, role } : { email }))
 }
 
 /**

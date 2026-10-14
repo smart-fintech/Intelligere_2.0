@@ -189,6 +189,7 @@ export const getProductUnits = async (companyName) => {
  *   choices    chosen from a list rather than typed - which list:
  *                'groups'  the company's product groups (getProductGroups)
  *                'units'   the units (getProductUnits)
+ *   hsn        chosen from the HSN list, or typed (HsnSelector)
  *   gstRate    chosen from the GST slabs (Constants/gst), with the tax it
  *              splits into shown under it
  */
@@ -200,7 +201,7 @@ export const BASIC_PRODUCT_FIELDS = Object.freeze({
   [BASIC_PRODUCT_ERP.TALLY]: [
     { key: 'product_name', label: 'Product Name', from: 'name', required: true },
     { key: 'group_name', label: 'Group Name', from: 'group', choices: BASIC_PRODUCT_CHOICES.GROUPS },
-    { key: 'hsn', label: 'HSN', from: 'hsn' },
+    { key: 'hsn', label: 'HSN', from: 'hsn', hsn: true },
     { key: 'quantity', label: 'Quantity', from: 'quantity', numeric: true },
     { key: 'unit', label: 'Unit', from: 'unit', choices: BASIC_PRODUCT_CHOICES.UNITS },
     { key: 'rate', label: 'Rate', from: 'rate', numeric: true },
@@ -209,7 +210,7 @@ export const BASIC_PRODUCT_FIELDS = Object.freeze({
   [BASIC_PRODUCT_ERP.INTELLIGERE]: [
     { key: 'product_name', label: 'Product Name', from: 'name', required: true },
     { key: 'group', label: 'Group', from: 'group', choices: BASIC_PRODUCT_CHOICES.GROUPS },
-    { key: 'hsn_code', label: 'HSN Code', from: 'hsn' },
+    { key: 'hsn_code', label: 'HSN Code', from: 'hsn', hsn: true },
     { key: 'per_unit', label: 'Per Unit', from: 'unit', choices: BASIC_PRODUCT_CHOICES.UNITS },
     { key: 'gst_rate', label: 'GST Rate', from: 'gstRate', gstRate: true },
     { key: 'category', label: 'Category', from: 'category' },

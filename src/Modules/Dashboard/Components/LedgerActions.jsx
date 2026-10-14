@@ -40,6 +40,14 @@
  * has. So opening a modal asks for them - through the SAME thunks that page
  * uses, whose `condition` turns the request into a no-op when the data is
  * already there. Opening this from the Ledger page therefore costs nothing.
+ *
+ * ------------------------------------------------------------------
+ * A SUB USER IS OFFERED WHAT THEY MAY CREATE
+ * ------------------------------------------------------------------
+ * Every option adds something, so each needs Create on its section in the
+ * company being worked in (useSectionAccess): the ledger group and the
+ * ledger, Ledger Details; the stock / product group, Product Details. With
+ * none left, the button is not shown. Anybody else is offered all of them.
  */
 
 import { useEffect, useRef, useState } from 'react'
@@ -56,6 +64,8 @@ import {
 } from '@/Store/Slices/companySlice'
 import { fetchBankOptions, selectBankNames } from '@/Store/Slices/bankSlice'
 import useInventoryAccess from '@/Hooks/useInventoryAccess'
+import useSectionAccess from '@/Hooks/useSectionAccess'
+import { ACCESS_SECTIONS } from '@/Services/accessService'
 import { selectIsTallyErp } from '@/Store/Slices/profileSlice'
 import { fetchLedgerGroups, fetchLedgers, selectLedgerGroups } from '@/Store/Slices/ledgerSlice'
 import LedgerForm from './LedgerForm'
@@ -87,9 +97,11 @@ export default function LedgerActions() {
   const bankNames = useSelector(selectBankNames)
   const isTally = useSelector(selectIsTallyErp)
   const inventory = useInventoryAccess()
+  const canCreateLedger = useSectionAccess(ACCESS_SECTIONS.LEDGER).create
+  const canCreateProduct = useSectionAccess(ACCESS_SECTIONS.PRODUCT).create
 
   // Tally always; Intelligere when its products are the simple ones.
-  const offersGroupCreation = isTally || (inventory.known && !inventory.full)
+  const offersGroupCreation = canCreateProduct && (isTally || (inventory.known && !inventory.full))
 
   // Which modal is open, or null. One at a time, by definition.
   const [openModal, setOpenModal] = useState(null)
@@ -117,10 +129,10 @@ export default function LedgerActions() {
   /* Tally can add a group; Intelligere's are fixed, so it is left out rather
      than shown greyed. "Add Ledger Creation" is offered to both. */
   const options = [
-    ...(isTally
+    ...(isTally && canCreateLedger
       ? [{ label: 'Add Ledger Group', value: ADD_LEDGER_GROUP, icon: FolderPlus }]
       : []),
-    { label: 'Add Ledger Creation', value: ADD_LEDGER, icon: UserPlus },
+    ...(canCreateLedger ? [{ label: 'Add Ledger Creation', value: ADD_LEDGER, icon: UserPlus }] : []),
     // See the note at the top for who gets it.
     ...(offersGroupCreation
       ? [
@@ -208,17 +220,20 @@ export default function LedgerActions() {
 
   return (
     <>
-      <ActionDropdown
-        label="Add"
-        icon={Plus}
-        size="sm"
-        options={options}
-        onSelect={handleSelect}
-        // Nothing can be added until the header is on a company - the same
-        // rule the list's Refresh and Sync Now follow. (No tooltip to explain
-        // it: a disabled button takes no pointer events, so none would show.)
-        disabled={!companyId}
-      />
+      {/* A sub user with nothing they may add is not shown the button. */}
+      {options.length > 0 ? (
+        <ActionDropdown
+          label="Add"
+          icon={Plus}
+          size="sm"
+          options={options}
+          onSelect={handleSelect}
+          // Nothing can be added until the header is on a company - the same
+          // rule the list's Refresh and Sync Now follow. (No tooltip to explain
+          // it: a disabled button takes no pointer events, so none would show.)
+          disabled={!companyId}
+        />
+      ) : null}
 
       {/* ---------------- Add Ledger Creation ----------------
           The page's own Ledger Form, in a modal. `key` gives it a fresh set

@@ -15,6 +15,11 @@
  * `enabled` is whether anything on screen needs them. While it is false
  * NOTHING is fetched and `status` is 'idle'.
  *
+ * A second argument names another company's `company_id`, for a screen that
+ * is about a company other than the active one (Create Sub User):
+ *
+ *   const warehouses = useWarehouseOptions(true, company.company_id)
+ *
  * The same list the Warehouse tab shows (getWarehouses), read with the same
  * `company_id` from the store. A warehouse that has arrived without an
  * identifier cannot be chosen, so it is left out.
@@ -27,8 +32,9 @@ import { getWarehouseId, getWarehouses } from '@/Services/inventoryService'
 
 const NO_WAREHOUSES = []
 
-export default function useWarehouseOptions(enabled) {
-  const { activeCompanyId: companyId } = useActiveCompany()
+export default function useWarehouseOptions(enabled, forCompanyId) {
+  const { activeCompanyId } = useActiveCompany()
+  const companyId = forCompanyId ?? activeCompanyId
 
   // Kept with the company it belongs to, as on the Warehouse tab: an answer
   // for a company the header has since left is not this company's.

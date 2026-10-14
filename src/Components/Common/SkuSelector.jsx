@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react'
 
 import { FieldError, FieldLabel } from '@/Components/Common/FormFields'
+import { SkuDetailsTooltip } from '@/Components/Common/SkuDetailsTooltip'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/Components/ui/select'
-import { Tooltip } from '@/Components/ui/tooltip'
 import { skuAttributes, skuCodeLabel } from '@/Utils/skuAttributes'
 
 /** A long list gets a search box; a short one does not need it. */
@@ -24,9 +24,9 @@ const SEARCHABLE_FROM = 8
  * read. Its `sku_details` - and nothing else of the SKU or its product - are
  * in a tooltip beside its option, on hover and on keyboard focus (the arrow
  * keys), read by skuAttributes (Utils/skuAttributes) with no field named
- * here, or "No SKU details available". The tooltip is the app's own
- * (Components/ui/tooltip), drawn on <body>, so neither the open list nor a
- * dialog can clip it.
+ * here, or "No SKU details available". The tooltip is the shared
+ * SkuDetailsTooltip (the app's own Tooltip, drawn on <body>), so neither
+ * the open list nor a dialog can clip it.
  *
  * It fetches nothing: the SKUs are handed in, from whatever the screen has
  * already read.
@@ -110,28 +110,9 @@ export function SkuSelector({
             onSearchChange={setSearch}
           >
             {visible.map((option) => (
-              <Tooltip
-                key={option.value}
-                side="right"
-                align="start"
-                className="max-w-sm text-left"
-                text={
-                  option.attributes.length > 0 ? (
-                    <dl className="space-y-0.5">
-                      {option.attributes.map(({ name, value: shown }) => (
-                        <div key={name} className="flex gap-1.5">
-                          <dt className="font-semibold">{name}:</dt>
-                          <dd className="break-words">{shown}</dd>
-                        </div>
-                      ))}
-                    </dl>
-                  ) : (
-                    'No SKU details available'
-                  )
-                }
-              >
+              <SkuDetailsTooltip key={option.value} details={option.attributes}>
                 <SelectItem value={option.value}>{option.label}</SelectItem>
-              </Tooltip>
+              </SkuDetailsTooltip>
             ))}
 
             {searchable && visible.length === 0 ? (

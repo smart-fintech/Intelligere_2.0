@@ -477,49 +477,49 @@ export default function ProductFormModal({
 
   const versioning = edit?.versioning
     ? {
-        key: newVersion?.key ?? null,
-        onStart: () => {
-          // Once per edit - a second click must not archive the new lists.
-          if (newVersion) return
+      key: newVersion?.key ?? null,
+      onStart: () => {
+        // Once per edit - a second click must not archive the new lists.
+        if (newVersion) return
 
-          // Both lists exactly as they would be sent now - the product's
-          // and the SKU entry's together (collectProductValues).
-          const collected = collectProductValues(steps, { values, skuSets, allocations })
-          const entry = collected.details[0]?.references
-          const archive = {
-            raw: [...collected.references.raw, ...(entry?.raw ?? [])],
-            semiFinished: [...collected.references.semiFinished, ...(entry?.semiFinished ?? [])],
-          }
+        // Both lists exactly as they would be sent now - the product's
+        // and the SKU entry's together (collectProductValues).
+        const collected = collectProductValues(steps, { values, skuSets, allocations })
+        const entry = collected.details[0]?.references
+        const archive = {
+          raw: [...collected.references.raw, ...(entry?.raw ?? [])],
+          semiFinished: [...collected.references.semiFinished, ...(entry?.semiFinished ?? [])],
+        }
 
-          setNewVersion({
-            key: nextPastVersionKey(edit.saved.pastVersion),
-            archive,
-            // What Undo puts back.
-            before: {
-              values: withReferences({}, productReferenceNames, values),
-              sku: withReferences({}, skuReferenceNames, heldSkuSets[0]?.values),
-            },
-          })
+        setNewVersion({
+          key: nextPastVersionKey(edit.saved.pastVersion),
+          archive,
+          // What Undo puts back.
+          before: {
+            values: withReferences({}, productReferenceNames, values),
+            sku: withReferences({}, skuReferenceNames, heldSkuSets[0]?.values),
+          },
+        })
 
-          // Both fields start empty for the new version.
-          setValues((previous) => withReferences(previous, productReferenceNames, {}))
-          setSkuSets((previous) =>
-            previous.map((set) => ({ ...set, values: withReferences(set.values, skuReferenceNames, {}) })),
-          )
-        },
-        onUndo: () => {
-          if (!newVersion) return
-          const { before } = newVersion
+        // Both fields start empty for the new version.
+        setValues((previous) => withReferences(previous, productReferenceNames, {}))
+        setSkuSets((previous) =>
+          previous.map((set) => ({ ...set, values: withReferences(set.values, skuReferenceNames, {}) })),
+        )
+      },
+      onUndo: () => {
+        if (!newVersion) return
+        const { before } = newVersion
 
-          setNewVersion(null)
-          setValues((previous) => withReferences(previous, productReferenceNames, before.values))
-          setSkuSets((previous) =>
-            previous.map((set, index) =>
-              index === 0 ? { ...set, values: withReferences(set.values, skuReferenceNames, before.sku) } : set,
-            ),
-          )
-        },
-      }
+        setNewVersion(null)
+        setValues((previous) => withReferences(previous, productReferenceNames, before.values))
+        setSkuSets((previous) =>
+          previous.map((set, index) =>
+            index === 0 ? { ...set, values: withReferences(set.values, skuReferenceNames, before.sku) } : set,
+          ),
+        )
+      },
+    }
     : null
 
   // The step the one Version button is on: the first that shows a
@@ -579,9 +579,9 @@ export default function ProductFormModal({
       // references the SKU was saved with, under the new key.
       const pastVersion = edit
         ? {
-            ...edit.saved.pastVersion,
-            ...(newVersion ? { [newVersion.key]: pastVersionOf(newVersion.archive) } : {}),
-          }
+          ...edit.saved.pastVersion,
+          ...(newVersion ? { [newVersion.key]: pastVersionOf(newVersion.archive) } : {}),
+        }
         : null
 
       const response = edit
@@ -697,7 +697,6 @@ export default function ProductFormModal({
         <div className="grid grid-cols-12 gap-x-3 gap-y-3">
           {group.fields.map((field) => {
             const name = productFieldName(field)
-
             return (
               <ProductFieldInput
                 key={name}
@@ -731,7 +730,7 @@ export default function ProductFormModal({
       closeOnBackdropClick={!hasEntries && !submitting}
       closeOnEsc={!hasEntries && !submitting}
       showCloseButton={!hasEntries && !submitting}
-      autoFocus={false}
+      // autoFocus={false}
       footer={
         <>
           {hasEntries ? (

@@ -1,3 +1,4 @@
+import SectionAccessGate from '@/Components/Common/SectionAccessGate'
 import { findModule } from '@/Constants/dashboardModules'
 import BankDetails from '@/Modules/Dashboard/Components/BankDetails'
 import ModuleLayout from '@/Modules/Dashboard/Components/ModuleLayout'
@@ -13,13 +14,17 @@ import ModuleLayout from '@/Modules/Dashboard/Components/ModuleLayout'
  * There is no `key` here any more. The data lives in the store, keyed on the
  * company it belongs to, so switching company reloads it without this page
  * having to force a remount - see Store/Slices/bankSlice.
+ *
+ * A sub user sees it only with Bank Details in this company (SectionAccessGate).
  */
 export default function BankDetailsPage() {
   const page = findModule('bank')
 
   return (
     <ModuleLayout title={page.label}>
-      <BankDetails />
+      <SectionAccessGate section={page.access} label={page.label}>
+        <BankDetails />
+      </SectionAccessGate>
     </ModuleLayout>
   )
 }

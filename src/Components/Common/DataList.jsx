@@ -139,6 +139,10 @@ export function RetryButton({ onClick, label = 'Retry' }) {
  *   />
  */
 export function RowActions({ label, onEdit, onDelete, deleteConfirm }) {
+  // Either button is left out when it is not given - a user who may not
+  // edit, or not delete, is not shown it (see useSectionAccess).
+  const canDelete = Boolean(deleteConfirm || onDelete)
+
   const deleteButton = (
     <Button
       type="button"
@@ -153,17 +157,23 @@ export function RowActions({ label, onEdit, onDelete, deleteConfirm }) {
 
   return (
     <div className="flex justify-end gap-1.5">
-      <Button
-        type="button"
-        variant='iconEdit'
-        size="icon-sm"
-        tooltip="Edit"
-        aria-label={`Edit ${label}`}
-        icon={Pencil}
-        onClick={onEdit}
-      />
+      {onEdit ? (
+        <Button
+          type="button"
+          variant='iconEdit'
+          size="icon-sm"
+          tooltip="Edit"
+          aria-label={`Edit ${label}`}
+          icon={Pencil}
+          onClick={onEdit}
+        />
+      ) : null}
 
-      {deleteConfirm ? <ConfirmPopover {...deleteConfirm}>{deleteButton}</ConfirmPopover> : deleteButton}
+      {!canDelete ? null : deleteConfirm ? (
+        <ConfirmPopover {...deleteConfirm}>{deleteButton}</ConfirmPopover>
+      ) : (
+        deleteButton
+      )}
     </div>
   )
 }

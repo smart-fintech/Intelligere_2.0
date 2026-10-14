@@ -66,9 +66,10 @@ export const setTokens = ({ access, refresh }) => {
  * gets written.
  *
  * Only fields something actually READS are kept. The response also carries
- * role, is_salesman, tm_user_type and free_trial_date; no screen uses them
+ * is_salesman, tm_user_type and free_trial_date; no screen uses them
  * (the free-trial date shown on Profile comes from the profile API), so they
- * are not written to the browser.
+ * are not written to the browser. `role` ("MainUser", ...) is kept: the
+ * company list is asked for with it (getUserCompanies).
  *
  * TO SUPPORT A NEW FIELD: add one line here (and its key in
  * Library/secureStorage.js) - once there is code that reads it.
@@ -78,6 +79,7 @@ const SESSION_FIELDS = {
   tally_category: STORAGE_KEYS.TALLY_CATEGORY,
   erp: STORAGE_KEYS.ERP,
   uuid: STORAGE_KEYS.UUID,
+  role: STORAGE_KEYS.ROLE,
 }
 
 /**

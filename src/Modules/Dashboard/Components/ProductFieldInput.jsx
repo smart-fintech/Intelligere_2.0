@@ -10,7 +10,8 @@
  * forms already use (Components/Common/FormFields) - this file only chooses
  * between them.
  *
- *   text        a text box
+ *   text        a text box - but the HSN code (by its name, isHsnField) is
+ *               chosen from the HSN list (HsnSelector)
  *   number      a text box that takes digits, one decimal point and a minus
  *   dropdown    a dropdown of the field's own options
  *   date        the browser's date box
@@ -43,11 +44,12 @@ import { useId } from 'react'
 import { Paperclip, X } from 'lucide-react'
 
 import { Field, FieldError, FieldLabel, SelectField, TextareaField } from '@/Components/Common/FormFields'
+import { HsnSelector } from '@/Components/Common/HsnSelector'
 import { formatBytes } from '@/Components/Common/Loader'
 import { Button } from '@/Components/ui/button'
 import { Input } from '@/Components/ui/input'
 import { cn } from '@/Library/utils'
-import { PRODUCT_CATEGORY } from '../productList'
+import { isHsnField, PRODUCT_CATEGORY } from '../productList'
 import {
   isReferenceInput,
   PRODUCT_INPUT,
@@ -141,6 +143,11 @@ export default function ProductFieldInput({
   const className = spanClass(field, kind)
 
   const common = { id, label, required, error, disabled, className }
+
+  // The HSN code - a typed field by its definition - is chosen from the HSN list.
+  if (isHsnField(label) && (kind === PRODUCT_INPUT.TEXT || kind === PRODUCT_INPUT.NUMBER)) {
+    return <HsnSelector {...common} value={value ?? ''} onChange={onChange} />
+  }
 
   if (kind === PRODUCT_INPUT.DROPDOWN) {
     const options = productOptions(field)

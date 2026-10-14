@@ -42,6 +42,8 @@
  *   { params: { page: 2 } }   adds a query string
  *   { headers: { ... } }      adds headers for that one call
  *   { skipAuth: true }        sends the call without a token
+ *   { skipSession: true }     never reads the reply as a sign-in (creating an
+ *                             account for somebody else)
  */
 
 import axios from 'axios'
@@ -141,7 +143,9 @@ apiSetup.interceptors.response.use(
     // A response carrying tokens is a sign-in, whichever path produced it.
     // Saving it here is what lets a screen call the login endpoint and do
     // nothing else. Every other response is left untouched.
-    saveSession(response.data)
+    // `{ skipSession: true }` turns it off, for a call that creates an
+    // account for somebody else while this user stays signed in.
+    if (!response.config?.skipSession) saveSession(response.data)
 
     return response
   },

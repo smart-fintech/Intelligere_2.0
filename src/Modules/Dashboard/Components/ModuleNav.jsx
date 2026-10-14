@@ -1,8 +1,10 @@
 import { Link } from 'react-router-dom'
 import { ChevronDown, ChevronUp } from 'lucide-react'
 
+import { Tooltip } from '@/Components/ui/tooltip'
 import useModuleNav from '@/Hooks/useModuleNav'
 import { cn } from '@/Library/utils'
+import { NO_VIEW_MESSAGE } from '@/Services/accessService'
 
 /**
  * The one horizontal bar across the top of every dashboard page:
@@ -24,6 +26,12 @@ import { cn } from '@/Library/utils'
  *
  * ON A NARROW SCREEN the bar scrolls sideways rather than wrapping or
  * squeezing, so the layout underneath is never pushed out of shape.
+ *
+ * A DISABLED PAGE (a sub user who may not view it - see useModuleNav) stays
+ * in the bar, dimmed, but is not a link at all: there is no address to
+ * follow, so neither a click, Enter, middle-click nor "open in new tab" can
+ * reach it. It can still be focused, so the tooltip saying why is there for
+ * the keyboard as well as the mouse.
  */
 export default function ModuleNav() {
   const pages = useModuleNav()
@@ -40,6 +48,22 @@ export default function ModuleNav() {
           {pages.map((page) => {
             const { active } = page
             const Chevron = active ? ChevronDown : ChevronUp
+
+            if (page.disabled) {
+              return (
+                <Tooltip key={page.key} text={NO_VIEW_MESSAGE} side="bottom">
+                  <span
+                    role="link"
+                    aria-disabled="true"
+                    tabIndex={0}
+                    className="flex shrink-0 cursor-not-allowed items-center gap-1.5 whitespace-nowrap rounded-sm px-3 py-4 text-sm font-medium text-muted-foreground opacity-50 outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                  >
+                    <Chevron className="size-3.5 shrink-0" strokeWidth={3} />
+                    {page.label}
+                  </span>
+                </Tooltip>
+              )
+            }
 
             return (
               <Link

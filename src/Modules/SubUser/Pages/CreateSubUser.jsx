@@ -1,20 +1,20 @@
 /**
  * Create Sub User.
  *
- *   ( ) User   Coming Soon, for now
+ *   ( ) User   the sub users - list, view, and Create Sub User (SubUserList)
  *   (o) Role   the company's roles - list, create, edit, delete (RoleList)
  *
- * Role is selected on arrival, since it is the part that works.
+ * Role is selected on arrival: a sub user is given one of a company's roles,
+ * so the roles come first.
  */
 
 import { useState } from 'react'
 
-import ComingSoon from '@/Components/Common/ComingSoon'
-import { Card } from '@/Components/ui/card'
 import { Label } from '@/Components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/Components/ui/radio-group'
 import { CREATE_SUB_USER_LINK } from '@/Constants/navigation'
 import RoleList from '../Components/RoleList'
+import SubUserList from '../Components/SubUserList'
 
 const TABS = [
   { value: 'user', label: 'User' },
@@ -22,11 +22,16 @@ const TABS = [
 ]
 
 export default function CreateSubUser() {
-  const [tab, setTab] = useState('role')
+  const [tab, setTab] = useState('user')
 
   return (
     <div className="space-y-4 p-4 sm:p-6">
-      <h1 className="text-xl font-semibold text-brand sm:text-2xl">{CREATE_SUB_USER_LINK.label}</h1>
+      <div className="space-y-1">
+        <h1 className="text-xl font-semibold text-brand sm:text-2xl">{CREATE_SUB_USER_LINK.label}</h1>
+        <p className="text-sm text-muted-foreground">
+          Give your team their own logins, with a role, modules and permissions for each company.
+        </p>
+      </div>
 
       <RadioGroup
         aria-label="Create a user or a role"
@@ -44,13 +49,7 @@ export default function CreateSubUser() {
         ))}
       </RadioGroup>
 
-      {tab === 'role' ? (
-        <RoleList />
-      ) : (
-        <Card className="border-border/70">
-          <ComingSoon icon={CREATE_SUB_USER_LINK.icon} title="User" />
-        </Card>
-      )}
+      {tab === 'role' ? <RoleList /> : <SubUserList />}
     </div>
   )
 }

@@ -32,6 +32,11 @@
  * Until that is known NOTHING is drawn but a placeholder: nobody is shown
  * screens that are then taken away.
  *
+ * A sub user who may not VIEW Product Details in this company
+ * (useSectionAccess) still sees the Product section, disabled: it cannot be
+ * opened, by click, keyboard or address, and says why on hover and focus.
+ * With View, what they may do inside it is up to the pages there.
+ *
  * ------------------------------------------------------------------
  * WHERE THE USER IS, IS IN THE ADDRESS
  * ------------------------------------------------------------------
@@ -58,13 +63,16 @@ import { useSearchParams } from 'react-router-dom'
 import ComingSoon from '@/Components/Common/ComingSoon'
 import { ListSkeleton } from '@/Components/Common/DataList'
 import { Card, CardContent } from '@/Components/ui/card'
+import { Tooltip } from '@/Components/ui/tooltip'
 import {
   INVENTORY_DEFAULT_SECTION,
   INVENTORY_DEFAULT_SECTION_WITHOUT_INVENTORY,
   INVENTORY_SECTIONS,
 } from '@/Constants/inventory'
 import useInventoryAccess from '@/Hooks/useInventoryAccess'
+import useSectionAccess from '@/Hooks/useSectionAccess'
 import { cn } from '@/Library/utils'
+import { ACCESS_SECTIONS, NO_VIEW_MESSAGE } from '@/Services/accessService'
 import BasicProducts from './BasicProducts'
 import CustomFields from './CustomFields'
 import InventoryOverview from './InventoryOverview'
@@ -103,26 +111,32 @@ const firstReady = (entries) => entries.find((entry) => entry.ready) ?? entries[
 /** The id of a page in the maps above - see the note there. */
 const pageId = (section, tab) => (tab ? `${section.key}/${tab.key}` : section.key)
 
+/** The section that is Product Details - see useSectionAccess. */
+const PRODUCT_SECTION = 'product'
+
 /**
  * The sections a user is offered. Without Inventory Management the tabs
  * that are part of it are taken out. A section left with no tabs at all
  * goes with them - unless it is a page of its own for this user (Product:
- * the simple product list), which then simply has no tabs.
+ * the simple product list), which then simply has no tabs. Without View on
+ * Product Details (`canViewProduct`), Product is still listed, `disabled`.
  */
-const sectionsFor = (full, pages) =>
+const sectionsFor = (full, pages, canViewProduct) =>
   INVENTORY_SECTIONS.map((section) => {
-    if (!section.tabs || full) return section
+    const entry = section.key === PRODUCT_SECTION && !canViewProduct ? { ...section, disabled: true } : section
+    if (!entry.tabs || full) return entry
 
-    const tabs = section.tabs.filter((tab) => !tab.requiresInventory)
-    if (tabs.length > 0) return { ...section, tabs }
-    return pages[section.key] ? { ...section, tabs: undefined } : null
+    const tabs = entry.tabs.filter((tab) => !tab.requiresInventory)
+    if (tabs.length > 0) return { ...entry, tabs }
+    return pages[entry.key] ? { ...entry, tabs: undefined } : null
   }).filter(Boolean)
 
 export default function InventoryDetails() {
   const access = useInventoryAccess()
+  const product = useSectionAccess(ACCESS_SECTIONS.PRODUCT)
 
   // Not known yet: a placeholder, never one user's screens for a moment.
-  if (!access.known) {
+  if (!access.known || !product.known) {
     return (
       <Card className="border-border/70">
         <CardContent className="px-4">
@@ -133,24 +147,33 @@ export default function InventoryDetails() {
   }
 
   // `key`: a different kind of user (the header moved to a company on
-  // another plan) starts again, so no page of the other set is left mounted.
-  return <InventoryNavigation key={access.full ? 'with-inventory' : 'without-inventory'} full={access.full} />
+  // another plan, or one with other permissions) starts again, so no page
+  // of the other set is left mounted.
+  return (
+    <InventoryNavigation
+      key={`${access.full ? 'with-inventory' : 'without-inventory'}#${product.view ? 'product' : 'no-product'}`}
+      full={access.full}
+      canViewProduct={product.view}
+    />
+  )
 }
 
-function InventoryNavigation({ full }) {
+function InventoryNavigation({ full, canViewProduct }) {
   const [params, setParams] = useSearchParams()
 
   const pages = full ? PAGES_WITH_INVENTORY : PAGES_WITHOUT_INVENTORY
-  const sections = useMemo(() => sectionsFor(full, pages), [full, pages])
+  const sections = useMemo(() => sectionsFor(full, pages, canViewProduct), [full, pages, canViewProduct])
+  // What can be opened - a disabled section is shown, never open.
+  const openable = sections.filter((entry) => !entry.disabled)
 
   // The landing section is named, not worked out - see INVENTORY_DEFAULT_SECTION.
   const defaultKey = full ? INVENTORY_DEFAULT_SECTION : INVENTORY_DEFAULT_SECTION_WITHOUT_INVENTORY
-  const defaultSection = sections.find((entry) => entry.key === defaultKey) ?? firstReady(sections)
+  const defaultSection = openable.find((entry) => entry.key === defaultKey) ?? firstReady(openable)
 
   // An unknown or missing value falls back to the default, so a stale or
-  // mistyped link - or one to a tab this user is not offered - still opens
-  // a real page.
-  const section = sections.find((entry) => entry.key === params.get('section')) ?? defaultSection
+  // mistyped link - or one to a tab this user is not offered, or a section
+  // they cannot open - still opens a real page.
+  const section = openable.find((entry) => entry.key === params.get('section')) ?? defaultSection
   const tabs = section.tabs ?? []
   const defaultTab = tabs.length > 0 ? firstReady(tabs) : null
   const tab = tabs.find((entry) => entry.key === params.get('tab')) ?? defaultTab
@@ -203,6 +226,27 @@ function InventoryNavigation({ full }) {
           // A section with a single tab IS that tab: "Vendor", not
           // "Inventory Master" with one lonely tab beneath it.
           const { label, icon: Icon } = entry.tabs?.length === 1 ? entry.tabs[0] : entry
+
+          // Shown, dimmed, and inert: no click handler, so neither the mouse
+          // nor Enter / Space opens it. Not the `disabled` attribute, which
+          // would take it out of the keyboard order and silence its tooltip.
+          if (entry.disabled) {
+            return (
+              <Tooltip key={entry.key} text={NO_VIEW_MESSAGE}>
+                <button
+                  id={`inventory-section-${entry.key}`}
+                  type="button"
+                  role="tab"
+                  aria-selected={false}
+                  aria-disabled="true"
+                  className="-mb-px flex cursor-not-allowed items-center gap-2 border-b-2 border-transparent px-4 py-2 text-sm font-medium whitespace-nowrap text-muted-foreground opacity-50 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                >
+                  <Icon className="size-4" />
+                  {label}
+                </button>
+              </Tooltip>
+            )
+          }
 
           return (
             <button

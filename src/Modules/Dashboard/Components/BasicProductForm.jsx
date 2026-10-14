@@ -42,6 +42,8 @@
  *              header's Add menu (StockGroupModal) - it reloads this list
  *              when it is done (refreshProductGroups)
  *   Unit       the units the backend lists
+ *   HSN        the HSN list, searched by code or description, each code's
+ *              description on hover (HsnSelector) - or a code typed in
  *   GST Rate   the GST slabs, and under it what the chosen rate is made of:
  *              CGST + SGST for a sale within the state, IGST for one across
  *              states. Both are shown - which applies belongs to a sale,
@@ -73,6 +75,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { InlineAlert, RetryButton } from '@/Components/Common/DataList'
 import { Field, FormActions, FormGrid, SelectField } from '@/Components/Common/FormFields'
+import { HsnSelector } from '@/Components/Common/HsnSelector'
 import { Panel } from '@/Components/Common/Panel'
 import { Button } from '@/Components/ui/button'
 import { GST_RATES, gstBreakdown } from '@/Constants/gst'
@@ -327,8 +330,23 @@ export default function BasicProductForm({ erp, product, companyName, groups, un
   /* Drawing one field                                                */
   /* ---------------------------------------------------------------- */
 
-  const renderField = ({ key, label, required, numeric, choices, gstRate }) => {
+  const renderField = ({ key, label, required, numeric, choices, gstRate, hsn }) => {
     const id = `basic-product-${key}`
+
+    if (hsn) {
+      return (
+        <HsnSelector
+          key={key}
+          id={id}
+          label={label}
+          required={required}
+          value={form[key]}
+          error={errors[key]}
+          disabled={submitting}
+          onChange={(value) => setField(key, value)}
+        />
+      )
+    }
 
     if (choices === BASIC_PRODUCT_CHOICES.GROUPS) {
       const loading = groups.status === 'loading' && groups.options.length === 0

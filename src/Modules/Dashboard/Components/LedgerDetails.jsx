@@ -17,11 +17,21 @@
  * loader stays on through the WHOLE job - until the `fetch_ledger` reply
  * with action_status "stop_loader", and then until the ledger list has been
  * reloaded (the same fetchLedgers the Refresh button uses).
+ *
+ * A SUB USER SEES WHAT THEY MAY DO
+ * Ledger Details' permissions in this company (useSectionAccess), as on Bank
+ * Details: the list only with View (and not asked for without it), the form
+ * and the CSV upload only with Create - the form, for the row being edited,
+ * with Edit - each row's Edit and Delete only with those, and Sync Now, which
+ * brings ledgers in from Tally, only with Create. Anybody else has all of it.
  */
 
 import React, { useEffect, useRef, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
-import { AlertCircle, BookOpen, CloudDownload, RefreshCw, Trash2 } from 'lucide-react'
+import {
+  AlertCircle, BookOpen, CloudDownload, Lock, RefreshCw,
+  // Trash2 
+} from 'lucide-react'
 
 import { ConfirmPopover } from '@/Components/Common/ConfirmPopover'
 import { CsvDownloadButton } from '@/Components/Common/CsvDownloadButton'
@@ -44,9 +54,11 @@ import {
 import { Button } from '@/Components/ui/button'
 import { TableCell, TableRow } from '@/Components/ui/table'
 import { useListView } from '@/Hooks/useListView'
+import useSectionAccess from '@/Hooks/useSectionAccess'
 import { useWebSocket } from '@/Hooks/useWebSocket'
 import { toast } from '@/Library/toast'
 import { cn } from '@/Library/utils'
+import { ACCESS_SECTIONS } from '@/Services/accessService'
 import { CSV_SOURCES } from '@/Services/csvService'
 import {
   LEDGER_SOCKET_MODULE,
@@ -101,6 +113,7 @@ const FILTER_FIELDS = {
 
 export default function LedgerDetails() {
   const dispatch = useDispatch()
+  const access = useSectionAccess(ACCESS_SECTIONS.LEDGER)
 
   const company = useSelector(selectActiveCompany)
   const companyStatus = useSelector(selectCompanyStatus)
@@ -292,11 +305,12 @@ export default function LedgerDetails() {
   useEffect(() => {
     if (companyStatus !== 'succeeded' || !companyId) return
 
-    dispatch(fetchLedgers({ companyId }))
+    // The ledgers only for a user who may see them.
+    if (access.view) dispatch(fetchLedgers({ companyId }))
     // Reference data shared with Bank Details; its condition means this is a
     // no-op if that page has already loaded it this session.
     dispatch(fetchBankOptions())
-  }, [dispatch, companyStatus, companyId])
+  }, [dispatch, companyStatus, companyId, access.view])
 
   /* The groups follow the ERP (and, for Tally, the active company), so they
      wait for both: a new source or company loads them once, the same one is
@@ -314,7 +328,13 @@ export default function LedgerDetails() {
   }, [dispatch, groupSource, groupCompanyId])
 
   /** One controlled reload - the Refresh button, and after every save. */
-  const reload = () => dispatch(fetchLedgers({ companyId, force: true }))
+  const reload = () => {
+    if (access.view) dispatch(fetchLedgers({ companyId, force: true }))
+  }
+
+  // The form adds, or edits the row chosen - each only for a user who may.
+  const showForm = editing ? access.edit : access.create
+  const rowActions = access.edit || access.delete
 
   /** Filtering, sorting and paging, all on the rows already in the store. */
   const view = useListView(ledgers, {
@@ -492,7 +512,7 @@ export default function LedgerDetails() {
                 <SortableHead view={view} field="credit_period_days" width={120}>
                   Credit Days
                 </SortableHead>
-                <PlainHead width={110} className="text-right">Actions</PlainHead>
+                {rowActions ? <PlainHead width={110} className="text-right">Actions</PlainHead> : null}
               </>
             }
           >
@@ -517,27 +537,34 @@ export default function LedgerDetails() {
                 <TableCell>{orDash(ledger.ledeger_group_name)}</TableCell>
                 <TableCell>{orDash(ledger.ledeger_state)}</TableCell>
                 <TableCell>{creditPeriod(ledger.credit_period_days)}</TableCell>
-                <TableCell className="text-right">
-                  {/* Nothing is deleted on the click itself - the popover
-                      beside the button asks first. */}
-                  <RowActions
-                    label={ledger.ledeger_name}
-                    onEdit={() => setEditing(ledger)}
-                    deleteConfirm={{
-                      open: confirmingId !== null && confirmingId === getLedgerId(ledger),
-                      onOpenChange: (next) => setConfirming(next ? ledger : null),
-                      title: 'Delete Ledger?',
-                      description: (
-                        <>
-                          Are you sure you want to delete the ledger <strong>{ledger.ledeger_name}</strong> ? This cannot be undone.
-                        </>
-                      ),
-                      confirmLabel: deleting ? 'Deleting...' : 'Delete',
-                      busy: deleting,
-                      onConfirm: handleDelete,
-                    }}
-                  />
-                </TableCell>
+                {rowActions ? (
+                  <TableCell className="text-right">
+                    {/* Nothing is deleted on the click itself - the popover
+                        beside the button asks first. */}
+                    <RowActions
+                      label={ledger.ledeger_name}
+                      onEdit={access.edit ? () => setEditing(ledger) : undefined}
+                      deleteConfirm={
+                        access.delete
+                          ? {
+                              open: confirmingId !== null && confirmingId === getLedgerId(ledger),
+                              onOpenChange: (next) => setConfirming(next ? ledger : null),
+                              title: 'Delete Ledger?',
+                              description: (
+                                <>
+                                  Are you sure you want to delete the ledger <strong>{ledger.ledeger_name}</strong> ?
+                                  This cannot be undone.
+                                </>
+                              ),
+                              confirmLabel: deleting ? 'Deleting...' : 'Delete',
+                              busy: deleting,
+                              onConfirm: handleDelete,
+                            }
+                          : undefined
+                      }
+                    />
+                  </TableCell>
+                ) : null}
               </TableRow>
             ))}
           </DataTable>
@@ -554,109 +581,127 @@ export default function LedgerDetails() {
           is the part with seven columns in it. They stack on anything
           narrower than `lg`, form first. */}
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
-        <div className="w-full shrink-0 space-y-4 lg:w-[32%]">
-          {/* Many ledgers at once, from a filled-in CSV - the form below is
-              still the way to add or edit one. It reloads the list through
-              the same `reload` a save uses. */}
-          <LedgerCsvUpload
-            companyId={companyId}
-            companyName={company?.comp_name}
-            isTally={isTally}
-            onImported={reload}
-          />
+        {showForm ? (
+          <div className="w-full shrink-0 space-y-4 lg:w-[32%]">
+            {/* Many ledgers at once, from a filled-in CSV - the form below is
+                still the way to add or edit one. It reloads the list through
+                the same `reload` a save uses. Adding, so Create only. */}
+            {access.create ? (
+              <LedgerCsvUpload
+                companyId={companyId}
+                companyName={company?.comp_name}
+                isTally={isTally}
+                onImported={reload}
+              />
+            ) : null}
 
-          {/* `key` is what fills the form in when a different row is chosen
-              for editing: React remounts it, so its initialiser runs again
-              with the new row. No effect, and no request. */}
-          <LedgerForm
-            key={editingId ?? 'new'}
-            ledger={editing}
-            companyId={companyId}
-            companyName={company?.comp_name}
-            groups={groups}
-            bankNames={bankNames}
-            onSaved={handleSaved}
-            onCancel={() => setEditing(null)}
-            isTally={isTally}
-            onRefresh={reload}
-          />
-        </div>
+            {/* `key` is what fills the form in when a different row is chosen
+                for editing: React remounts it, so its initialiser runs again
+                with the new row. No effect, and no request. */}
+            <LedgerForm
+              key={editingId ?? 'new'}
+              ledger={editing}
+              companyId={companyId}
+              companyName={company?.comp_name}
+              groups={groups}
+              bankNames={bankNames}
+              onSaved={handleSaved}
+              onCancel={() => setEditing(null)}
+              isTally={isTally}
+              onRefresh={reload}
+            />
+          </div>
+        ) : null}
 
-        <div className="min-w-0 flex-1">
-          <Panel
-            title="Ledger List"
-            meta={
-              // Use flex and items-center to keep everything vertically centered on one line
-              <React.Fragment>
-                <span className="text-muted-foreground whitespace-nowrap">
-                  Total Count: {ledgers.length}
-                </span>&nbsp;&nbsp;
+        {access.view ? (
+          <div className="min-w-0 flex-1">
+            <Panel
+              title="Ledger List"
+              meta={
+                // Use flex and items-center to keep everything vertically centered on one line
+                <React.Fragment>
+                  <span className="text-muted-foreground whitespace-nowrap">
+                    Total Count: {ledgers.length}
+                  </span>&nbsp;&nbsp;
 
-                {/* The button sits at the left of the header, so its popover
-                    lines up with the button's left edge. */}
-                <ConfirmPopover
-                  open={confirming === 'all'}
-                  onOpenChange={(next) => setConfirming(next ? 'all' : null)}
-                  title="Delete All Ledgers?"
-                  description="Are you sure you want to permanently delete ALL ledgers for this company? This action cannot be undone."
-                  confirmLabel={deleting ? 'Deleting...' : 'Delete'}
-                  busy={deleting}
-                  onConfirm={handleDeleteAll}
-                  align="start"
-                >
-                  <Button
-                    type="button"
-                    variant="iconDelete"
-                    size="sm"
-                    tooltip="Delete all ledgers for this company"
-                    disabled={loading || syncing || ledgers.length === 0}
-                    aria-label="Delete all ledgers"
+                  {/* The button sits at the left of the header, so its popover
+                      lines up with the button's left edge. */}
+                  <ConfirmPopover
+                    open={confirming === 'all'}
+                    onOpenChange={(next) => setConfirming(next ? 'all' : null)}
+                    title="Delete All Ledgers?"
+                    description="Are you sure you want to permanently delete ALL ledgers for this company? This action cannot be undone."
+                    confirmLabel={deleting ? 'Deleting...' : 'Delete'}
+                    busy={deleting}
+                    onConfirm={handleDeleteAll}
+                    align="start"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </Button>
-                </ConfirmPopover>
-              </React.Fragment>
-            }
-            actions={
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="default"
-                  size="sm"
-                  onClick={reload}
-                  disabled={loading || syncing || !companyId}
-                  aria-label="Refresh ledger list"
-                >
-                  <RefreshCw className={cn(loading)} />
-                  Refresh
-                </Button>
-
-                {/* Fetches the ledgers from Tally, then reloads the list. */}
-                {isTally && (
+                    {/* <Button
+                      type="button"
+                      variant="iconDelete"
+                      size="sm"
+                      tooltip="Delete all ledgers for this company"
+                      disabled={loading || syncing || ledgers.length === 0}
+                      aria-label="Delete all ledgers"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button> */}
+                  </ConfirmPopover>
+                </React.Fragment>
+              }
+              actions={
+                <div className="flex items-center gap-2">
                   <Button
                     type="button"
                     variant="default"
                     size="sm"
-                    icon={CloudDownload}
-                    loading={syncing}
-                    onClick={handleSync}
-                    disabled={!companyId || !activeCompanyName}
-                    aria-label="Sync ledgers from Tally"
+                    onClick={reload}
+                    disabled={loading || syncing || !companyId}
+                    aria-label="Refresh ledger list"
                   >
-                    {syncing ? 'Syncing...' : 'Sync Now'}
+                    <RefreshCw className={cn(loading)} />
+                    Refresh
                   </Button>
-                )}
-              </div>
-            }
-          >
-            {/* A failed refresh with rows still on screen. */}
-            {!syncing && status === 'failed' && ledgers.length > 0 ? (
-              <InlineAlert action={<RetryButton onClick={reload} />}>{error}</InlineAlert>
-            ) : null}
 
-            {renderList()}
-          </Panel>
-        </div>
+                  {/* Fetches the ledgers from Tally, then reloads the list. */}
+                  {isTally && access.create && (
+                    <Button
+                      type="button"
+                      variant="default"
+                      size="sm"
+                      icon={CloudDownload}
+                      loading={syncing}
+                      onClick={handleSync}
+                      disabled={!companyId || !activeCompanyName}
+                      aria-label="Sync ledgers from Tally"
+                    >
+                      {syncing ? 'Syncing...' : 'Sync Now'}
+                    </Button>
+                  )}
+                </div>
+              }
+            >
+              {/* A failed refresh with rows still on screen. */}
+              {!syncing && status === 'failed' && ledgers.length > 0 ? (
+                <InlineAlert action={<RetryButton onClick={reload} />}>{error}</InlineAlert>
+              ) : null}
+
+              {renderList()}
+            </Panel>
+          </div>
+        ) : null}
+
+        {/* Neither: a sub user who may only edit or delete, with no list to
+            choose a row from. */}
+        {!showForm && !access.view ? (
+          <div className="min-w-0 flex-1">
+            <Panel title="Ledger List">
+              <StateMessage icon={Lock} title="You cannot view ledger details">
+                Your account has not been given View for Ledger Details in this company.
+              </StateMessage>
+            </Panel>
+          </div>
+        ) : null}
       </div>
     </>
   )

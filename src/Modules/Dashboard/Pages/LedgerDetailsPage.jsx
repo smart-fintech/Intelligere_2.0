@@ -1,3 +1,4 @@
+import SectionAccessGate from '@/Components/Common/SectionAccessGate'
 import { findModule } from '@/Constants/dashboardModules'
 import LedgerDetails from '@/Modules/Dashboard/Components/LedgerDetails'
 import ModuleLayout from '@/Modules/Dashboard/Components/ModuleLayout'
@@ -9,6 +10,8 @@ import ModuleLayout from '@/Modules/Dashboard/Components/ModuleLayout'
  * There is no `key` here any more. The data lives in the store, keyed on the
  * company it belongs to, so switching company reloads it without this page
  * having to force a remount - see Store/Slices/ledgerSlice.
+ *
+ * A sub user sees it only with Ledger Details in this company (SectionAccessGate).
  */
 export default function LedgerDetailsPage() {
   const page = findModule('ledger')
@@ -17,7 +20,9 @@ export default function LedgerDetailsPage() {
     /* No `actions` here: "Add Ledger" lives in the app's header now, so it
        is one button on every page rather than one more on this one. */
     <ModuleLayout title={page.label}>
-      <LedgerDetails />
+      <SectionAccessGate section={page.access} label={page.label}>
+        <LedgerDetails />
+      </SectionAccessGate>
     </ModuleLayout>
   )
 }

@@ -21,11 +21,19 @@
  *
  * Filtering, sorting and paging are done on the rows already in the store -
  * see Hooks/useListView - so they never send anything either.
+ *
+ * ------------------------------------------------------------------
+ * A SUB USER SEES WHAT THEY MAY DO
+ * ------------------------------------------------------------------
+ * Bank Details' permissions in this company (useSectionAccess): the list only
+ * with View (and is not even asked for without it), the form only with
+ * Create - or, for the row being edited, Edit - and each row's Edit and
+ * Delete only with those. Anybody else has all of it, as before.
  */
 
 import { useEffect, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
-import { AlertCircle, Landmark, RefreshCw } from 'lucide-react'
+import { AlertCircle, Landmark, Lock, RefreshCw } from 'lucide-react'
 
 import { CsvDownloadButton } from '@/Components/Common/CsvDownloadButton'
 import {
@@ -46,8 +54,10 @@ import {
 import { Button } from '@/Components/ui/button'
 import { TableCell, TableRow } from '@/Components/ui/table'
 import { useListView } from '@/Hooks/useListView'
+import useSectionAccess from '@/Hooks/useSectionAccess'
 import { toast } from '@/Library/toast'
 import { cn } from '@/Library/utils'
+import { ACCESS_SECTIONS } from '@/Services/accessService'
 import { deleteBank } from '@/Services/bankService'
 import { CSV_SOURCES } from '@/Services/csvService'
 import {
@@ -88,6 +98,7 @@ const SEARCH_FIELDS = ['bank_name', 'bank_ledger_name', 'account_no', 'ifsc_code
 
 export default function BankDetails() {
   const dispatch = useDispatch()
+  const access = useSectionAccess(ACCESS_SECTIONS.BANK)
 
   // The company the header is on. Both modules read it from here, so the
   // company is fetched once for the whole app - see companySlice.
@@ -135,14 +146,21 @@ export default function BankDetails() {
   useEffect(() => {
     if (companyStatus !== 'succeeded' || !companyId) return
 
-    dispatch(fetchBanks({ companyId }))
+    // The accounts only for a user who may see them.
+    if (access.view) dispatch(fetchBanks({ companyId }))
     dispatch(fetchBankOptions())
     // A no-op when the Ledger page has already loaded this company's ledgers.
     dispatch(fetchLedgers({ companyId }))
-  }, [dispatch, companyStatus, companyId])
+  }, [dispatch, companyStatus, companyId, access.view])
 
   /** One controlled reload - the Refresh button, and after every save. */
-  const reload = () => dispatch(fetchBanks({ companyId, force: true }))
+  const reload = () => {
+    if (access.view) dispatch(fetchBanks({ companyId, force: true }))
+  }
+
+  // The form adds, or edits the row chosen - each only for a user who may.
+  const showForm = editing ? access.edit : access.create
+  const rowActions = access.edit || access.delete
 
   /** Filtering, sorting and paging, all on the rows already in the store. */
   const view = useListView(banks, {
@@ -276,7 +294,7 @@ export default function BankDetails() {
                 <SortableHead view={view} field="ifsc_code" width={130}>
                   IFSC
                 </SortableHead>
-                <PlainHead width={110} className="text-right">Actions</PlainHead>
+                {rowActions ? <PlainHead width={110} className="text-right">Actions</PlainHead> : null}
               </>
             }
           >
@@ -294,27 +312,34 @@ export default function BankDetails() {
                 <TableCell>{orDash(bank.bank_name)}</TableCell>
                 <TableCell>{orDash(bank.account_no)}</TableCell>
                 <TableCell>{orDash(bank.ifsc_code)}</TableCell>
-                <TableCell className="text-right">
-                  {/* Nothing is deleted on the click itself - the popover
-                      beside the button asks first. */}
-                  <RowActions
-                    label={bank.bank_name}
-                    onEdit={() => setEditing(bank)}
-                    deleteConfirm={{
-                      open: confirming?.id === bank.id,
-                      onOpenChange: (next) => setConfirming(next ? bank : null),
-                      title: 'Delete Bank?',
-                      description: (
-                        <>
-                          Are you sure you want to delete <strong>{bank.bank_name}</strong> ? This cannot be undone.
-                        </>
-                      ),
-                      confirmLabel: deleting ? 'Deleting...' : 'Delete',
-                      busy: deleting,
-                      onConfirm: handleDelete,
-                    }}
-                  />
-                </TableCell>
+                {rowActions ? (
+                  <TableCell className="text-right">
+                    {/* Nothing is deleted on the click itself - the popover
+                        beside the button asks first. */}
+                    <RowActions
+                      label={bank.bank_name}
+                      onEdit={access.edit ? () => setEditing(bank) : undefined}
+                      deleteConfirm={
+                        access.delete
+                          ? {
+                              open: confirming?.id === bank.id,
+                              onOpenChange: (next) => setConfirming(next ? bank : null),
+                              title: 'Delete Bank?',
+                              description: (
+                                <>
+                                  Are you sure you want to delete <strong>{bank.bank_name}</strong> ? This cannot be
+                                  undone.
+                                </>
+                              ),
+                              confirmLabel: deleting ? 'Deleting...' : 'Delete',
+                              busy: deleting,
+                              onConfirm: handleDelete,
+                            }
+                          : undefined
+                      }
+                    />
+                  </TableCell>
+                ) : null}
               </TableRow>
             ))}
           </DataTable>
@@ -331,56 +356,72 @@ export default function BankDetails() {
           is the part with six columns in it. They stack on anything narrower
           than `lg`, form first. */}
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
-        <div className="w-full shrink-0 lg:w-[32%]">
-          {/* `key` is what fills the form in when a different row is chosen
-              for editing: React remounts it, so its initialiser runs again
-              with the new row. No effect, and no request. */}
-          <BankForm
-            key={editing?.id ?? 'new'}
-            bank={editing}
-            companyId={companyId}
-            companyName={company?.comp_name}
-            ledgers={ledgers}
-            // Until this company's ledgers have arrived the dropdown is
-            // loading - unless the request for them failed, which it says.
-            ledgersStatus={ledgersReady || ledgerStatus === 'failed' ? ledgerStatus : 'loading'}
-            ledgersError={ledgerStatus === 'failed' ? ledgerError : null}
-            onRetryLedgers={() => dispatch(fetchLedgers({ companyId, force: true }))}
-            onSaved={handleSaved}
-            onCancel={() => setEditing(null)}
-          />
-        </div>
+        {showForm ? (
+          <div className="w-full shrink-0 lg:w-[32%]">
+            {/* `key` is what fills the form in when a different row is chosen
+                for editing: React remounts it, so its initialiser runs again
+                with the new row. No effect, and no request. */}
+            <BankForm
+              key={editing?.id ?? 'new'}
+              bank={editing}
+              companyId={companyId}
+              companyName={company?.comp_name}
+              ledgers={ledgers}
+              // Until this company's ledgers have arrived the dropdown is
+              // loading - unless the request for them failed, which it says.
+              ledgersStatus={ledgersReady || ledgerStatus === 'failed' ? ledgerStatus : 'loading'}
+              ledgersError={ledgerStatus === 'failed' ? ledgerError : null}
+              onRetryLedgers={() => dispatch(fetchLedgers({ companyId, force: true }))}
+              onSaved={handleSaved}
+              onCancel={() => setEditing(null)}
+            />
+          </div>
+        ) : null}
 
         {/* `min-w-0` is what lets a wide table scroll inside this column
             instead of stretching the whole page. */}
-        <div className="min-w-0 flex-1">
-          <Panel
-            title="Bank List"
-            meta={`(Total Count: ${banks.length})`}
-            actions={
-              <Button
-                type="button"
-                variant="default"
-                size="sm"
-                onClick={reload}
-                disabled={loading || !companyId}
-                aria-label="Refresh bank list"
-              >
-                <RefreshCw className={cn(loading)} />
-                Refresh
-              </Button>
-            }
-          >
-            {/* A failed refresh with rows still on screen: the list below is
-                what the backend last gave us, so it stays and this only
-                explains why it has not changed. */}
-            {status === 'failed' && banks.length > 0 ? (
-              <InlineAlert action={<RetryButton onClick={reload} />}>{error}</InlineAlert>
-            ) : null}
+        {access.view ? (
+          <div className="min-w-0 flex-1">
+            <Panel
+              title="Bank List"
+              meta={`(Total Count: ${banks.length})`}
+              actions={
+                <Button
+                  type="button"
+                  variant="default"
+                  size="sm"
+                  onClick={reload}
+                  disabled={loading || !companyId}
+                  aria-label="Refresh bank list"
+                >
+                  <RefreshCw className={cn(loading)} />
+                  Refresh
+                </Button>
+              }
+            >
+              {/* A failed refresh with rows still on screen: the list below is
+                  what the backend last gave us, so it stays and this only
+                  explains why it has not changed. */}
+              {status === 'failed' && banks.length > 0 ? (
+                <InlineAlert action={<RetryButton onClick={reload} />}>{error}</InlineAlert>
+              ) : null}
 
-            {renderList()}
-          </Panel>
-        </div>
+              {renderList()}
+            </Panel>
+          </div>
+        ) : null}
+
+        {/* Neither: a sub user who may only edit or delete, with no list to
+            choose a row from. */}
+        {!showForm && !access.view ? (
+          <div className="min-w-0 flex-1">
+            <Panel title="Bank List">
+              <StateMessage icon={Lock} title="You cannot view bank details">
+                Your account has not been given View for Bank Details in this company.
+              </StateMessage>
+            </Panel>
+          </div>
+        ) : null}
       </div>
     </>
   )
