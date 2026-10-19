@@ -1,0 +1,203 @@
+/* ==========================================================================
+   THE PRINTED INVOICE SHEET - one A4 page (794 x 1123 CSS px), on screen.
+
+   Shared by the preview and the measuring host. The PDF is not a capture of
+   these elements: it is drawn as vectors by InvoicePdfDocument.jsx to the
+   same layout these sheets are measured into, with the same sizes (px x 0.75
+   = pt), so a change here that alters a size or a rule belongs there too.
+   Every rule is scoped to .inv-* (or .measure-host), so nothing here reaches
+   the rest of the app.
+   ========================================================================== */
+
+.inv-sheet {
+  --line: #000;
+  --pad: 3px 5px;
+  width: 794px;
+  min-height: 1123px;
+  padding: 20px;
+  background: #fff;
+  color: #000;
+  font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  font-size: 9.5px;
+  line-height: 1.25;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.inv-sheet * { box-sizing: border-box; }
+
+.inv-title {
+  text-align: center;
+  font-size: 17px;
+  font-weight: 400;
+  padding-bottom: 6px;
+  letter-spacing: 0.2px;
+}
+
+/* ---- header -------------------------------------------------------------- */
+.inv-header { display: flex; border: 1px solid var(--line); }
+.inv-header-left { width: 52%; border-right: 1px solid var(--line); display: flex; flex-direction: column; }
+.inv-header-right { width: 48%; display: flex; flex-direction: column; }
+
+.inv-party { padding: 5px 7px; border-bottom: 1px solid var(--line); }
+.inv-party:last-child { border-bottom: 0; flex: 1 1 auto; }
+.inv-party-tag { font-size: 8.5px; color: #222; }
+.inv-party-name { font-weight: 700; font-size: 11px; margin: 1px 0; }
+.inv-party-line { font-size: 9.2px; }
+.inv-party-line b { font-weight: 700; }
+/* seller / buyer / consignee details; the dispatch box keeps the size above */
+.inv-header-left .inv-party-line { font-size: 11px; }
+.inv-header-left .inv-seller-name { font-size: 12px; }
+
+.inv-seller-head { display: flex; gap: 8px; align-items: flex-start; }
+.inv-logo { width: 58px; height: 58px; object-fit: contain; flex: 0 0 auto; }
+
+.inv-meta-row { display: flex; border-bottom: 1px solid var(--line); flex-shrink: 0; }
+/* the last row reaches the bottom of the header, so its dividers never stop short */
+.inv-meta-row:last-child { border-bottom: 0; flex: 1 1 auto; }
+.inv-meta-cell {
+  flex: 1; padding: 2px 5px; border-right: 1px solid var(--line); min-height: 26px;
+  /* boxes share a row equally (two-up, or three-up for Distance / Supply /
+     Delivery Mode); a long value wraps inside its own box */
+  min-width: 0; overflow-wrap: anywhere;
+}
+.inv-meta-cell:last-child { border-right: 0; }
+/* every right-side block - labels and values alike - prints at 11px */
+.inv-meta-label { font-size: 11px; color: #333; }
+.inv-meta-value { font-weight: 700; font-size: 11px; }
+.inv-header-right .inv-party-line { font-size: 11px; }
+.inv-strong { font-weight: 700; }
+
+/* ---- goods table --------------------------------------------------------- */
+.inv-goods { width: 100%; border-collapse: collapse; table-layout: fixed; }
+/* Every shared edge is declared by ONE cell only: each cell draws its right
+   rule and the first column adds the table's left edge, so no rule is ever
+   drawn twice (the vector PDF follows the same rule). */
+.inv-goods th, .inv-goods td {
+  border-right: 1px solid var(--line);
+  padding: var(--pad);
+  vertical-align: top;
+}
+.inv-goods tr > :first-child { border-left: 1px solid var(--line); }
+/* no top rule: the goods table always sits directly under the header, whose
+   bottom rule is the shared edge - drawing both made a doubled, darker line */
+.inv-goods thead th {
+  border-bottom: 1px solid var(--line);
+  font-weight: 400;
+  text-align: center;
+  font-size: 9.6px;
+}
+.inv-goods tbody td { border-bottom: 0; }
+.inv-goods tbody .c-qty { font-weight: 700; }
+.inv-goods tbody .c-amt { font-weight: 700; }
+.inv-goods .c-no    { width: 5%;  text-align: center; }
+.inv-goods .c-desc  { width: 39%; overflow-wrap: anywhere; }
+.inv-goods .c-hsn   { width: 13%; text-align: center; }
+.inv-goods .c-qty   { width: 10%; text-align: center; }
+.inv-goods .c-rate  { width: 11%; text-align: right; }
+.inv-goods .c-per   { width: 7%;  text-align: center; }
+.inv-goods .c-amt   { width: 15%; text-align: right; }
+
+.inv-item-name { font-weight: 700; font-size: 12px; }
+.inv-item-desc { font-size: 10px; color: #333; padding-top: 1px; }
+.inv-meta-line td { font-style: normal; }
+.inv-meta-line .c-desc { text-align: right; padding-right: 8px; }
+
+/* HSN/SAC, Quantity, Rate, Per and Amount at 12px - column head and line values
+   (the Total row keeps its own 10px) */
+.inv-goods thead :is(.c-hsn, .c-qty, .c-rate, .c-per, .c-amt),
+.inv-goods .inv-item-row :is(.c-hsn, .c-qty, .c-rate, .c-per, .c-amt),
+.inv-goods .inv-meta-line .c-amt { font-size: 12px; }
+/* a figure too wide for its column wraps inside it instead of running into the next */
+.inv-goods :is(.c-hsn, .c-qty, .c-rate, .c-amt) { overflow-wrap: anywhere; }
+/* every charge line - other charges, discount, CGST/SGST/IGST, TCS, round off:
+   ledger name and amount at 12px bold */
+.inv-goods .inv-meta-line td { font-size: 12px; font-weight: 700; }
+
+/* Qualified with .inv-goods so they outrank `.inv-goods tbody td { border-bottom: 0 }`
+   above - without that the goods box was never closed at the foot of a page. */
+.inv-goods .inv-filler td { padding: 0; } /* closed by the Total / continuation row's top rule */
+
+/* foot of a non-final page: one plain row pointing to the next sheet */
+.inv-goods .inv-continued td {
+  border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  font-size: 8.6px; font-weight: 400; text-align: right;
+}
+
+.inv-goods .inv-total-row td {
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  font-weight: 700;
+  font-size: 10px;
+}
+.inv-total-row .lbl { text-align: right; padding-right: 8px; }
+
+/* ---- summary stack ------------------------------------------------------- */
+.inv-words { border: 1px solid var(--line); border-top: 0; padding: 3px 6px; }
+.inv-words .top { display: flex; justify-content: space-between; font-size: 8.4px; }
+.inv-words .top .lbl { font-size: 10px; font-weight: 700; }
+.inv-words .val { font-weight: 700; font-size: 10px; }
+
+.inv-hsn { width: 100%; border-collapse: collapse; table-layout: fixed; }
+/* one declaration per shared edge (see .inv-goods): right and bottom rules per
+   cell, the left edge on the first column; the top edge is the block above's */
+.inv-hsn th, .inv-hsn td {
+  border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  padding: 1px 4px; font-size: 11px;
+}
+.inv-hsn thead tr:first-child th:first-child,
+.inv-hsn tbody td:first-child { border-left: 1px solid var(--line); }
+.inv-hsn tr.filler td { padding: 0; }
+.inv-hsn th { font-weight: 700; text-align: center; }
+/* the HSN/SAC table always sits under the amount in words (or, on a
+   summary-only sheet, the header) - that box's bottom rule is the shared edge */
+.inv-hsn thead tr:first-child th { border-top: 0; }
+.inv-hsn td { text-align: right; }
+.inv-hsn td.center { text-align: center; }
+.inv-hsn tr.tot td { font-weight: 700; }
+
+/* tax words / bank / note on the left, Payment QR spanning them on the right */
+.inv-pay { display: flex; border: 1px solid var(--line); border-top: 0; }
+.inv-pay-left { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.inv-pay-row { padding: 3px 6px; border-bottom: 1px solid var(--line); min-height: 22px; }
+/* whichever row is last - note, bank or tax words - reaches the foot of the
+   block, so the bank dividers never stop short beside a taller Payment QR */
+.inv-pay-row:last-child { border-bottom: 0; flex: 1 1 auto; }
+.inv-pay-bank { display: flex; padding: 0; }
+.inv-pay-bank span { flex: 1; padding: 3px 6px; border-right: 1px solid var(--line); }
+.inv-pay-bank span:last-child { border-right: 0; }
+.inv-pay-bank b { font-size: 11px; }
+.inv-pay-note { flex: 1; }
+
+.inv-pay-qr {
+  width: 104px; flex: 0 0 104px;
+  border-left: 1px solid var(--line);
+  padding: 3px; text-align: center;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+.inv-pay-qr img { width: 74px; height: 74px; object-fit: contain; }
+.inv-pay-qr-label { font-size: 8.6px; padding-bottom: 2px; }
+
+.inv-decl { display: flex; border: 1px solid var(--line); border-top: 0; }
+.inv-decl-left { flex: 1; padding: 4px 6px; border-right: 1px solid var(--line); font-size: 10px; font-weight: 700; }
+.inv-decl-left .strong { font-weight: 700; padding-top: 6px; }
+.inv-decl-right { width: 240px; padding: 4px 6px; display: flex; flex-direction: column; }
+.inv-decl-right .sig-top { display: flex; justify-content: space-between; font-size: 8.6px; }
+.inv-decl-right .sig-img { height: 30px; object-fit: contain; align-self: flex-end; }
+.inv-decl-right .sig-space { min-height: 30px; }
+.inv-decl-right .sig-label { text-align: right; font-size: 8.6px; }
+
+.inv-genfoot { text-align: center; font-size: 8.6px; padding-top: 4px; }
+.inv-pageno { text-align: right; font-size: 8.4px; padding-top: 2px; }
+
+/* measuring host - laid out for real, just kept out of view */
+.measure-host {
+  position: absolute;
+  visibility: hidden;
+  pointer-events: none;
+  left: -10000px;
+  top: 0;
+  width: 794px;
+}

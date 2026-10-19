@@ -179,6 +179,8 @@ export default bankSlice.reducer
 export const selectBanks = (state) => state.bank.items
 export const selectBankStatus = (state) => state.bank.status
 export const selectBankError = (state) => state.bank.error
+/** Which company the accounts in the store belong to - see selectLedgersCompanyId. */
+export const selectBanksCompanyId = (state) => state.bank.companyId
 
 export const selectBankNames = (state) => state.bank.names
 export const selectBankOptionsStatus = (state) => state.bank.optionsStatus

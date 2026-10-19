@@ -95,8 +95,12 @@
  * POST, the same payload - but starts from one the company already has.
  * Step 1 opens with "Select Existing Product" (every product of the list
  * the page has already read - `products`); choosing one fills the form from
- * it (prefillProductForm, as an edit is filled) and locks its name, which
- * is how the backend finds the product the new stock belongs to.
+ * it (prefillProductForm, as an edit is filled) and locks its own fields
+ * (LOCKED_FIELDS) - its name is how the backend finds the product the new
+ * stock belongs to. Its HSN Code is chosen only when the HSN list has it
+ * (checked once the shared list is in, however long that takes - no new
+ * request), and is never the user's to pick here: the HSN field is off
+ * for as long as the dialog is Add Existing Product.
  *
  *   a product with a SKU choice to make (several SKUs, or one with a code)
  *       "Select SKU Code" appears (the shared SkuSelector: the codes, each
@@ -142,6 +146,7 @@ import { Modal } from '@/Components/Common/Modal'
 import { Stepper } from '@/Components/Common/Stepper'
 import { Button } from '@/Components/ui/button'
 import { toast } from '@/Library/toast'
+import { findHsn, loadHsnList } from '@/Services/hsnService'
 import {
   buildProductPayload,
   buildProductUpdatePayload,
@@ -172,7 +177,7 @@ import {
   skuGroupOf,
   skuSetHasData,
 } from '../productForm'
-import { isProductNameField, productEditSource, readProducts } from '../productList'
+import { PRODUCT_FIELD, productEditSource, readProducts } from '../productList'
 import ProductFieldInput from './ProductFieldInput'
 import ProductSkuEntries from './ProductSkuEntries'
 import ProductWarehouseAllocation from './ProductWarehouseAllocation'
@@ -181,6 +186,14 @@ const FORM_ID = 'product-form'
 
 /** A SKU option's value: its place in the product's list. */
 const skuByPlace = (_variant, index) => String(index)
+
+/**
+ * The product's own fields, by their API keys: what an edit may not change,
+ * and an existing product keeps as it is (see Add Existing Product at the
+ * top) - its HSN Code from the moment that dialog opens.
+ */
+const LOCKED_FIELDS = [PRODUCT_FIELD.NAME, PRODUCT_FIELD.GROUP, PRODUCT_FIELD.HSN, PRODUCT_FIELD.UNIT, PRODUCT_FIELD.CATEGORY]
+const LOCKED_BEFORE_CHOICE = [PRODUCT_FIELD.HSN]
 
 /** Nothing wrong anywhere - the shape checkProductStep reports in. */
 const NO_ERRORS = { fields: {}, sets: {}, lines: {} }
@@ -291,6 +304,8 @@ export default function ProductFormModal({
      the one way every product screen reads it. */
   const listed = useMemo(() => (fromExisting ? readProducts(products?.rows) : []), [fromExisting, products?.rows])
   const existingProduct = listed.find((product) => String(product.key) === existing.product) ?? null
+  // The fields that cannot be changed - see LOCKED_FIELDS.
+  const lockedFields = edit ? LOCKED_FIELDS : fromExisting ? (existing.product ? LOCKED_FIELDS : LOCKED_BEFORE_CHOICE) : []
   const existingSkus = existingProduct?.variants ?? []
   // A choice to make: several SKUs, or one that has a code.
   const offersSku = existingSkus.length > 1 || existingSkus.some((variant) => variant.skuCode)
@@ -327,6 +342,18 @@ export default function ProductFormModal({
     setAllocations(numberLines(filled.lines))
     setExisting({ product: key, sku: only ? '0' : '', error: undefined })
     setErrors(NO_ERRORS)
+
+    // Its HSN Code stays chosen only if the HSN list has it - asked of the
+    // shared list once it is in. Unless the user has chosen another by
+    // then, or another product. A list that cannot be loaded decides nothing.
+    const hsn = filled.values[PRODUCT_FIELD.HSN]
+    if (!hsn) return
+    loadHsnList()
+      .then(() => {
+        if (findHsn(hsn)) return
+        setValues((current) => (current[PRODUCT_FIELD.HSN] === hsn ? { ...current, [PRODUCT_FIELD.HSN]: '' } : current))
+      })
+      .catch(() => {})
   }
 
   /** A SKU was chosen: everything that is a SKU's becomes THIS one's. */
@@ -585,7 +612,10 @@ export default function ProductFormModal({
         : null
 
       const response = edit
-        ? await updateProduct(buildProductUpdatePayload({ ...product, productId: edit.productId, pastVersion }), files)
+        ? await updateProduct(
+            buildProductUpdatePayload({ ...product, productId: edit.productId, pastVersion, srNo: edit.saved.srNo }),
+            files,
+          )
         : await createProduct(buildProductPayload(product), files)
 
       // The backend's own message, and the SKU code it gave the product
@@ -704,9 +734,9 @@ export default function ProductFormModal({
                 value={values[name] ?? emptyProductValue(field)}
                 error={errors.fields[name]}
                 disabled={submitting}
-                // An edit may change everything but the product's name - and
-                // an existing product keeps its own (see the note at the top).
-                readOnly={(Boolean(edit) || (fromExisting && Boolean(existing.product))) && isProductNameField(name)}
+                // An edit may change everything but the product's own fields -
+                // and an existing product keeps them (see the note at the top).
+                readOnly={lockedFields.includes(name)}
                 vendors={vendors}
                 products={products}
                 onChange={(value) => setValue(name, value)}

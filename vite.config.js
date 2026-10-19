@@ -24,6 +24,16 @@ export default defineConfig(({ mode }) => {
     },
 
     /**
+     * Pre-bundled when the dev server starts. The invoice PDF renderer is only
+     * import()-ed when a PDF is first made; found that late, `npm run dev`
+     * would re-bundle and reload the page mid-way - losing the invoice being
+     * typed. (Development only: a production build bundles it as usual.)
+     */
+    optimizeDeps: {
+      include: ['@react-pdf/renderer'],
+    },
+
+    /**
      * Vite only hands VITE_-prefixed variables to the browser. The Cashfree
      * environment keeps the name REACT_APP_CASHFREE_ENV (sandbox | production),
      * so that ONE variable is passed through here - read in Config/env.js.

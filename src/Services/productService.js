@@ -57,6 +57,7 @@
 
 import { getEmail } from '@/Library/secureStorage'
 import { api } from '@/Services/authService'
+import { changesProducts } from '@/Services/productCache'
 
 const PRODUCT_URL = 'inventory/intelligere_product_create/'
 const PRODUCT_GROUP_URL = 'inventory/product_group_list/'
@@ -99,7 +100,7 @@ const pick = (object, names) => {
  *   name, group, hsn, unit, gstRate, category   the product's own
  *   quantity      the product's total quantity
  *   rate          its entry's "Unit Rate"
- *   sellingPrice  its SKU's `selling_price`
+ *   'Selling Rate'  its SKU's "Selling Rate", as the API sends it
  *   vendors       its SKU's `vendor`            [{ id, name }]
  *
  * A simple product has one SKU, so "its SKU" is the first - and for a
@@ -122,7 +123,7 @@ export const toBasicProduct = (product) => {
     unit: product.unit,
     quantity: product.quantity,
     rate: detail?.unitRate ?? null,
-    sellingPrice: variant?.sellingPrice ?? null,
+    'Selling Rate': variant?.source?.['Selling Rate'] ?? null,
     gstRate: product.gstRate,
     category: product.category,
     vendors: variant?.vendors ?? [],
@@ -215,7 +216,7 @@ export const BASIC_PRODUCT_FIELDS = Object.freeze({
     { key: 'gst_rate', label: 'GST Rate', from: 'gstRate', gstRate: true },
     { key: 'category', label: 'Category', from: 'category' },
     { key: 'quantity', label: 'Quantity', from: 'quantity', numeric: true },
-    { key: 'selling_price', label: 'Selling Price', from: 'sellingPrice', numeric: true },
+    { key: 'selling_price', label: 'Selling Price', from: 'Selling Rate', numeric: true },
     { key: 'Unit Rate', label: 'Unit Rate', from: 'rate', numeric: true },
   ],
 })
@@ -247,14 +248,15 @@ export const buildIntelligereProductPayload = (companyName, form, vendors = []) 
 })
 
 /** Adds a product. `payload` is buildIntelligereProductPayload's. */
-export const createIntelligereProduct = (payload) => api.post(PRODUCT_URL, payload)
+export const createIntelligereProduct = (payload) => changesProducts(api.post(PRODUCT_URL, payload))
 
 /**
  * Changes a product. The backend identifies it by `id` - the product's own,
  * from the list - and never by its name, which is one of the things that can
  * be changed. `payload` is the same body a create sends.
  */
-export const updateIntelligereProduct = (id, payload) => api.put(PRODUCT_URL, { product_id: id, ...payload })
+export const updateIntelligereProduct = (id, payload) =>
+  changesProducts(api.put(PRODUCT_URL, { product_id: id, ...payload }))
 
 /**
  * Whether a reply to "add this product" is the backend declining because
@@ -311,9 +313,11 @@ export const importProductCsv = ({ companyId, erpType, file }) => {
   body.append('company_id', companyId)
   body.append('user_erp_type', erpType)
 
-  return api.post(PRODUCT_CSV_IMPORT_URL, body, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  })
+  return changesProducts(
+    api.post(PRODUCT_CSV_IMPORT_URL, body, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }),
+  )
 }
 
 /* ------------------------------------------------------------------ */

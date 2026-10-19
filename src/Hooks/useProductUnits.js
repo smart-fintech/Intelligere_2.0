@@ -8,17 +8,23 @@
  *   options   [{ value, label }] - both the unit exactly as the backend
  *             names it ("NOS", "Nos" and "N/A" are three different units)
  *   error     the message when the request failed
- *   retry()   asks again - nothing retries on its own
+ *   retry()   asks again
  *
  * Read with the active company's name, from the store and never typed, and
  * read again whenever the company changes - the same way useProductGroups
  * reads the groups. An older company's units are never handed out: until
  * the answer for THIS company is in, `options` is empty.
+ *
+ * Kept in the shared cache (Library/queryCache) per company. A product
+ * saved anywhere can bring a new unit with it, so saving one marks the
+ * units stale as well (markProductsChanged) - the next form asks again.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo } from 'react'
 
 import { useActiveCompany } from '@/Hooks/useActiveCompany'
+import { MASTER_DATA_STALE_MS, QUERY } from '@/Constants/queryKeys'
+import { useQuery } from '@/Library/queryCache'
 import { getProductUnits } from '@/Services/productService'
 
 const NO_UNITS = []
@@ -26,39 +32,20 @@ const NO_UNITS = []
 export default function useProductUnits() {
   const { activeCompanyName: companyName } = useActiveCompany()
 
-  const [state, setState] = useState({ status: 'loading', units: NO_UNITS, error: null, forKey: null })
-  const [attempt, setAttempt] = useState(0)
-  const request = useRef(null)
-
-  useEffect(() => {
-    if (!companyName) return
-
-    const requestKey = `${companyName}#${attempt}`
-    if (request.current === requestKey) return
-    request.current = requestKey
-
-    getProductUnits(companyName)
-      .then((units) => {
-        if (request.current === requestKey) setState({ status: 'ready', units, error: null, forKey: companyName })
-      })
-      .catch((failure) => {
-        if (request.current !== requestKey) return
-        setState({ status: 'failed', units: NO_UNITS, error: failure.message, forKey: companyName })
-      })
-  }, [companyName, attempt])
-
-  const mine = Boolean(companyName) && state.forKey === companyName
-  const units = mine ? state.units : NO_UNITS
+  const query = useQuery({
+    key: companyName ? [QUERY.PRODUCT_UNITS, companyName] : null,
+    fetch: () => getProductUnits(companyName),
+    staleTime: MASTER_DATA_STALE_MS,
+  })
+  // A failed request shows no units, as before; the next answer brings them.
+  const units = query.status === 'failed' ? NO_UNITS : (query.data ?? NO_UNITS)
 
   const options = useMemo(() => [...new Set(units)].map((unit) => ({ value: unit, label: unit })), [units])
 
   return {
-    status: !companyName ? 'idle' : mine ? state.status : 'loading',
+    status: !companyName ? 'idle' : query.status,
     options,
-    error: mine ? state.error : null,
-    retry: () => {
-      setState((previous) => ({ ...previous, forKey: null }))
-      setAttempt((count) => count + 1)
-    },
+    error: query.status === 'failed' ? query.error : null,
+    retry: query.reload,
   }
 }

@@ -10,8 +10,8 @@
  * forms already use (Components/Common/FormFields) - this file only chooses
  * between them.
  *
- *   text        a text box - but the HSN code (by its name, isHsnField) is
- *               chosen from the HSN list (HsnSelector)
+ *   text        a text box - but the HSN code (the "HSN Code" field,
+ *               PRODUCT_FIELD.HSN) is chosen from the HSN list (HsnSelector)
  *   number      a text box that takes digits, one decimal point and a minus
  *   dropdown    a dropdown of the field's own options
  *   date        the browser's date box
@@ -49,7 +49,7 @@ import { formatBytes } from '@/Components/Common/Loader'
 import { Button } from '@/Components/ui/button'
 import { Input } from '@/Components/ui/input'
 import { cn } from '@/Library/utils'
-import { isHsnField, PRODUCT_CATEGORY } from '../productList'
+import { PRODUCT_CATEGORY, PRODUCT_FIELD } from '../productList'
 import {
   isReferenceInput,
   PRODUCT_INPUT,
@@ -145,7 +145,7 @@ export default function ProductFieldInput({
   const common = { id, label, required, error, disabled, className }
 
   // The HSN code - a typed field by its definition - is chosen from the HSN list.
-  if (isHsnField(label) && (kind === PRODUCT_INPUT.TEXT || kind === PRODUCT_INPUT.NUMBER)) {
+  if (label === PRODUCT_FIELD.HSN && (kind === PRODUCT_INPUT.TEXT || kind === PRODUCT_INPUT.NUMBER)) {
     return <HsnSelector {...common} value={value ?? ''} onChange={onChange} />
   }
 

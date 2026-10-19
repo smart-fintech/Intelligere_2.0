@@ -43,6 +43,8 @@
  *   framed      true (the default) draws the form in its titled card, as the
  *               Ledger page does. false leaves the card off, for a dialog
  *               that already has a heading of its own - see LedgerActions.
+ *   defaults    a new ledger only: fields to start filled in ({ ledeger_name })
+ *               - the Sales Invoice's missing GST ledger suggests its name
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -126,6 +128,7 @@ export default function LedgerForm({
   isTally = false,
   onRefresh,
   framed = true,
+  defaults,
 }) {
   const editing = Boolean(ledger)
 
@@ -133,7 +136,13 @@ export default function LedgerForm({
      returns each ledger with all of these columns, under the same names the
      form uses. The PUT below still sends only what actually changed. */
   const [form, setForm] = useState(() => {
-    if (!ledger) return EMPTY_FORM
+    // A new ledger may start with some fields suggested (`defaults`) - only
+    // the form's own fields, and every one still editable.
+    if (!ledger) {
+      if (!defaults) return EMPTY_FORM
+      const known = Object.entries(defaults).filter(([field, value]) => field in EMPTY_FORM && typeof value === 'string')
+      return { ...EMPTY_FORM, ...Object.fromEntries(known) }
+    }
 
     const filled = Object.keys(EMPTY_FORM).reduce((values, field) => {
       const value = ledger[field]

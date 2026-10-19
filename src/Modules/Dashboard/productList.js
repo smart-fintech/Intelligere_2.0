@@ -4,19 +4,26 @@
  * `POST inventory/product/` (getProducts) answers with one object per
  * product, and inside it one per SKU:
  *
- *   { "product_name": "Air Conditioner", "total_qty": "4", "total_amount": "120000",
- *     "group": "Primary", "hsn_code": "84151010", "per_unit": "NOS",
- *     "gst_rate": "28", "category": "",
+ *   { "Product Name": "Cotton knitted fabric", "total_qty": "36", "total_amount": "4320",
+ *     "Group": "Primary", "HSN Code": "0101", "Per Unit": "MTR",
+ *     "GST Rate": "12", "Category": "Raw Material",
  *     "sku_variants": [
- *       { "product_id": 1, "sku_code": "", "total_qty": "4", "total_amount": "120000",
- *         "sku_details": { "Fabric Type": "Cotton", ... },        <- with SKUs only
+ *       { "product_id": 2401, "sku_code": "COT-COT-GOO-2-007", "stockitem_guid": "",
+ *         "total_qty": "36", "total_amount": "4320", "Selling Rate": "120",
+ *         "Width": "", "Manufacturing Date": "", ...      <- the SKU's own fields
  *         "product_details": [
- *           { "sr_no": 1, "source": "tally", "deleted": false, "Unit Rate": "30000",
- *             "product_quantity": "4", "expiry_date": null,
- *             "warehouse": [ { "id": "42", "warehouse_quantity": "4",
- *                              "level": "1", "shelf": "sh-1", "rack_no": "A-1" } ] } ],
- *         "vendor": [], "raw_reference": [], "semi_finished_reference": [],
- *         "photo": "", "selling_price": "30000" } ] }
+ *           { "sr_no": 1, "deleted": false, "Quantity": "12", "Unit Rate": "120",
+ *             "created_at": "12-Oct-26 12:39:56 PM",
+ *             "sku_details": { "Size": "4x9", "Color": "Pink", ... },
+ *             "warehouse": [ { "id": "8", "name": "nirmal warehouse", "level": "3",
+ *                              "shelf": "4", "rack_no": "3", "warehouse_quantity": "12" } ] } ],
+ *         "vendor": [ { "id": 3, "name": "..." } ],
+ *         "raw_reference": [], "semi_finished_reference": [], "past_version": {},
+ *         "photo": "" } ] }
+ *
+ * The product's own fields - and a SKU's "Selling Rate", an entry's
+ * "Quantity" - are named as the company's Customised Fields name them,
+ * and are read under exactly those keys (PRODUCT_FIELD), nothing else.
  *
  * The same shape for every user. A company with Inventory Management has
  * products with several SKUs, each with `sku_details`, several warehouses
@@ -82,10 +89,10 @@ const pick = (object, names) => {
 }
 
 /**
- * The first of some properties that holds a value - one the reply may send
- * under either of two names (`selling_rate` / `selling_price`). Unlike
- * pick, an empty text does not count, so `expiry_date: ""` gives way to
- * `Expiry Date: "2030-10-15"`. A 0 does count.
+ * The first of some properties that holds a value - for an entry's expiry
+ * date, which replies have carried both as `expiry_date` and as the field
+ * "Expiry Date". Unlike pick, an empty text does not count, so
+ * `expiry_date: null` gives way to `Expiry Date: "2030-10-15"`. A 0 does count.
  */
 const firstFilled = (object, names) => pick(object, names.filter((name) => textOf(object?.[name]) !== ''))
 
@@ -169,9 +176,25 @@ export const otherFields = (object, known = []) =>
  * company's own, shown as it came.
  */
 const WAREHOUSE_KEYS = ['id', 'warehouse_id', 'name', 'warehouse_name', 'warehouse_quantity', 'level', 'shelf', 'rack_no']
+
+/**
+ * THE PRODUCT'S OWN FIELDS, under the keys the product API sends them -
+ * which are also the `field_name`s of the company's Customised Fields for
+ * them. So a form field is matched to its saved value by its name,
+ * exactly, and a screen that needs one of these fields names it by its
+ * key here - never by guessing from a name.
+ */
+export const PRODUCT_FIELD = Object.freeze({
+  NAME: 'Product Name',
+  GROUP: 'Group',
+  HSN: 'HSN Code',
+  UNIT: 'Per Unit',
+  GST_RATE: 'GST Rate',
+  CATEGORY: 'Category',
+})
+
 const DETAIL_KEYS = [
   'Unit Rate',
-  'product_quantity',
   'Quantity',
   'expiry_date',
   'Expiry Date',
@@ -192,8 +215,7 @@ const VARIANT_KEYS = [
   'sku_details',
   'total_qty',
   'total_amount',
-  'selling_rate',
-  'selling_price',
+  'Selling Rate',
   'product_details',
   'vendor',
   'raw_reference',
@@ -204,17 +226,7 @@ const VARIANT_KEYS = [
   'expiry_product_id',
   'photo',
 ]
-const PRODUCT_KEYS = [
-  'product_name',
-  'hsn_code',
-  'group',
-  'per_unit',
-  'total_qty',
-  'total_amount',
-  'gst_rate',
-  'category',
-  'sku_variants',
-]
+const PRODUCT_KEYS = [...Object.values(PRODUCT_FIELD), 'total_qty', 'total_amount', 'sku_variants']
 
 /**
  * One warehouse allocation. The reply may give the warehouse a name, only
@@ -252,7 +264,7 @@ const readDetail = (detail, names) => ({
   source: detail,
   srNo: detail.sr_no ?? null,
   unitRate: detail['Unit Rate'],
-  quantity: firstFilled(detail, ['product_quantity', 'Quantity']),
+  quantity: detail.Quantity,
   // '' and null both mean "no expiry date".
   expiryDate: textOf(firstFilled(detail, ['expiry_date', 'Expiry Date'])) || null,
   createdAt: textOf(detail.created_at),
@@ -292,7 +304,6 @@ const readVariant = (variant, names) => {
     skuDetails: Object.entries(skuDetails),
     totalQty: variant.total_qty,
     totalAmount: variant.total_amount,
-    sellingPrice: firstFilled(variant, ['selling_rate', 'selling_price']),
     details: entries.map((detail) => readDetail(detail, names)),
     vendors: listOf(variant.vendor),
     rawReferences: ownOrEntries('raw_reference'),
@@ -323,7 +334,7 @@ const readVariant = (variant, names) => {
  *   every Unit Rate the product has (across its SKUs and their entries)
  *     all the same        that rate                     "30000"
  *     different           the lowest to the highest      "120 - 135"
- *   no Unit Rate at all   the same rule on its SKUs' selling prices
+ *   no Unit Rate at all   the same rule on its SKUs' "Selling Rate"
  *   neither               nothing ("--")
  *
  * `sortValue` is the lowest of them, so sorting the column by rate orders
@@ -333,7 +344,7 @@ const tidy = (number) => String(Number(number.toFixed(4)))
 
 const readRate = (variants) => {
   const unitRates = variants.flatMap((variant) => variant.details.map((detail) => numberOf(detail.unitRate)))
-  const sellingPrices = variants.map((variant) => numberOf(variant.sellingPrice))
+  const sellingPrices = variants.map((variant) => numberOf(variant.source['Selling Rate']))
 
   const rates = unitRates.filter((rate) => rate !== null)
   const numbers = rates.length > 0 ? rates : sellingPrices.filter((price) => price !== null)
@@ -357,7 +368,6 @@ const distinct = (values) => [...new Set(values.map(textOf).filter(Boolean))]
  *   name, hsn, group, unit, gstRate, category     the product's own
  *   quantity, totalAmount                         total_qty, total_amount
  *   rate, rateSort                                see readRate
- *   sellingPrice                                  its SKUs' selling prices, each once
  *   variants      its SKUs - see readVariant
  *   others        every other property the product carries
  *   source        the product exactly as the backend sent it
@@ -385,17 +395,16 @@ export const readProducts = (rows, warehouseNames = null) => {
       return {
         source: row,
         key,
-        name: textOf(row.product_name),
-        hsn: textOf(row.hsn_code),
-        group: textOf(row.group),
-        unit: textOf(row.per_unit),
+        name: textOf(row[PRODUCT_FIELD.NAME]),
+        hsn: textOf(row[PRODUCT_FIELD.HSN]),
+        group: textOf(row[PRODUCT_FIELD.GROUP]),
+        unit: textOf(row[PRODUCT_FIELD.UNIT]),
         quantity: row.total_qty,
         totalAmount: row.total_amount,
-        gstRate: textOf(row.gst_rate),
-        category: textOf(row.category),
+        gstRate: textOf(row[PRODUCT_FIELD.GST_RATE]),
+        category: textOf(row[PRODUCT_FIELD.CATEGORY]),
         rate: rate.text,
         rateSort: rate.sortValue,
-        sellingPrice: distinct(variants.map((variant) => variant.sellingPrice)).join(', '),
         variants,
         others: otherFields(row, PRODUCT_KEYS),
       }
@@ -472,6 +481,8 @@ export const hasMaterialReferences = (product) => isProductCategory(product, PRO
  *   vendors     its `vendor` list - [{ id, name }]
  *   references  { raw, semiFinished } - its current references
  *   pastVersion its `past_version` - { version_1: {...}, ... } - or {}
+ *   srNo        that entry's own `sr_no`, or null - sent back with it on
+ *               Save, so the backend updates THAT record
  */
 const textOrEmpty = (value) => (value === null || value === undefined ? '' : String(value))
 
@@ -511,66 +522,26 @@ export const productEditSource = (product, variant = null) => {
       semiFinished: (variant?.semiFinishedReferences ?? []).map(withSkuDetailsKey),
     },
     pastVersion: filledObject(variant?.source?.past_version) ?? filledObject(entry.past_version) ?? {},
+    srNo: entry.sr_no ?? null,
   }
 }
 
-/** A name as compared loosely: no capitals, nothing but letters and digits ("HSN Code" = hsn_code). */
-const looseKey = (name) => String(name ?? '').toLowerCase().replace(/[^a-z0-9]/g, '')
-
-/**
- * The list's FIXED keys, by the loose name a form field may have for them
- * where the loose names differ - "Unit" is `per_unit`, a product's
- * "Quantity" its entry's `product_quantity`.
- */
-const FIXED_KEYS = {
-  unit: 'per_unit',
-  quantity: 'product_quantity',
-  itemname: 'product_name',
-  hsn: 'hsn_code',
-}
-
-/** Whether a field, by its name, is an expiry date ("Expiry Date", expiry_date). */
-export const isExpiryDateField = (fieldName) => looseKey(fieldName) === 'expirydate'
-
-/** Whether a form field is the product's HSN code ("HSN Code", "HSN", hsn_code) - offered from the HSN list. */
-export const isHsnField = (fieldName) => ['hsn', 'hsncode'].includes(looseKey(fieldName))
-
-/** Whether a form field is the product's category - what decides its references. */
-export const isCategoryField = (fieldName) => looseKey(fieldName) === 'category'
-
-/** Whether a form field is the product's name - what an edit may not change. */
-export const isProductNameField = (fieldName) => ['productname', 'itemname', 'category','hsncode','group', 'perunit'].includes(looseKey(fieldName))
+/** Whether a column of the custom report, by its name, is an expiry date ("Expiry Date", expiry_date). */
+export const isExpiryDateField = (fieldName) => String(fieldName ?? '').toLowerCase().replace(/[^a-z0-9]/g, '') === 'expirydate'
 
 const isScalar = (value) => ['string', 'number', 'boolean'].includes(typeof value)
 
 /**
- * A FORM FIELD'S SAVED VALUE, looked up in `objects` in the order given:
- *
- *   1. under the field's own name, exactly - a Customised Field is saved,
- *      and listed, under its `field_name`
- *   2. under a fixed key of the list that is the same name loosely -
- *      "Product Name" is `product_name`, "HSN Code" `hsn_code`
- *   3. under the fixed key FIXED_KEYS gives the name
+ * A FORM FIELD'S SAVED VALUE: the first of `objects` (in the order given)
+ * that has it under the field's own name, exactly. A Customised Field is
+ * saved, and listed, under its `field_name` - "Product Name", "HSN Code",
+ * "Quantity" - so that is the one key to look under.
  *
  * Only a plain value counts (text, a number, yes/no) - never a list or an
  * object. undefined when none of them has one.
  */
-export const savedValue = (objects, fieldName) => {
-  const plain = objects.filter(isPlainObject)
-  const wanted = looseKey(fieldName)
-
-  const exact = plain.find((object) => isScalar(object[fieldName]))
-  if (exact) return exact[fieldName]
-
-  for (const object of plain) {
-    const key = Object.keys(object).find((name) => looseKey(name) === wanted && isScalar(object[name]))
-    if (key) return object[key]
-  }
-
-  const fixed = FIXED_KEYS[wanted]
-  const holder = fixed ? plain.find((object) => isScalar(object[fixed])) : undefined
-  return holder ? holder[fixed] : undefined
-}
+export const savedValue = (objects, fieldName) =>
+  objects.find((object) => isPlainObject(object) && isScalar(object[fieldName]))?.[fieldName]
 
 /** Every warehouse allocation of a SKU, across its entries. */
 export const variantWarehouses = (variant) => variant.details.flatMap((detail) => detail.warehouses)

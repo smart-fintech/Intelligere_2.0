@@ -81,6 +81,7 @@ import PaymentStatusPage from '@/Modules/Payment/Pages/PaymentStatusPage'
 import PremiumRechargePage from '@/Modules/Payment/Pages/PremiumRechargePage'
 import Profile from '@/Modules/Profile/Pages/Profile'
 import ComingSoonPage from '@/Modules/Misc/Pages/ComingSoonPage'
+import SalesInvoicePage from '@/Modules/SalesInvoice/Pages/SalesInvoicePage'
 import CreateSubUser from '@/Modules/SubUser/Pages/CreateSubUser'
 import NotFound from '@/Modules/Misc/Pages/NotFound'
 import ReportIssue from '@/Modules/Support/Pages/ReportIssue'
@@ -94,7 +95,9 @@ import ReportIssue from '@/Modules/Support/Pages/ReportIssue'
  * then set its status to AVAILABLE in Constants/dashboardModules. Its route,
  * sidebar row and card already exist.
  */
-const PRODUCT_MODULE_PAGES = {}
+const PRODUCT_MODULE_PAGES = {
+  'Sales Invoice': SalesInvoicePage,
+}
 
 export default function AppRoutes() {
   // The project's existing session check, read as a value so these routes

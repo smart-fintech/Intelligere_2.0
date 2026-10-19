@@ -179,7 +179,7 @@ function VariantsTab({ product }) {
               <DetailItem label="SKU Code">{variant.skuCode}</DetailItem>
               <DetailItem label="SKU Quantity">{displayValue(variant.totalQty)}</DetailItem>
               <DetailItem label="SKU Amount">{displayValue(variant.totalAmount)}</DetailItem>
-              <DetailItem label="Selling Rate">{displayValue(variant.sellingPrice)}</DetailItem>
+              <DetailItem label="Selling Rate">{displayValue(variant.source['Selling Rate'])}</DetailItem>
               {variant.skuDetails
                 .filter(([, value]) => isFilled(value))
                 .map(([name, value]) => (

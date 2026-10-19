@@ -10,8 +10,10 @@ import {
   findModule,
 } from '@/Constants/dashboardModules'
 import { ROUTES } from '@/Constants/routes'
+import { useActiveCompany } from '@/Hooks/useActiveCompany'
 import ModuleLayout from '@/Modules/Dashboard/Components/ModuleLayout'
 import { cn } from '@/Library/utils'
+import { hasActiveModule } from '@/Services/accessService'
 
 /**
  * Modules & Features - the landing page after signing in, and the first tab
@@ -27,21 +29,30 @@ import { cn } from '@/Library/utils'
  * all in this file.
  */
 
-/** One feature card: icon, name, and its status. */
-function FeatureCard({ module }) {
+/**
+ * One feature card: icon, name, and its status.
+ *
+ * A released module the company has (its `active_modules` - hasActiveModule)
+ * is a link to the module's page, the same path its sidebar row uses; the
+ * whole card is that one link. A released module the company does not have
+ * stays a card, and its tooltip says so. One still coming is a card too.
+ */
+function FeatureCard({ module, company }) {
   const Icon = module.icon
-  const available = module.status === MODULE_STATUS.AVAILABLE
+  const released = module.status === MODULE_STATUS.AVAILABLE
+  const open = released && hasActiveModule(company, module.key)
+  // The lift and the brand colours are for a card that does something.
+  const available = open
 
-  return (
-    // The app's shared tooltip, the same one the header buttons use.
-    <Tooltip text={module.description}>
+  const card = (
       <Card
-        // Focusable so a keyboard user can reach the tooltip too.
-        tabIndex={0}
+        // Focusable so a keyboard user can reach the tooltip too - the link
+        // around an open card is what takes the focus then.
+        tabIndex={open ? undefined : 0}
         className={cn(
           'gap-0 border-border/70 p-4 transition-all duration-200 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
-          // A released feature will be clickable one day, so it gets the lift;
-          // one that is still coming stays flat and slightly faded.
+          // A module that opens gets the lift; one still coming, or not active
+          // for this company, stays flat and slightly faded.
           available ? 'hover:-translate-y-0.5 hover:border-brand/40 hover:shadow-md' : 'opacity-90',
         )}
       >
@@ -73,6 +84,22 @@ function FeatureCard({ module }) {
           </div>
         </div>
       </Card>
+  )
+
+  return (
+    // The app's shared tooltip, the same one the header buttons use.
+    <Tooltip text={released && !open ? `${module.name} is not active for this company` : module.description}>
+      {open ? (
+        <Link
+          to={module.path}
+          aria-label={`Open ${module.name}`}
+          className="block rounded-xl outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+        >
+          {card}
+        </Link>
+      ) : (
+        card
+      )}
     </Tooltip>
   )
 }
@@ -107,12 +134,13 @@ function PremiumFeaturesCard() {
 
 export default function Dashboard() {
   const page = findModule('home')
+  const { activeCompany } = useActiveCompany()
 
   return (
     <ModuleLayout title={page.label}>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         {PRODUCT_MODULES.map((module) => (
-          <FeatureCard key={module.key} module={module} />
+          <FeatureCard key={module.key} module={module} company={activeCompany} />
         ))}
       </div>
 

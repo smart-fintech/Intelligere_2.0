@@ -25,11 +25,28 @@ import bankReducer from '@/Store/Slices/bankSlice'
 import companyReducer from '@/Store/Slices/companySlice'
 import inventoryReducer from '@/Store/Slices/inventorySlice'
 import ledgerReducer from '@/Store/Slices/ledgerSlice'
-import locationReducer from '@/Store/Slices/locationSlice'
+import locationReducer, { fetchCountries } from '@/Store/Slices/locationSlice'
 import profileReducer from '@/Store/Slices/profileSlice'
 import referralReducer from '@/Store/Slices/referralSlice'
 
+/**
+ * The country list (every country, state and city - megabytes of plain
+ * JSON that never changes) is left out of Redux Toolkit's development-only
+ * checks. Walking it on every action made the request that brings it in a
+ * long task of its own ("'loadend' handler took ...ms"). Production builds
+ * never run these checks.
+ */
+const COUNTRY_LIST_PATH = 'location.items'
+
 export const store = configureStore({
+  middleware: (getDefaultMiddleware) =>
+    getDefaultMiddleware({
+      serializableCheck: {
+        ignoredActions: [fetchCountries.fulfilled.type],
+        ignoredPaths: [COUNTRY_LIST_PATH],
+      },
+      immutableCheck: { ignoredPaths: [COUNTRY_LIST_PATH] },
+    }),
   // One key per slice. `state.profile` is what profileSlice owns.
   reducer: {
     bank: bankReducer,

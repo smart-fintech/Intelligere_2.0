@@ -53,7 +53,7 @@ import {
   perSkuFieldRank,
 } from '@/Constants/inventory'
 import { toInputDate } from '@/Utils/date'
-import { isCategoryField, referencesOfCategory, savedValue } from './productList'
+import { PRODUCT_FIELD, referencesOfCategory, savedValue } from './productList'
 
 /* ------------------------------------------------------------------ */
 /* Reading one field                                                  */
@@ -347,7 +347,7 @@ export const buildProductSteps = (rows, { skuActive = false } = {}) => {
  * out; step 1 never is.
  */
 export const applicableSteps = (steps, { values = {}, skuSets = [] } = {}) => {
-  const categoryField = steps.flatMap(stepFields).find((field) => isCategoryField(productFieldName(field)))
+  const categoryField = steps.flatMap(stepFields).find((field) => productFieldName(field) === PRODUCT_FIELD.CATEGORY)
   if (!categoryField) return steps
 
   const name = productFieldName(categoryField)

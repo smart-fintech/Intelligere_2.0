@@ -19,7 +19,7 @@
  * Two fields are recognised by NAME, because the screen does something with
  * them, and only when the rows really have them:
  *
- *   the product's name   ("Product Name", "Item Name" - isProductNameField)
+ *   the product's name   ("Product Name" - PRODUCT_FIELD.NAME)
  *                        what the search box looks through
  *   an expiry date       ("Expiry Date", expiry_date - isExpiryDateField)
  *                        the only thing an expiry range filter can read;
@@ -29,7 +29,7 @@
  *   filterCustomReport(rows, filters)        the rows the filters leave
  */
 
-import { displayValue, fieldLabel, isExpiryDateField, isProductNameField, isWithinDates, otherFields } from './productList'
+import { displayValue, fieldLabel, isExpiryDateField, isWithinDates, otherFields, PRODUCT_FIELD } from './productList'
 
 const isPlainObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value)
 const isScalar = (value) => ['string', 'number', 'boolean'].includes(typeof value)
@@ -99,7 +99,7 @@ export const readCustomReport = (rows, warehouseNames = null) => {
           .map((warehouse) => readWarehouse(warehouse, warehouseNames)),
       }
     }),
-    nameKey: columnKeys.find(isProductNameField) ?? null,
+    nameKey: columnKeys.includes(PRODUCT_FIELD.NAME) ? PRODUCT_FIELD.NAME : null,
     expiryKey: columnKeys.find(isExpiryDateField) ?? null,
   }
 }

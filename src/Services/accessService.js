@@ -64,6 +64,31 @@ const SECTION_ENTITLEMENTS = {
   [ACCESS_SECTIONS.PRODUCT]: hasInventoryManagement,
 }
 
+/* ------------------------------------------------------------------ */
+/* Product modules a company has                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Names compared as the backend may write them - case, spaces and
+ * punctuation ignored - the same rule the premium recharge page uses, so
+ * "Sales Invoice" and "sales-invoice" are one module.
+ */
+const compactName = (value) => String(value ?? '').toLowerCase().replace(/[^a-z0-9]/g, '')
+
+/** Whether a module list (`active_modules`, `premium_modules`) holds any of `names`. */
+export const listsModule = (list, names) => {
+  const wanted = new Set(names.map(compactName))
+  return (Array.isArray(list) ? list : []).some((entry) => wanted.has(compactName(entry)))
+}
+
+/**
+ * Whether the company - the active company's record from
+ * tally/user-companies-list/, which for a sub user is what they were given -
+ * has a product module: its `active_modules` lists the module's key
+ * (Constants/dashboardModules, PRODUCT_MODULES).
+ */
+export const hasActiveModule = (company, moduleKey) => listsModule(company?.active_modules, [moduleKey])
+
 /** True for the sub user role. */
 export const isSubUserRole = (role) => role === SUB_USER_ROLE
 

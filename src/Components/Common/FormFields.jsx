@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react'
-import { Eye, EyeOff, Lock } from 'lucide-react'
+import { Eye, EyeOff, Lock, Paperclip, X } from 'lucide-react'
 
+import { formatBytes } from '@/Components/Common/Loader/helpers'
+import { Checkbox } from '@/Components/ui/checkbox'
 import { Input } from '@/Components/ui/input'
 import { Label } from '@/Components/ui/label'
 import {
@@ -37,8 +39,10 @@ import { cn } from '@/Library/utils'
  *   Field          a labelled text box, optionally with an icon, a fixed
  *                  prefix ("+91") or something on its right (a button)
  *   PasswordField  a Field with the show / hide eye built in
- *   TextareaField  a labelled multi-line box
+ *   TextareaField  a labelled multi-line box, optionally with a "45/100" counter
  *   SelectField    a labelled dropdown
+ *   CheckboxField  a tick box with its label ("Same as Seller Details")
+ *   FileField      a labelled file picker that shows the chosen file
  *   SwitchField    a labelled on/off switch ("Fill from GSTIN")
  *   ToggleField    a setting row: label left, switch and On / Off right
  *   FormGrid       two columns from `sm` up, one on a phone
@@ -210,8 +214,14 @@ export function PasswordField({ icon = Lock, ...props }) {
  * `rows` sets the starting height - an address wants three or four, a note
  * more. It has no icon slot: an icon floating beside several lines of text
  * reads as clutter rather than as a label.
+ *
+ * `showCount` with a `maxLength` adds a live "45/100" under the box, so the
+ * user sees the limit coming rather than meeting it.
  */
-export function TextareaField({ id, label, required, error, className, rows = 3, ...props }) {
+export function TextareaField({ id, label, required, error, className, rows = 3, showCount, ...props }) {
+  const counted = showCount && props.maxLength
+  const length = String(props.value ?? '').length
+
   return (
     <div className={cn('space-y-1.5', className)}>
       <FieldLabel htmlFor={id} required={required}>
@@ -220,7 +230,22 @@ export function TextareaField({ id, label, required, error, className, rows = 3,
 
       <Textarea id={id} rows={rows} {...controlAria(id, { error, required })} {...props} />
 
-      <FieldError id={errorId(id)}>{error}</FieldError>
+      {counted ? (
+        <div className="flex items-start justify-between gap-2">
+          <FieldError id={errorId(id)}>{error}</FieldError>
+          <span
+            aria-live="polite"
+            className={cn(
+              'ml-auto shrink-0 text-xs tabular-nums',
+              length >= props.maxLength ? 'text-destructive' : 'text-muted-foreground',
+            )}
+          >
+            {`${length}/${props.maxLength}`}
+          </span>
+        </div>
+      ) : (
+        <FieldError id={errorId(id)}>{error}</FieldError>
+      )}
     </div>
   )
 }
@@ -237,10 +262,13 @@ const OPTIONS_PAGE = 100
  *
  * `options` is a list of `{ value, label }` - the caller maps its own data
  * into that shape, so this never has to know what it is showing. An
- * option may add a `title`, shown when it is hovered.
+ * option may add a `title`, shown when it is hovered, and `disabled: true`
+ * to be listed but not chosen (something the plan does not include).
  * `searchable` adds a filter box to the top of a long list (the states).
  * `size="sm"` draws the compact 32px box, to sit beside a Field given
  * inputClassName="h-8" in a form that has to stay short.
+ * With no `label` there is no <label> at all (as with Field) - pass
+ * `ariaLabel` then, for a dropdown whose purpose is given by its place.
  */
 export function SelectField({
   id,
@@ -256,6 +284,7 @@ export function SelectField({
   searchable,
   searchPlaceholder,
   size,
+  ariaLabel,
   className,
 }) {
   /* What is typed in the search box, and the options left after it.
@@ -303,6 +332,22 @@ export function SelectField({
     return chosen ? [chosen, ...drawn] : drawn
   }, [visibleOptions, limit, value])
 
+  /* While the list is closed only the chosen option is mounted.
+     ----------------------------------------------------------------
+     A closed Radix Select still mounts every item (into a detached
+     fragment), and each one registers itself from a layout effect - a chain
+     of state updates React must finish in one go, before the screen paints.
+     Two state dropdowns on the Seller step made that a ~200ms task when the
+     screen first appeared. Closed, the chosen option is all Radix needs (its
+     text in the trigger); the list is mounted the moment it opens, which
+     Radix does afresh in its popup anyway. */
+  const [open, setOpen] = useState(false)
+
+  const mountedOptions = useMemo(
+    () => (open ? drawnOptions : drawnOptions.filter((option) => option.value === value)),
+    [open, drawnOptions, value],
+  )
+
   const drawMore = (event) => {
     const list = event.currentTarget
     if (list.scrollHeight - list.scrollTop - list.clientHeight > 200) return
@@ -312,16 +357,19 @@ export function SelectField({
 
   return (
     <div className={cn('space-y-1.5', className)}>
-      <FieldLabel htmlFor={id} required={required}>
-        {label}
-      </FieldLabel>
+      {label ? (
+        <FieldLabel htmlFor={id} required={required}>
+          {label}
+        </FieldLabel>
+      ) : null}
 
       <Select
         value={value}
         onValueChange={onValueChange}
         disabled={disabled}
-        onOpenChange={(open) => {
-          if (open) return
+        onOpenChange={(next) => {
+          setOpen(next)
+          if (next) return
           setSearch('')
           setLimit(OPTIONS_PAGE)
         }}
@@ -329,7 +377,13 @@ export function SelectField({
         {/* The icon goes INSIDE the trigger rather than absolutely on top of
             it, so the chosen value is laid out beside it and never sits
             underneath. */}
-        <SelectTrigger id={id} size={size} className="w-full" {...controlAria(id, { error, required })}>
+        <SelectTrigger
+          id={id}
+          size={size}
+          className="w-full"
+          aria-label={label ? undefined : ariaLabel}
+          {...controlAria(id, { error, required })}
+        >
           {/* Brand blue, matching the icon in a Field. */}
           {Icon ? <Icon className="size-4 shrink-0 text-brand" /> : null}
           <SelectValue placeholder={placeholder} />
@@ -346,8 +400,8 @@ export function SelectField({
           }}
           onViewportScroll={drawMore}
         >
-          {drawnOptions.map((option) => (
-            <SelectItem key={option.value} value={option.value} title={option.title}>
+          {mountedOptions.map((option) => (
+            <SelectItem key={option.value} value={option.value} title={option.title} disabled={option.disabled}>
               {option.label}
             </SelectItem>
           ))}
@@ -360,6 +414,79 @@ export function SelectField({
           ) : null}
         </SelectContent>
       </Select>
+
+      <FieldError id={errorId(id)}>{error}</FieldError>
+    </div>
+  )
+}
+
+/**
+ * A tick box with its label on the right, the whole label clickable - for a
+ * yes/no that belongs to a form rather than a setting ("Same as Seller
+ * Details", "With Discount").
+ */
+export function CheckboxField({ id, label, checked, onCheckedChange, disabled, className }) {
+  return (
+    <div className={cn('flex items-center gap-2', className)}>
+      <Checkbox
+        id={id}
+        checked={Boolean(checked)}
+        disabled={disabled}
+        onCheckedChange={(next) => onCheckedChange?.(next === true)}
+      />
+      <Label
+        htmlFor={id}
+        className={cn('text-sm font-normal text-foreground', disabled ? 'opacity-60' : 'cursor-pointer')}
+      >
+        {label}
+      </Label>
+    </div>
+  )
+}
+
+/**
+ * A labelled file picker. Once a file is chosen it is shown by its name and
+ * size, with a button to take it out again - a file box cannot be told what
+ * it holds, so it is replaced rather than left showing "No file chosen".
+ *
+ *   value      the chosen File, or null
+ *   onChange   called with the File, or null when it is removed
+ *   accept     what the browser offers, e.g. "image/*"
+ */
+export function FileField({ id, label, required, error, value, onChange, accept, disabled, className }) {
+  return (
+    <div className={cn('space-y-1.5', className)}>
+      <FieldLabel htmlFor={id} required={required}>
+        {label}
+      </FieldLabel>
+
+      {value ? (
+        <div className="flex h-9 items-center gap-2 rounded-md border border-input bg-card pr-1 pl-3 text-sm shadow-xs">
+          <Paperclip className="size-4 shrink-0 text-brand" />
+          <span className="min-w-0 flex-1 truncate" title={value.name}>
+            {value.name}
+          </span>
+          <span className="shrink-0 text-xs text-muted-foreground">{formatBytes(value.size)}</span>
+          <button
+            type="button"
+            aria-label={`Remove ${value.name}`}
+            disabled={disabled}
+            onClick={() => onChange?.(null)}
+            className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-brand-soft hover:text-brand focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+      ) : (
+        <Input
+          id={id}
+          type="file"
+          accept={accept}
+          disabled={disabled}
+          {...controlAria(id, { error, required })}
+          onChange={(event) => onChange?.(event.target.files?.[0] ?? null)}
+        />
+      )}
 
       <FieldError id={errorId(id)}>{error}</FieldError>
     </div>

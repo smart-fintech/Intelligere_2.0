@@ -43,6 +43,7 @@ import {
   perSkuFieldRank,
 } from '@/Constants/inventory'
 import { api } from '@/Services/authService'
+import { changesProducts } from '@/Services/productCache'
 
 const MASTER_DETAILS_URL = 'inventory/company_master_details/'
 const SAMPLE_INVOICE_URL = 'invoice/SampleInvoice/'
@@ -471,7 +472,8 @@ export const uploadOpeningStock = (companyName, file) => {
   body.append('company_name', companyName)
   body.append('filed', file)
 
-  return api.post(OPENING_STOCK_URL, body, { headers: { 'Content-Type': 'multipart/form-data' } })
+  // Stock changes the product list's quantities.
+  return changesProducts(api.post(OPENING_STOCK_URL, body, { headers: { 'Content-Type': 'multipart/form-data' } }))
 }
 
 /* ------------------------------------------------------------------ */
@@ -696,7 +698,7 @@ export const createProduct = (payload, files = {}) => {
   // return api.post(PRODUCT_URL, body, { headers: { 'Content-Type': 'multipart/form-data' } })
 
   // NEW implementation - always FormData.
-  return api.post(PRODUCT_URL, productFormData(payload, files), MULTIPART)
+  return changesProducts(api.post(PRODUCT_URL, productFormData(payload, files), MULTIPART))
 }
 
 /* ------------------------------------------------------------------ */
@@ -728,14 +730,23 @@ export const createProduct = (payload, files = {}) => {
  * moment, are added to it together under the next key (nextPastVersionKey),
  * and the lists the user then builds become the current references. Only
  * on Save - nothing is sent before.
+ *
+ * WHICH RECORD. The entry is the one the edit was opened on, and carries
+ * that record's own `sr_no` (`srNo`, from the product list) so the backend
+ * updates it - and only it: the SKU's other records are not sent, so
+ * theirs stay as they are. With no `sr_no` saved, none is sent.
  */
-export const buildProductUpdatePayload = ({ productId, pastVersion = {}, ...product }) => {
+export const buildProductUpdatePayload = ({ productId, pastVersion = {}, srNo = null, ...product }) => {
   const payload = buildProductPayload(product)
 
   return {
     product_id: productId,
     ...payload,
-    product_details: payload.product_details.map((detail) => ({ ...detail, past_version: pastVersion })),
+    product_details: payload.product_details.map((detail, index) => ({
+      ...(index === 0 && srNo !== null ? { sr_no: srNo } : {}),
+      ...detail,
+      past_version: pastVersion,
+    })),
   }
 }
 
@@ -764,7 +775,8 @@ export const pastVersionOf = (references) => ({
 })
 
 /** Saves an edited SKU - see buildProductUpdatePayload. */
-export const updateProduct = (payload, files = {}) => api.put(PRODUCT_URL, productFormData(payload, files), MULTIPART)
+export const updateProduct = (payload, files = {}) =>
+  changesProducts(api.put(PRODUCT_URL, productFormData(payload, files), MULTIPART))
 
 /* ------------------------------------------------------------------ */
 /* Sample invoices - the formats the Invoice Format field offers       */

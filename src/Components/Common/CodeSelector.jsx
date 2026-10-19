@@ -145,7 +145,14 @@ export function CodeSelector({
       <Select
         value={code}
         disabled={disabled}
-        onValueChange={(next) => onChange?.(next === CLEAR ? '' : next)}
+        // Only a code, or Clear. Radix also reports '' on its own: its hidden
+        // native <select> has no option yet for a code the form has just put
+        // in (an existing product chosen, the dropdown closed), so it reads
+        // '' - and passing that on would wipe the code straight back out.
+        onValueChange={(next) => {
+          if (next === CLEAR) onChange?.('')
+          else if (next) onChange?.(next)
+        }}
         onOpenChange={(next) => {
           setOpen(next)
           if (next) return

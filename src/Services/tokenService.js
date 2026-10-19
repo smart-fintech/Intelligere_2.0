@@ -25,6 +25,7 @@ import axios from 'axios'
 
 import { ENV } from '@/Config/env'
 import { ROUTES } from '@/Constants/routes'
+import { clearQueryCache } from '@/Library/queryCache'
 import {
   STORAGE_KEYS,
   clearAll,
@@ -246,6 +247,8 @@ export const forceLogout = () => {
 
   stopInactivityWatch()
   clearAll()
+  // Nothing fetched for this session (products, groups...) reaches the next.
+  clearQueryCache()
   notifyTokenListeners(null)
 
   // Both of these are real routes now - see Routes/AppRoutes.jsx.
