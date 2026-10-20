@@ -76,26 +76,31 @@ async function withEmbeddableImages(model) {
 
 /**
  * The PDF of the invoice, as bytes. `model` is the invoice model
- * (invoiceModel.js) and `layout` the preview's layout for it. Throws with a
+ * (invoiceModel.js) and `layout` the preview's layout for it; for a challan,
+ * `copies` are the CHALLAN_COPIES values to print (all three when not given). Throws with a
  * message fit to show when it cannot be made.
  */
-export async function createInvoicePdf({ model, layout }) {
+export async function createInvoicePdf({ model, layout, copies }) {
   if (!layout || layout.model !== model || !layout.pages?.length) {
     throw new Error('The invoice preview is not ready yet.')
   }
 
-  const [{ pdf }, { default: InvoicePdfDocument }, printable] = await Promise.all([
+  // A challan has its own document - every copy chosen (`copies`) under its own heading.
+  const [{ pdf }, { default: PdfDocument }, printable] = await Promise.all([
     import('@react-pdf/renderer'),
-    import('@/Modules/SalesInvoice/Document/InvoicePdfDocument'),
+    model.challan
+      ? import('@/Modules/SalesInvoice/Document/ChallanPdfDocument')
+      : import('@/Modules/SalesInvoice/Document/InvoicePdfDocument'),
     withEmbeddableImages(model),
   ])
 
-  const pdfDocument = createElement(InvoicePdfDocument, {
+  const pdfDocument = createElement(PdfDocument, {
     model: printable,
     pages: layout.pages,
     rowsByKey: Object.fromEntries(model.rows.map((row) => [row.key, row])),
     rowPx: layout.rowPx,
     metrics: layout.metrics,
+    ...(model.challan ? { copies } : null),
   })
   const bytes = new Uint8Array(await (await pdf(pdfDocument).toBlob()).arrayBuffer())
 

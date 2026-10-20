@@ -54,7 +54,8 @@
  * FormData into JSON, and axios hands the browser the real boundary itself.
  */
 
-import { DOCUMENT_TYPES } from '@/Constants/salesInvoice'
+import { ENV } from '@/Config/env'
+import { DOCUMENT_TYPES, DOCUMENT_TYPE_CHALLAN } from '@/Constants/salesInvoice'
 import { getEmail } from '@/Library/secureStorage'
 import { hasActiveModule, listsModule } from '@/Services/accessService'
 import { api } from '@/Services/authService'
@@ -62,6 +63,7 @@ import { updateCompany } from '@/Services/companyService'
 import { getLedgerId, updateLedger } from '@/Services/ledgerService'
 import { changesProducts } from '@/Services/productCache'
 import { toInputDate } from '@/Utils/date'
+import { gstChargesByLedger } from '@/Utils/gstLedgers'
 
 const BUSINESS_DOCUMENT_URL = 'invoice/business-documents/'
 const DOCUMENT_PDF_URL = 'invoice/save-document-pdf/'
@@ -131,6 +133,9 @@ const rateString = (applies, rate) => (applies ? Number(rate || 0).toFixed(2) : 
 /* The document payload                                               */
 /* ------------------------------------------------------------------ */
 
+/** product_data's `product_type` for a service line (a ledger) - a product line keeps "Product". */
+export const SERVICE_PRODUCT_TYPE = 'Service'
+
 /** Marks a row of other_details as one added in the Other Charges section. */
 export const OTHER_CHARGES_SOURCE = 'Other Charges'
 
@@ -184,6 +189,11 @@ export const buildBusinessDocumentPayload = (request) => {
 
   const [first, second, third] = document.autoIncrement ? document.invoiceNoParts.map(text) : ['', '', '']
 
+  // A CHALLAN carries goods, not money: its lines without rates, amounts or
+  // taxes, no other_details and no gst_charges, totals of 0. Everything else
+  // is the document as any other type sends it.
+  const challan = request.documentType === DOCUMENT_TYPE_CHALLAN
+
   const masterDetails = {
     document_no: request.invoiceNo,
     document_date: toDocumentDate(document.invoiceDate),
@@ -208,24 +218,57 @@ export const buildBusinessDocumentPayload = (request) => {
     delivery_vehicle_no: text(document.vehicleNo).toUpperCase(),
     distance: numberOrNull(document.distance),
     delivery_mode: text(document.deliveryMode),
-    rcm: request.reverseCharge,
+    rcm: challan ? false : request.reverseCharge,
+    // A challan's own details - only on a challan, under the names the
+    // earlier challan screens gave them (challan_type) or, new, beside
+    // document_no / reference_no (invoice_no, invoice_date).
+    ...(challan
+      ? {
+          invoice_no: text(document.challanInvoiceNo),
+          invoice_date: toDocumentDate(document.challanInvoiceDate),
+          challan_type: text(document.challanType),
+        }
+      : null),
   }
 
-  const productData = request.lines.map((line) => ({
-    'Product Name': line.productName,
-    Description: text(line.description),
-    product_type: 'Product',
-    Quantity: text(line.quantity),
-    discount: line.figures.discountPercent,
-    hsn_sac_code: numberOrNull(line.hsn),
-    // The amount tax is charged on - Quantity x Rate, less the line's discount.
-    product_amount: rupees(line.figures.taxablePaise).toFixed(2),
-    sku_code: line.skuCode,
-    sku_details: line.skuDetails,
-    ...taxFields(line.figures, interState, (rate) => rateString(true, rate)),
-    'Selling Rate': text(line.rate),
-    'Per Unit': text(line.per),
-  }))
+  // A product line as it always was. A service line (a ledger) has the same
+  // fields under the same names, `product_type: "service"`, its ledger's name
+  // as the "Product Name", its SAC as hsn_sac_code - and none of the
+  // product-only ones: no sku_code, sku_details or "Per Unit".
+  const productData = request.lines.map((line) => {
+    if (challan) {
+      return {
+        'Product Name': line.productName,
+        Description: text(line.description),
+        product_type: 'Product',
+        Quantity: text(line.quantity),
+        hsn_sac_code: numberOrNull(line.hsn),
+        sku_code: line.skuCode,
+        sku_details: line.skuDetails,
+        'Per Unit': text(line.per),
+      }
+    }
+    const common = {
+      'Product Name': line.productName,
+      Description: text(line.description),
+      product_type: line.service ? SERVICE_PRODUCT_TYPE : 'Product',
+      Quantity: text(line.quantity),
+      discount: line.figures.discountPercent,
+      hsn_sac_code: numberOrNull(line.hsn),
+      // The amount tax is charged on - Quantity x Rate, less the line's discount.
+      product_amount: rupees(line.figures.taxablePaise).toFixed(2),
+    }
+    const taxes = taxFields(line.figures, interState, (rate) => rateString(true, rate))
+    if (line.service) return { ...common, ...taxes, 'Selling Rate': text(line.rate) }
+    return {
+      ...common,
+      sku_code: line.skuCode,
+      sku_details: line.skuDetails,
+      ...taxes,
+      'Selling Rate': text(line.rate),
+      'Per Unit': text(line.per),
+    }
+  })
 
   // Only what applies to this document, each under the names the contract
   // gives it: every Other Charges row under its own ledger's name, marked
@@ -235,6 +278,7 @@ export const buildBusinessDocumentPayload = (request) => {
   // worked out), TCS only when charged; the note only when written. Nothing
   // applying is sent as {} - never as empty or zero placeholder entries.
   const otherDetails = {}
+  const forChallan = (value, empty) => (challan ? empty : value)
   request.charges.forEach((charge) => {
     if (!charge.ledgerName) return
     otherDetails[charge.ledgerName] = {
@@ -253,8 +297,26 @@ export const buildBusinessDocumentPayload = (request) => {
     otherDetails['round off'] = { [request.roundOff.ledgerName]: rupees(figures.roundOffPaise) }
   }
   if (text(request.note)) otherDetails.note = text(request.note)
+  // A challan has no Other Details at all - nothing stale from them is sent.
+  if (challan) Object.keys(otherDetails).forEach((key) => delete otherDetails[key])
 
-  const gstCharges = Object.fromEntries(request.gstCharges.map((entry) => [`${entry.tax} ${entry.rateText}%`, rupees(entry.paise)]))
+  // gst_charges is keyed by the LEDGER each tax is posted to - the real
+  // ledger chosen for it (Utils/gstLedgers: GST mapping, else the ledger for
+  // that rate, else the tax's basic ledger), never a name made up from the
+  // tax and rate. gstChargesByLedger is the one grouping - the printed
+  // invoice shows exactly these names and amounts. A charge with no ledger is
+  // never sent: the save is refused here, before invoice/business-documents/
+  // is called (the screen refuses it earlier).
+  const charges = gstChargesByLedger(challan ? [] : request.gstCharges)
+  const unposted = charges.filter((charge) => !charge.ledger).flatMap((charge) => charge.entries)
+  if (unposted.length > 0) {
+    const taxes = [...new Set(unposted.map((entry) => entry.tax))]
+    throw new Error(
+      `${taxes.join(', ')} ledger is missing (needed for ${unposted.map((entry) => `${entry.tax} ${entry.rateText}%`).join(', ')}). ` +
+        `Please create the required ${taxes.join(' / ')} ledger before creating this document.`,
+    )
+  }
+  const gstCharges = Object.fromEntries(charges.map((charge) => [charge.ledger, rupees(charge.paise)]))
 
   return {
     seller_id: request.sellerId ?? '',
@@ -262,8 +324,8 @@ export const buildBusinessDocumentPayload = (request) => {
     bank_id: request.bankId ?? '',
     created_by: getEmail() || '',
     document_type: request.documentType,
-    total_amount: rupees(figures.totalPaise),
-    total_taxable_amount: rupees(figures.taxablePaise),
+    total_amount: forChallan(rupees(figures.totalPaise), 0),
+    total_taxable_amount: forChallan(rupees(figures.taxablePaise), 0),
     prefill_from: JSON.stringify({}),
     ship_to: JSON.stringify(shipTo),
     dispatch_from: JSON.stringify(dispatchFrom),
@@ -290,8 +352,18 @@ const toFormData = (fields) => {
 
 /** 1. Saves the document -> { document_id, msg }. */
 // A saved or deleted document can move stock - the cached product list is marked stale.
-export const createBusinessDocument = (request) =>
-  changesProducts(api.post(BUSINESS_DOCUMENT_URL, toFormData(buildBusinessDocumentPayload(request)), MULTIPART))
+// A payload that cannot be built (a GST charge with no ledger) is a rejected
+// request - never a thrown one - so the save shows its message like any other
+// failure, and nothing is sent.
+export const createBusinessDocument = (request) => {
+  let body
+  try {
+    body = toFormData(buildBusinessDocumentPayload(request))
+  } catch (failure) {
+    return Promise.reject(failure)
+  }
+  return changesProducts(api.post(BUSINESS_DOCUMENT_URL, body, MULTIPART))
+}
 
 /** The saved document's id from the reply - null when it sent none. */
 export const documentIdOf = (response) => response?.document_id ?? response?.data?.document_id ?? null
@@ -315,6 +387,36 @@ export const saveDocumentPdf = (documentId, pdfBytes, fileName) =>
 export const documentPdfFileName = (documentLabel, invoiceNo) => {
   const safe = (value) => text(value).replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ')
   return `${[safe(documentLabel) || 'Document', safe(invoiceNo)].filter(Boolean).join('-')}.pdf`
+}
+
+/* ------------------------------------------------------------------ */
+/* The bank's payment QR                                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The payment QR a bank account carries (bank_statement/bankDetails/'s
+ * `payment_qr`), as the Payment QR field holds it - or null when it has none:
+ *
+ *   { url, name, fromBank: true }
+ *
+ * The backend sends the file as a link: a full URL is used as it is; a path
+ * ("/media/bank_qr/x.png") is read against the API's own origin, where it
+ * serves its files. Empty values ("", null, "null") are no QR. This is a
+ * reference to the file the bank already has - it is shown, never uploaded
+ * as if it were a new file.
+ */
+export const paymentQrOfBank = (bank) => {
+  const raw = text(bank?.payment_qr)
+  if (!raw || ['null', 'none', 'undefined'].includes(raw.toLowerCase())) return null
+  try {
+    const url = /^(https?:|data:|blob:)/i.test(raw)
+      ? raw
+      : new URL(raw.startsWith('/') ? raw : `/${raw}`, new URL(ENV.API_BASE_URL, window.location.href).origin).href
+    const fileName = /^data:/i.test(url) ? '' : decodeURIComponent(url.split('?')[0].split('/').pop() || '')
+    return { url, name: fileName || 'Payment QR', fromBank: true }
+  } catch {
+    return null
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -645,7 +747,8 @@ export const buildTallyInvoiceFetchMessage = (companyName, { startYear, startMon
  * the screen already holds - so the builder above never looks anything up:
  *
  *   form, figures            the form and invoiceFigures(form)
- *   gstCharges               gstByRate(figures), each with its `rateText`
+ *   gstCharges               gstByRate(figures), each with its `rateText` and
+ *                            the `ledger` it is posted to (resolveGstLedgers)
  *   company                  the active company's record
  *   dispatch, shipping       effectiveDispatch / effectiveShipping, each with
  *                            its `stateCode`
@@ -694,6 +797,10 @@ export const buildInvoiceSaveRequest = ({
       figures: figures.charges[charge.id],
     })),
     lines: form.lines.map((line) => {
+      // A service line is the ledger chosen for it: its name, and no SKU.
+      if (line.kind === 'service') {
+        return { ...line, service: true, productName: ledgerName(line.ledgerId), figures: figures.lines[line.id] }
+      }
       const product = productsByKey.get(line.productKey)
       const variant = lineVariantOf(product, line)
       return {

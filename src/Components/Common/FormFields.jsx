@@ -449,7 +449,8 @@ export function CheckboxField({ id, label, checked, onCheckedChange, disabled, c
  * size, with a button to take it out again - a file box cannot be told what
  * it holds, so it is replaced rather than left showing "No file chosen".
  *
- *   value      the chosen File, or null
+ *   value      the chosen File, a file already on the server as { url, name }
+ *              (shown as a thumbnail, never re-uploaded), or null
  *   onChange   called with the File, or null when it is removed
  *   accept     what the browser offers, e.g. "image/*"
  */
@@ -462,11 +463,18 @@ export function FileField({ id, label, required, error, value, onChange, accept,
 
       {value ? (
         <div className="flex h-9 items-center gap-2 rounded-md border border-input bg-card pr-1 pl-3 text-sm shadow-xs">
-          <Paperclip className="size-4 shrink-0 text-brand" />
+          {/* A file already on the server ({ url, name }) shows itself; a picked one its name and size. */}
+          {value.url ? (
+            <img src={value.url} alt="" className="size-6 shrink-0 rounded-sm border border-border object-contain" />
+          ) : (
+            <Paperclip className="size-4 shrink-0 text-brand" />
+          )}
           <span className="min-w-0 flex-1 truncate" title={value.name}>
             {value.name}
           </span>
-          <span className="shrink-0 text-xs text-muted-foreground">{formatBytes(value.size)}</span>
+          {typeof value.size === 'number' ? (
+            <span className="shrink-0 text-xs text-muted-foreground">{formatBytes(value.size)}</span>
+          ) : null}
           <button
             type="button"
             aria-label={`Remove ${value.name}`}

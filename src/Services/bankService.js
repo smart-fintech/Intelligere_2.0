@@ -83,17 +83,40 @@ export const getBankList = async () => toList(await api.get(ALL_BANKS_URL))
 /* Writing                                                            */
 /* ------------------------------------------------------------------ */
 
+/*
+ * Add and change both go up as multipart FormData, because a bank can carry
+ * a payment QR image (`payment_qr`). They always do, with a file or without,
+ * so the backend reads one kind of body.
+ *
+ * The Content-Type is named for these calls, as for the ledger CSV import:
+ * the shared axios instance sends JSON by default, and with that header
+ * axios would turn the FormData, file and all, into a JSON body. Naming
+ * multipart stops that; the browser then writes it with the real boundary.
+ */
+const MULTIPART = { headers: { 'Content-Type': 'multipart/form-data' } }
+
+/** A plain object as FormData - every value as text, files as they are. */
+const toFormData = (fields) => {
+  const body = new FormData()
+  Object.entries(fields).forEach(([key, value]) => {
+    if (value instanceof Blob) body.append(key, value, value.name || key)
+    else body.append(key, value === null || value === undefined ? '' : String(value))
+  })
+  return body
+}
+
 /**
  * Adds a bank account.
  *
  * The payload is exactly what the backend asks for, named as it names it:
- *   { bank_name, bank_ledger_name, account_no, ifsc_code, comp_id }
+ *   { bank_name, bank_ledger_name, account_no, ifsc_code, company_id, payment_qr? }
  *
- * `comp_id` comes from the selected company - the form fills it in, so the
- * user is never asked to type a company id. Checking the rest of the fields
- * is the form's job, not this file's.
+ * `company_id` comes from the selected company - the form fills it in, so the
+ * user is never asked to type a company id. `payment_qr` is the QR image File,
+ * left out when none was chosen. Checking the rest of the fields is the
+ * form's job, not this file's.
  */
-export const addBank = (payload) => api.post(BANK_DETAILS_URL, payload)
+export const addBank = (payload) => api.post(BANK_DETAILS_URL, toFormData(payload), MULTIPART)
 
 /**
  * Changes a bank account.
@@ -102,8 +125,10 @@ export const addBank = (payload) => api.post(BANK_DETAILS_URL, payload)
  * come with it, so the form sends the id plus whatever the user actually
  * edited:
  *   { id, ifsc_code: "343333xx" }
+ *   { id, payment_qr: <File> }      a new QR
+ *   { id, payment_qr: '' }          the QR taken off
  */
-export const updateBank = (payload) => api.put(BANK_DETAILS_URL, payload)
+export const updateBank = (payload) => api.put(BANK_DETAILS_URL, toFormData(payload), MULTIPART)
 
 /**
  * Removes a bank account.

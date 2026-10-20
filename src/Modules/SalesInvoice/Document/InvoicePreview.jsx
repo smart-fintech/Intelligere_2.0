@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Download, Maximize2, Minus, Plus } from 'lucide-react'
 
 import { Button } from '@/Components/ui/button'
+import { ChallanMeasureHost, ChallanSheet } from '@/Modules/SalesInvoice/Document/ChallanTemplate'
 import { InvoiceSheet, MeasureHost } from '@/Modules/SalesInvoice/Document/InvoiceTemplate'
 import { A4 } from '@/Modules/SalesInvoice/Document/invoicePagination'
 import useInvoiceLayout from '@/Modules/SalesInvoice/Document/useInvoiceLayout'
@@ -31,6 +32,9 @@ export default function InvoicePreview({ model, onLayout, onDownload, downloadin
   const innerRef = useRef(null)
   const [frameWidth, setFrameWidth] = useState(0)
   // A hidden panel has no width - its sheets are measured once it shows again.
+  // A challan has its own sheet (ChallanTemplate), measured and split the same way.
+  const Sheet = model.challan ? ChallanSheet : InvoiceSheet
+  const Host = model.challan ? ChallanMeasureHost : MeasureHost
   const { register, layout } = useInvoiceLayout(model, frameWidth > 0)
 
   const rowsByKey = useMemo(() => Object.fromEntries(model.rows.map((row) => [row.key, row])), [model])
@@ -116,7 +120,7 @@ export default function InvoicePreview({ model, onLayout, onDownload, downloadin
             style={{ width: A4.width, transform: `scale(${zoom})`, transformOrigin: 'top left' }}
           >
             {pages.map((page, index) => (
-              <InvoiceSheet
+              <Sheet
                 key={index}
                 model={model}
                 page={page}
@@ -127,7 +131,7 @@ export default function InvoicePreview({ model, onLayout, onDownload, downloadin
             ))}
           </div>
         </div>
-        <MeasureHost model={model} register={register} />
+        <Host model={model} register={register} />
       </div>
     </div>
   )

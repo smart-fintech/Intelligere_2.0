@@ -19,6 +19,9 @@
  *   invoice.editLine(id)        loads an added line back into the entry form
  *   invoice.cancelEntry()       empties the entry form, ends an edit
  *   invoice.removeLine(id)
+ *   invoice.setEntryMode('product' | 'service')   the Product / Service choice -
+ *                               a new line is entered as that kind (an edit
+ *                               in progress is ended, the entry form emptied)
  *
  *   invoice.addCharge() / updateCharge(id, changes) / removeCharge(id)
  *   invoice.applyDocumentDefaults(reply)   invoice/last-document-number/'s answer -
@@ -32,11 +35,16 @@
 import { useCallback, useRef, useState } from 'react'
 
 import {
+  LINE_KIND,
   commitEntryToLines,
   createInvoiceForm,
   emptyAddress,
+  entryModeOf,
   newChargeRow,
   newInvoiceLine,
+  isChallan,
+  isEntryDirty,
+  isServiceLine,
   withDocumentDefaults,
 } from '@/Modules/SalesInvoice/salesInvoiceForm'
 
@@ -66,9 +74,30 @@ export default function useSalesInvoiceForm(company) {
     (path, value) => {
       const [section, field] = path.split('.')
       touched.current.add(path)
-      setForm((previous) =>
-        field ? { ...previous, [section]: { ...previous[section], [field]: value } } : { ...previous, [section]: value },
-      )
+      setForm((previous) => {
+        const next = field
+          ? { ...previous, [section]: { ...previous[section], [field]: value } }
+          : { ...previous, [section]: value }
+        // Reverse Charge Applicable forces Service: the entry form becomes a
+        // service one (a product half typed in cannot stay). Unticked, the
+        // Product / Service choice is back as it was - Product unless Service
+        // was picked - except that a service half typed in is kept, with the
+        // choice on Service. A line being edited is left alone either way.
+        // A Challan takes products only: a service in the entry form gives way to a product.
+        if (path === 'documentType' && isChallan(next) && !next.editingLineId && isServiceLine(next.entry)) {
+          return { ...next, entry: newInvoiceLine(LINE_KIND.PRODUCT) }
+        }
+        if (path === 'settings.reverseCharge' && !next.editingLineId) {
+          if (value) {
+            if (!isServiceLine(next.entry)) return { ...next, entry: newInvoiceLine(LINE_KIND.SERVICE) }
+          } else if (isServiceLine(next.entry) && isEntryDirty(next.entry)) {
+            return { ...next, entryMode: LINE_KIND.SERVICE }
+          } else if (next.entry.kind !== next.entryMode) {
+            return { ...next, entry: newInvoiceLine(next.entryMode) }
+          }
+        }
+        return next
+      })
       clearErrors([path])
     },
     [clearErrors],
@@ -126,7 +155,19 @@ export default function useSalesInvoiceForm(company) {
   }, [])
 
   const cancelEntry = useCallback(() => {
-    setForm((previous) => ({ ...previous, entry: newInvoiceLine(), editingLineId: null }))
+    setForm((previous) => ({ ...previous, entry: newInvoiceLine(entryModeOf(previous)), editingLineId: null }))
+    setErrors((previous) => withoutErrorsOf(previous, 'entry.'))
+  }, [])
+
+  /** Product / Service - a new line is entered as that kind; the entry form starts empty. */
+  const setEntryMode = useCallback((mode) => {
+    if (mode !== LINE_KIND.PRODUCT && mode !== LINE_KIND.SERVICE) return
+    setForm((previous) => {
+      const next = { ...previous, entryMode: mode }
+      const kind = entryModeOf(next)
+      if (previous.entryMode === mode && previous.entry.kind === kind) return previous
+      return { ...next, entry: newInvoiceLine(kind), editingLineId: null }
+    })
     setErrors((previous) => withoutErrorsOf(previous, 'entry.'))
   }, [])
 
@@ -135,7 +176,7 @@ export default function useSalesInvoiceForm(company) {
       ...previous,
       lines: previous.lines.filter((line) => line.id !== id),
       // Removing the line being edited ends the edit, so Update cannot re-add it.
-      ...(previous.editingLineId === id ? { entry: newInvoiceLine(), editingLineId: null } : null),
+      ...(previous.editingLineId === id ? { entry: newInvoiceLine(entryModeOf(previous)), editingLineId: null } : null),
     }))
     setErrors((previous) => withoutErrorsOf(previous, `lines.${id}.`))
   }, [])
@@ -186,6 +227,7 @@ export default function useSalesInvoiceForm(company) {
     commitEntry,
     editLine,
     cancelEntry,
+    setEntryMode,
     removeLine,
     addCharge,
     updateCharge,

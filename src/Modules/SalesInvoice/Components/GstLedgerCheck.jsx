@@ -11,7 +11,7 @@ import { ACCESS_SECTIONS } from '@/Services/accessService'
 import { fetchBankOptions, selectBankNames } from '@/Store/Slices/bankSlice'
 import { fetchLedgerGroups, fetchLedgers, selectLedgerGroups } from '@/Store/Slices/ledgerSlice'
 import { selectIsTallyErp } from '@/Store/Slices/profileSlice'
-import { gstListText } from '@/Utils/gstLedgers'
+import { missingGstTypes } from '@/Utils/gstLedgers'
 
 /**
  * What stands between the document and Save when a GST ledger it needs is
@@ -21,9 +21,11 @@ import { gstListText } from '@/Utils/gstLedgers'
  *           (the workspace's gstCheck - Utils/gstLedgers)
  *   onOpenMapping()   opens GST Ledger Mapping, to map an existing ledger
  *
- * "Create ledger" opens the app's own Ledger Form (the one on Ledger Details
- * and behind the header's Add > Add Ledger Creation) in a dialog, its name
- * suggested from the tax and rate - every field still the user's to change,
+ * A tax is missing only when the company has no ledger for it at all - not
+ * for that rate, and no basic one (Utils/gstLedgers) - so the message names
+ * the TAX. "Create CGST ledger" opens the app's own Ledger Form (the one on
+ * Ledger Details and behind the header's Add > Add Ledger Creation) in a
+ * dialog, its name suggested (missingGstTypes) - every field still the user's to change,
  * and saved the way that form always saves (the API, or Tally over the
  * WebSocket). Nothing is created without it. Once saved, the ledgers are read
  * again (the same thunk the Ledger page uses), the GST ledgers are matched
@@ -37,7 +39,7 @@ export default function GstLedgerCheck({ check, companyId, companyName, disabled
   const bankNames = useSelector(selectBankNames)
   const isTally = useSelector(selectIsTallyErp)
   const canCreate = useSectionAccess(ACCESS_SECTIONS.LEDGER).create
-  // The tax and rate the open dialog is creating a ledger for, or null.
+  // The missing tax ({ tax, rates, suggestedName }) the open dialog creates a ledger for, or null.
   const [creating, setCreating] = useState(null)
 
   if (check.status === 'failed') {
@@ -61,28 +63,27 @@ export default function GstLedgerCheck({ check, companyId, companyName, disabled
     dispatch(fetchLedgers({ companyId, force: true }))
   }
 
-  const rate = (entry) => String(Number(Number(entry.rate).toFixed(4)))
+  const rate = (value) => String(Number(Number(value).toFixed(4)))
+  const types = missingGstTypes(check.missing)
 
   return (
     <>
       <div role="alert" className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 px-2.5 py-2 text-xs text-destructive">
-        <p>
-          <span className="font-semibold">No GST ledger found for {gstListText(check.missing)}.</span> The document cannot be
-          saved until each has one: map an existing ledger, or create it.
-        </p>
+        <ul className="space-y-0.5">
+          {types.map((type) => (
+            <li key={type.tax}>
+              <span className="font-semibold">{type.tax} ledger is missing</span> - needed for{' '}
+              {type.rates.map((value) => `${type.tax} ${rate(value)}%`).join(', ')}. Please create the required {type.tax}{' '}
+              ledger before creating this invoice.
+            </li>
+          ))}
+        </ul>
+        <p>The document cannot be saved until each tax has a ledger: map an existing one, or create it.</p>
         <div className="flex flex-wrap items-center gap-2">
           {canCreate
-            ? check.missing.map((entry) => (
-                <Button
-                  key={`${entry.tax}|${entry.rate}`}
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  icon={Plus}
-                  disabled={disabled}
-                  onClick={() => open(entry)}
-                >
-                  Create {entry.tax} {rate(entry)}% ledger
+            ? types.map((type) => (
+                <Button key={type.tax} type="button" variant="outline" size="sm" icon={Plus} disabled={disabled} onClick={() => open(type)}>
+                  Create {type.tax} ledger
                 </Button>
               ))
             : null}
@@ -96,14 +97,14 @@ export default function GstLedgerCheck({ check, companyId, companyName, disabled
       <Modal
         open={Boolean(creating)}
         onOpenChange={(next) => (next ? null : setCreating(null))}
-        title={creating ? `Create ${creating.tax} ${rate(creating)}% ledger` : 'Create ledger'}
+        title={creating ? `Create ${creating.tax} ledger` : 'Create ledger'}
         size="lg"
       >
         {creating ? (
           <LedgerForm
-            key={`${creating.tax}|${creating.rate}`}
+            key={creating.tax}
             ledger={null}
-            defaults={{ ledeger_name: `${creating.tax} @ ${rate(creating)}%` }}
+            defaults={{ ledeger_name: creating.suggestedName }}
             companyId={companyId}
             companyName={companyName}
             groups={groups}

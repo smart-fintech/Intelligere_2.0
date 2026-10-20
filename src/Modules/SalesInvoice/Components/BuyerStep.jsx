@@ -11,6 +11,7 @@ import {
   buyerFromLedger,
   effectiveShipping,
   portalRequiredFields,
+  portalSettingsOf,
   textOf,
   withCurrentOption,
 } from '@/Modules/SalesInvoice/salesInvoiceForm'
@@ -219,7 +220,7 @@ export default function BuyerStep({ invoice, ledgers, countries, disabled }) {
           prefix="shipping"
           value={effectiveShipping(form)}
           locked={form.shippingSameAsBuyer}
-          required={portalRequiredFields(form.settings, 'shipping')}
+          required={portalRequiredFields(portalSettingsOf(form), 'shipping')}
           errors={errors}
           errorKeyOf={(field) => (form.shippingSameAsBuyer ? `buyer.${field}` : `shipping.${field}`)}
           disabled={disabled}

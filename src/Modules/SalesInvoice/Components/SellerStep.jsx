@@ -15,7 +15,9 @@ import PartyAddressFields from '@/Modules/SalesInvoice/Components/PartyAddressFi
 import {
   INDIAN_STATE_OPTIONS,
   effectiveDispatch,
+  isChallan,
   portalRequiredFields,
+  portalSettingsOf,
   stateCodeOf,
   withCurrentOption,
 } from '@/Modules/SalesInvoice/salesInvoiceForm'
@@ -52,6 +54,7 @@ const copyText = async (value, what) => {
 export default function SellerStep({ invoice, disabled }) {
   const { form, errors, setField, setSameAs } = invoice
   const seller = form.seller
+  const challan = isChallan(form)
   const set = (field) => (value) => setField(`seller.${field}`, value)
   const onText = (field, transform = (value) => value) => (event) => set(field)(transform(event.target.value))
 
@@ -203,22 +206,25 @@ export default function SellerStep({ invoice, disabled }) {
           />
         </InvoiceGrid>
 
-        {/* The seller's invoice settings - one wrapping row of tick boxes. */}
-        <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-border pt-2.5" role="group" aria-labelledby="seller-settings-label">
-          <span id="seller-settings-label" className={fieldLabelClass}>
-            Settings
-          </span>
-          {SELLER_SETTINGS.map((setting) => (
-            <CheckboxField
-              key={setting.key}
-              id={`setting-${setting.key}`}
-              label={setting.label}
-              checked={form.settings[setting.key]}
-              disabled={disabled}
-              onCheckedChange={(checked) => setField(`settings.${setting.key}`, checked)}
-            />
-          ))}
-        </div>
+        {/* The seller's invoice settings - one wrapping row of tick boxes. A
+            Challan has none of them (no GST, e-invoice or round off). */}
+        {challan ? null : (
+          <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-border pt-2.5" role="group" aria-labelledby="seller-settings-label">
+            <span id="seller-settings-label" className={fieldLabelClass}>
+              Settings
+            </span>
+            {SELLER_SETTINGS.map((setting) => (
+              <CheckboxField
+                key={setting.key}
+                id={`setting-${setting.key}`}
+                label={setting.label}
+                checked={form.settings[setting.key]}
+                disabled={disabled}
+                onCheckedChange={(checked) => setField(`settings.${setting.key}`, checked)}
+              />
+            ))}
+          </div>
+        )}
       </InvoiceCard>
 
       <InvoiceCard
@@ -237,7 +243,7 @@ export default function SellerStep({ invoice, disabled }) {
           prefix="dispatch"
           value={effectiveDispatch(form)}
           locked={form.dispatchSameAsSeller}
-          required={portalRequiredFields(form.settings, 'dispatch')}
+          required={portalRequiredFields(portalSettingsOf(form), 'dispatch')}
           errors={errors}
           errorKeyOf={(field) => (form.dispatchSameAsSeller ? `seller.${field}` : `dispatch.${field}`)}
           disabled={disabled}

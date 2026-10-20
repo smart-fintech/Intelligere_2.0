@@ -15,17 +15,18 @@
  * registered with the IRP.
  */
 
-import { TRANSPORT_REASONS, DELIVERY_MODES, documentTitle } from '@/Constants/salesInvoice'
+import { CHALLAN_COPIES, DOCUMENT_TYPE_CHALLAN, TRANSPORT_REASONS, DELIVERY_MODES, documentTitle } from '@/Constants/salesInvoice'
 import {
   effectiveDispatch,
   effectiveShipping,
   invoiceNumberOf,
+  isServiceLine,
   lineVariant,
   rateText,
   stateCodeOf,
   supplyTypesOf,
 } from '@/Modules/SalesInvoice/salesInvoiceForm'
-import { nameSaysGst } from '@/Utils/gstLedgers'
+import { gstChargesByLedger } from '@/Utils/gstLedgers'
 
 const rupees = (paise) => Math.round(paise || 0) / 100
 const labelOf = (options, value) => options.find((option) => option.value === value)?.label ?? value ?? ''
@@ -33,8 +34,9 @@ const labelOf = (options, value) => options.find((option) => option.value === va
 /**
  * @param form           the Sales Invoice form
  * @param figures        invoiceFigures(form)
- * @param gst            gstByRate(figures) - with `ledger` on each entry when
- *                       it has one (resolveGstLedgers, Utils/gstLedgers)
+ * @param gst            gstByRate(figures) with each entry's `ledger`
+ *                       (resolveGstLedgers, Utils/gstLedgers) - printed as the
+ *                       saved gst_charges are (gstChargesByLedger)
  * @param productsByKey  Map of the products (readProducts)
  * @param ledgersById    Map of the ledgers, for charge names and SAC codes
  * @param bank           the chosen bank account record, or null
@@ -47,23 +49,29 @@ export function toInvoiceModel({ form, figures, gst, productsByKey, ledgersById,
   const dispatch = effectiveDispatch(form)
   const shipping = effectiveShipping(form)
 
-  /* ---- product lines - only those with a product chosen ---- */
+  /* ---- the lines - products with a product chosen, services with a ledger ----
+     A service is named by its ledger, with its SAC as the code and no unit. */
   const lines = form.lines
-    .filter((line) => line.productKey)
+    .filter((line) => (isServiceLine(line) ? line.ledgerId : line.productKey))
     .map((line, index) => {
-      const product = productsByKey.get(line.productKey)
+      const service = isServiceLine(line)
+      const product = service ? null : productsByKey.get(line.productKey)
       const variant = lineVariant(product, line)
       const row = figures.lines[line.id]
       return {
         kind: 'product',
         sr: index + 1,
         id: line.id,
-        name: [product?.name, variant?.skuCode].filter(Boolean).join(' - '),
+        name: service ? (ledgerOf(line.ledgerId)?.ledeger_name ?? '') : [product?.name, variant?.skuCode].filter(Boolean).join(' - '),
+        // A challan prints the product and its SKU code in columns of their own.
+        service,
+        productName: service ? '' : (product?.name ?? ''),
+        skuCode: service ? '' : (variant?.skuCode ?? ''),
         description: line.description,
         hsn: line.hsn,
         quantity: Number(line.quantity) || 0,
         rate: Number(line.rate) || 0,
-        per: line.per,
+        per: service ? '' : line.per,
         gst: interState ? row.igst : row.cgst + row.sgst,
         taxable: rupees(row.taxablePaise),
         cgst: rupees(row.cgstPaise),
@@ -100,17 +108,21 @@ export function toInvoiceModel({ form, figures, gst, productsByKey, ledgersById,
   if (figures.discountPaise) {
     rows.push({ type: 'meta', key: 'discount', label: ledgerName('discount', 'Discount'), amount: -rupees(figures.discountPaise) })
   }
-  // A GST row is named by the ledger it is posted to (Utils/gstLedgers - as
-  // the discount, TCS and round off rows are named by theirs): "CGST @ 9%" as
-  // it is, "Output CGST" with its rate added - "Output CGST @ 9%". With no
-  // ledger, by the tax and rate.
-  gst.forEach((entry) => {
-    const rate = rateText(entry.rate)
+  // The GST rows ARE the saved gst_charges (gstChargesByLedger - the one
+  // grouping the payload uses): one row per real ledger, named exactly as the
+  // ledger is, with the amount saved under it. A tax with no ledger (none
+  // mapped, none for the rate, no basic one) is never given a made-up ledger
+  // name: its row is the tax and rate ("IGST 12%") with `missingLedger` set,
+  // which the sheet and the PDF mark "No Ledger" in red - and such a
+  // document cannot be saved.
+  gstChargesByLedger(gst).forEach((charge) => {
+    const taxes = charge.entries.map((entry) => `${entry.tax} ${rateText(entry.rate)}%`).join(', ')
     rows.push({
       type: 'meta',
-      key: `${entry.tax.toLowerCase()}-${entry.rate}`,
-      label: entry.ledger && nameSaysGst(entry.ledger, entry.tax, entry.rate) ? entry.ledger : `${entry.ledger || entry.tax} @ ${rate}%`,
-      amount: rupees(entry.paise),
+      key: charge.ledger ? `gst-ledger-${charge.ledger}` : `gst-missing-${taxes}`,
+      label: charge.ledger ?? taxes,
+      missingLedger: !charge.ledger,
+      amount: rupees(charge.paise),
     })
   })
   if (figures.tcsPaise) rows.push({ type: 'meta', key: 'tcs', label: ledgerName('tcs', 'TCS'), amount: rupees(figures.tcsPaise) })
@@ -157,7 +169,7 @@ export function toInvoiceModel({ form, figures, gst, productsByKey, ledgersById,
   const anyIgst = figures.igstPaise > 0
   const anySplit = figures.cgstPaise > 0 || figures.sgstPaise > 0
 
-  return {
+  const model = {
     seller: {
       name: seller.name,
       address: seller.address,
@@ -247,4 +259,28 @@ export function toInvoiceModel({ form, figures, gst, productsByKey, ledgersById,
       anySplit,
     },
   }
+
+  /* ---- a CHALLAN: goods only - its own header, no money at all ----
+     Its lines are the product lines (a service never goes on a challan) and
+     its rows those lines alone - no charges, discount, GST, TCS or round off,
+     no bank. `copy` is the heading of the copy on screen; the PDF prints each
+     copy chosen at saving under its own (CHALLAN_COPIES). */
+  if (form.documentType === DOCUMENT_TYPE_CHALLAN) {
+    const goods = lines.filter((line) => !line.service).map((line, index) => ({ ...line, sr: index + 1 }))
+    return {
+      ...model,
+      bank: null,
+      lines: goods,
+      rows: goods.map((line) => ({ type: 'product', key: `prod-${line.id}`, sr: line.sr, data: line, amount: 0 })),
+      challan: {
+        title: 'DELIVERY CHALLAN',
+        copy: CHALLAN_COPIES[0].label,
+        type: document.challanType,
+        invoiceNo: document.challanInvoiceNo,
+        invoiceDate: document.challanInvoiceDate,
+        anySku: goods.some((line) => line.skuCode),
+      },
+    }
+  }
+  return model
 }

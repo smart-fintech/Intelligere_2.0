@@ -37,7 +37,7 @@ function TitleBlock({ model, pageNo = 1 }) {
 }
 
 /** A party line's segments - bold where the value is. */
-function Segments({ line }) {
+export function Segments({ line }) {
   return line.map((part, index) => (part.b ? <b key={index}>{part.t}</b> : <span key={index}>{part.t}</span>))
 }
 
@@ -62,7 +62,7 @@ function MetaRow({ row }) {
   )
 }
 
-function PartyBox({ tag, party, plain }) {
+export function PartyBox({ tag, party, plain }) {
   const lines = partyLines(party)
   return (
     <div className="inv-party">
@@ -192,7 +192,16 @@ function GoodsRow({ row }) {
   return (
     <tr className="inv-meta-line">
       <td className="c-no" />
-      <td className="c-desc">{row.label}</td>
+      <td className="c-desc">
+        {row.label}
+        {/* A GST row with no ledger for this company: said in red, on the sheet itself. */}
+        {row.missingLedger ? (
+          <>
+            {' - '}
+            <span className="inv-no-ledger">No Ledger</span>
+          </>
+        ) : null}
+      </td>
       <td className="c-hsn" />
       <td className="c-qty" />
       <td className="c-rate" />

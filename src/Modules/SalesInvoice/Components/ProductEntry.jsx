@@ -3,8 +3,10 @@ import { SkuSelector } from '@/Components/Common/SkuSelector'
 import { GST_RATES } from '@/Constants/gst'
 import { DESCRIPTION_MAX_LENGTH } from '@/Constants/salesInvoice'
 import {
+  isServiceLine,
   isSkuManaged,
   lineFromProduct,
+  lineFromServiceLedger,
   lineFromSku,
   rateText,
   skuOptionValue,
@@ -39,9 +41,19 @@ const GST_SLAB_OPTIONS = GST_RATES.map((rate) => ({ value: rate, label: `${rate}
  * CGST + SGST or IGST is worked out for the whole invoice (invoiceFigures,
  * by the seller and buyer states) and shown in the preview - never here.
  *
+ * A SERVICE line (entry.kind 'service' - see LINE_KIND) is the same form
+ * with the company's ledger in place of the product: Service Ledger instead
+ * of Product Name, no SKU Code and no Per. Choosing the ledger fills HSN/SAC
+ * from its `ledger_sac` and the GST slab from its `gst_rate`
+ * (lineFromServiceLedger); the rest is typed, as for a product.
+ *
  *   entry           the entry form's values
  *   product         its chosen product (readProducts), or null
  *   productOptions, productsByKey, productsLoading
+ *   ledgerOptions, ledgersById, ledgersLoading   the company's ledgers - a
+ *                   service line's choices (the same list as the buyer's)
+ *   challan         a Challan's line: product, SKU, HSN/SAC, quantity, unit
+ *                   and description only - no rate, discount, GST or amount
  *   figures         lineFigures(entry) - for the Amount box
  *   withDiscount    the Disc. % box is shown
  *   errors          the form's errors (this form's are 'entry.<field>')
@@ -53,6 +65,10 @@ export default function ProductEntry({
   productOptions,
   productsByKey,
   productsLoading,
+  ledgerOptions = [],
+  ledgersById,
+  ledgersLoading,
+  challan = false,
   figures,
   withDiscount,
   errors,
@@ -64,29 +80,50 @@ export default function ProductEntry({
   const set = (field, transform = (value) => value) => (event) =>
     onUpdate((current) => ({ ...current, [field]: transform(event.target.value) }), [field])
 
-  const skuManaged = isSkuManaged(product)
+  const service = isServiceLine(entry)
+  const skuManaged = !service && isSkuManaged(product)
 
   return (
     <div className="flex flex-wrap items-start gap-x-2 gap-y-2 [&>*]:min-w-0">
-      <SelectField
-        id={id('product')}
-        label="Product Name"
-        required
-        searchable
-        searchPlaceholder="Search product"
-        className="[flex:2_1_11rem]"
-        placeholder={productsLoading ? 'Loading...' : productOptions.length === 0 ? 'No products' : 'Select Product'}
-        options={productOptions}
-        value={entry.productKey}
-        error={errorOf('productKey')}
-        disabled={disabled || productOptions.length === 0}
-        onValueChange={(key) => {
-          // Radix can report '' on its own (see CodeSelector); re-choosing the
-          // same product must not clear its SKU either.
-          if (!key || key === entry.productKey) return
-          onUpdate((current) => lineFromProduct(current, productsByKey.get(key)), ['productKey', 'skuValue', 'hsn', 'rate', 'gstRate'])
-        }}
-      />
+      {service ? (
+        <SelectField
+          id={id('ledger')}
+          label="Service Ledger"
+          required
+          searchable
+          searchPlaceholder="Search ledger"
+          className="[flex:2_1_11rem]"
+          placeholder={ledgersLoading ? 'Loading...' : ledgerOptions.length === 0 ? 'No ledgers' : 'Select Ledger'}
+          options={ledgerOptions}
+          value={entry.ledgerId}
+          error={errorOf('ledgerId')}
+          disabled={disabled || ledgerOptions.length === 0}
+          onValueChange={(ledgerId) => {
+            if (!ledgerId || ledgerId === entry.ledgerId) return
+            onUpdate((current) => lineFromServiceLedger(current, ledgersById?.get(ledgerId), ledgerId), ['ledgerId', 'hsn', 'gstRate'])
+          }}
+        />
+      ) : (
+        <SelectField
+          id={id('product')}
+          label="Product Name"
+          required
+          searchable
+          searchPlaceholder="Search product"
+          className="[flex:2_1_11rem]"
+          placeholder={productsLoading ? 'Loading...' : productOptions.length === 0 ? 'No products' : 'Select Product'}
+          options={productOptions}
+          value={entry.productKey}
+          error={errorOf('productKey')}
+          disabled={disabled || productOptions.length === 0}
+          onValueChange={(key) => {
+            // Radix can report '' on its own (see CodeSelector); re-choosing the
+            // same product must not clear its SKU either.
+            if (!key || key === entry.productKey) return
+            onUpdate((current) => lineFromProduct(current, productsByKey.get(key)), ['productKey', 'skuValue', 'hsn', 'rate', 'gstRate'])
+          }}
+        />
+      )}
 
       {/* Only a product kept by SKU has a SKU to choose - and only its own. */}
       {skuManaged ? (
@@ -138,23 +175,29 @@ export default function ProductEntry({
         />
       </div>
 
-      <div style={NARROW}>
-        <Field
-          id={id('rate')}
-          label="Rate"
-          required
-          inputMode="decimal"
-          placeholder="0.00"
-          value={entry.rate}
-          error={errorOf('rate')}
-          disabled={disabled}
-          onChange={set('rate', toDecimalInput)}
-        />
-      </div>
+      {/* A challan carries no prices. */}
+      {challan ? null : (
+        <div style={NARROW}>
+          <Field
+            id={id('rate')}
+            label="Rate"
+            required
+            inputMode="decimal"
+            placeholder="0.00"
+            value={entry.rate}
+            error={errorOf('rate')}
+            disabled={disabled}
+            onChange={set('rate', toDecimalInput)}
+          />
+        </div>
+      )}
 
-      <div style={NARROW}>
-        <Field id={id('per')} label="Per" readOnly disabled value={entry.per} placeholder="--" />
-      </div>
+      {/* A unit belongs to a product - a service has none. */}
+      {service ? null : (
+        <div style={NARROW}>
+          <Field id={id('per')} label="Per" readOnly disabled value={entry.per} placeholder="--" />
+        </div>
+      )}
 
       {withDiscount ? (
         <div style={NARROW}>
@@ -171,30 +214,36 @@ export default function ProductEntry({
         </div>
       ) : null}
 
-      <div style={NARROW}>
-        <SelectField
-          id={id('gst-slab')}
-          label="GST Slab"
-          required
-          placeholder="Select"
-          options={withCurrentOption(GST_SLAB_OPTIONS, entry.gstRate).map((option) =>
-            option.value === entry.gstRate ? { ...option, label: `${rateText(option.value)}%` } : option,
-          )}
-          value={entry.gstRate}
-          error={errorOf('gstRate')}
-          disabled={disabled}
-          onValueChange={(value) => value && onUpdate((current) => ({ ...current, gstRate: value }), ['gstRate'])}
-        />
-      </div>
+      {/* Nor GST. */}
+      {challan ? null : (
+        <div style={NARROW}>
+          <SelectField
+            id={id('gst-slab')}
+            label="GST Slab"
+            required
+            placeholder="Select"
+            options={withCurrentOption(GST_SLAB_OPTIONS, entry.gstRate).map((option) =>
+              option.value === entry.gstRate ? { ...option, label: `${rateText(option.value)}%` } : option,
+            )}
+            value={entry.gstRate}
+            error={errorOf('gstRate')}
+            disabled={disabled}
+            onValueChange={(value) => value && onUpdate((current) => ({ ...current, gstRate: value }), ['gstRate'])}
+          />
+        </div>
+      )}
 
-      <div style={NARROW}>
-        <Field id={id('amount')} label="Amount" readOnly disabled value={plainAmount(figures.grossPaise)} />
-      </div>
+      {/* Nor an amount. */}
+      {challan ? null : (
+        <div style={NARROW}>
+          <Field id={id('amount')} label="Amount" readOnly disabled value={plainAmount(figures.grossPaise)} />
+        </div>
+      )}
 
       <div style={DESCRIPTION}>
         <TextareaField
           id={id('description')}
-          label="Description of Goods"
+          label={service ? 'Description of Services' : 'Description of Goods'}
           rows={1}
           maxLength={DESCRIPTION_MAX_LENGTH}
           showCount

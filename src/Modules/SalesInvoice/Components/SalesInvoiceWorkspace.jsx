@@ -2,10 +2,19 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, ArrowRight, FilePlus, RefreshCw, Save } from 'lucide-react'
 
 import { InlineAlert } from '@/Components/Common/DataList'
+import { CheckboxField } from '@/Components/Common/FormFields'
+import { Modal } from '@/Components/Common/Modal'
 import { Stepper } from '@/Components/Common/Stepper'
 import { Button } from '@/Components/ui/button'
 import { Card, CardContent } from '@/Components/ui/card'
-import { DOCUMENT_TYPE_INVOICE, INVOICE_STEP, INVOICE_STEPS, findDocumentType } from '@/Constants/salesInvoice'
+import {
+  CHALLAN_COPIES,
+  DOCUMENT_TYPE_CHALLAN,
+  DOCUMENT_TYPE_INVOICE,
+  INVOICE_STEP,
+  INVOICE_STEPS,
+  findDocumentType,
+} from '@/Constants/salesInvoice'
 import { toast } from '@/Library/toast'
 import BuyerStep from '@/Modules/SalesInvoice/Components/BuyerStep'
 import DocumentStep from '@/Modules/SalesInvoice/Components/DocumentStep'
@@ -50,7 +59,7 @@ import {
 } from '@/Services/salesInvoiceService'
 import { getLedgerId } from '@/Services/ledgerService'
 import { getCountries, getStates } from '@/Services/locationService'
-import { gstListText, missingGstLedgers, resolveGstLedgers } from '@/Utils/gstLedgers'
+import { missingGstLedgers, missingGstTypes, resolveGstLedgers } from '@/Utils/gstLedgers'
 
 /**
  * Makes sure the preview has drawn the latest state before it is captured:
@@ -63,11 +72,14 @@ const nextPaint = () => new Promise((resolve) => requestAnimationFrame(() => req
  * preview's measured layout. Loaded on demand, so the PDF renderer stays out
  * of the page until a PDF is first made.
  */
-const makeInvoicePdf = async (model, layoutRef) => {
+const makeInvoicePdf = async (model, layoutRef, copies) => {
   const { createInvoicePdf } = await import('@/Modules/SalesInvoice/Document/invoicePdf')
   await nextPaint()
-  return createInvoicePdf({ model, layout: layoutRef.current })
+  return createInvoicePdf({ model, layout: layoutRef.current, copies })
 }
+
+/** Every challan copy, in order - what Download PDF prints, and what Save Challan starts with ticked. */
+const ALL_COPIES = CHALLAN_COPIES.map((copy) => copy.value)
 
 const saveToDisk = async (bytes, fileName) => {
   const { downloadPdf } = await import('@/Modules/SalesInvoice/Document/invoicePdf')
@@ -125,22 +137,25 @@ export default function SalesInvoiceWorkspace({ company }) {
   const companyId = company.company_id
   const documentTypeValue = form.documentType
   const isInvoice = documentTypeValue === DOCUMENT_TYPE_INVOICE
+  // A challan: goods only - no GST, no ledgers to check, its own sheet and copies.
+  const isChallanDoc = documentTypeValue === DOCUMENT_TYPE_CHALLAN
 
   /* ---- the document number: a new round each time a document is saved ----
-     (useDocumentNumbering, under the steps below, says when it is asked -
-     a save itself asks nothing; the next document asks at Step 2) */
+     (useDocumentNumbering: asked by Step 2's Next only - a save itself asks
+     nothing; the next document asks at its own Step 2 Next) */
   const [numberingRound, setNumberingRound] = useState(0)
   const { applyDocumentDefaults } = invoice
 
-  /* ---- Sales Invoice only: the GST ledger mappings ----
-     Read once per company (shared cache). With the company's ledgers they
-     settle every GST ledger the invoice needs, by the one rule in
-     Utils/gstLedgers - the preview and the check before saving read the
-     same answer. */
+  /* ---- the GST ledgers ----
+     Every document that charges GST names, in gst_charges, the LEDGER each
+     tax is posted to - so every type needs a real ledger for each tax and
+     rate it charges. The GST mappings (invoice/document-mapping/) are Sales
+     Invoice's only, read once per company (shared cache); every type matches
+     the company's own ledgers by name. One rule, Utils/gstLedgers - the
+     table, the preview, the check before saving and the saved gst_charges
+     all read the same answer. */
   const mappings = useDocumentMappings(companyId, isInvoice)
   const ledgerMapping = isInvoice ? mappings.ledgerMapping : null
-  // The documents that post GST to ledgers - the ones the mapping is for.
-  const needsGstLedgers = isInvoice
 
   /* ---- the buyer's earlier products - once the Buyer step is completed ---- */
   const [confirmedBuyerId, setConfirmedBuyerId] = useState(null)
@@ -151,12 +166,14 @@ export default function SalesInvoiceWorkspace({ company }) {
     seller: sellerFromCompany(company),
     settings: settingsFromCompany(company),
   }))
-  const gst = useMemo(() => gstByRate(figures), [figures])
-  // The same entries, each with its ledger: the mapped one, else the company's
-  // matching one, else none (`ledger` null) - never a default.
+  // A challan charges no GST - none is printed, checked or saved.
+  const gst = useMemo(() => (isChallanDoc ? [] : gstByRate(figures)), [isChallanDoc, figures])
+  // The same entries, each with its ledger: the one for that rate (mapped,
+  // else matched by name), else the tax's basic one, else none (`ledger`
+  // null) - never a default.
   const gstLedgers = useMemo(
-    () => (needsGstLedgers ? resolveGstLedgers(gst, { ledgerMapping, ledgers: ledgers.named }) : gst),
-    [needsGstLedgers, gst, ledgerMapping, ledgers.named],
+    () => resolveGstLedgers(gst, { ledgerMapping, ledgers: ledgers.named }),
+    [gst, ledgerMapping, ledgers.named],
   )
 
   /* ---- can it be saved, as far as GST ledgers go? ----
@@ -170,13 +187,18 @@ export default function SalesInvoiceWorkspace({ company }) {
       retryLedgers()
       reloadMappings()
     }
-    if (!needsGstLedgers || gstLedgers.length === 0) return { status: 'ok', missing: [], retry }
-    if (ledgers.status === 'failed' || mappings.status === 'failed') return { status: 'failed', missing: [], retry }
-    if (ledgers.status !== 'succeeded' || mappings.status !== 'ready') return { status: 'loading', missing: [], retry }
+    if (gstLedgers.length === 0) return { status: 'ok', missing: [], retry }
+    // The mappings count only where there are any (Sales Invoice).
+    const mappingStatus = isInvoice ? mappings.status : 'ready'
+    if (ledgers.status === 'failed' || mappingStatus === 'failed') return { status: 'failed', missing: [], retry }
+    if (ledgers.status !== 'succeeded' || mappingStatus !== 'ready') return { status: 'loading', missing: [], retry }
     const missing = missingGstLedgers(gstLedgers)
     return { status: missing.length > 0 ? 'missing' : 'ok', missing, retry }
-  }, [needsGstLedgers, gstLedgers, ledgers.status, mappings.status, retryLedgers, reloadMappings])
-  const context = useMemo(() => ({ allowedTypes, productsByKey: products.byKey }), [allowedTypes, products.byKey])
+  }, [gstLedgers, isInvoice, ledgers.status, mappings.status, retryLedgers, reloadMappings])
+  const context = useMemo(
+    () => ({ allowedTypes, productsByKey: products.byKey, ledgersById: ledgers.byId }),
+    [allowedTypes, products.byKey, ledgers.byId],
+  )
 
   /* ---- the live preview ---- */
   const logo = useFileDataUrl(form.seller.logo)
@@ -209,15 +231,15 @@ export default function SalesInvoiceWorkspace({ company }) {
   const lastStep = stepIndex === INVOICE_STEPS.length - 1
   const topRef = useRef(null)
 
-  // Asked when the screen opens, then again on reaching
-  // Step 2 or later only if the company, the Step 1 document type or the round (a save) changed.
+  // Asked only by the Buyer step's Next (see next() below) - never on opening,
+  // on a render, between other steps, or after a save.
   const numbering = useDocumentNumbering({
     companyId,
     documentType: documentTypeValue,
-    stepIndex,
     round: numberingRound,
     apply: applyDocumentDefaults,
   })
+
 
   const goTo = (index) => {
     setStepIndex(index)
@@ -289,7 +311,12 @@ export default function SalesInvoiceWorkspace({ company }) {
     busyRef.current = true
     setPhase('step')
     try {
-      if (await saveStep()) goTo(stepIndex + 1)
+      if (await saveStep()) {
+        // Step 2's Next is the one moment the document number is asked for -
+        // for the type chosen on Step 1 (a repeat for the same type asks nothing).
+        if (step.key === INVOICE_STEP.BUYER) numbering.request()
+        goTo(stepIndex + 1)
+      }
     } catch (failure) {
       toast.error(failure.message)
     } finally {
@@ -313,7 +340,8 @@ export default function SalesInvoiceWorkspace({ company }) {
     busyRef.current = true
     setPhase('download')
     try {
-      const bytes = await makeInvoicePdf(model, layoutRef)
+      // A challan downloads as all three copies, one after another.
+      const bytes = await makeInvoicePdf(model, layoutRef, isChallanDoc ? ALL_COPIES : undefined)
       await saveToDisk(bytes, fileNameFor(invoiceNumberOf(form.document)))
     } catch (failure) {
       console.error('[Sales Invoice] PDF download failed:', failure)
@@ -356,44 +384,78 @@ export default function SalesInvoiceWorkspace({ company }) {
     }
   }
 
-  const save = async () => {
+  /**
+   * Everything a new document is checked for before it is saved - the form,
+   * then a ledger for every GST tax it charges. False (and the problem shown,
+   * its step opened) when it cannot be saved yet.
+   */
+  const readyToSave = () => {
+    const found = validateInvoice(form, context)
+    if (Object.keys(found).length > 0) {
+      setErrors(found)
+      const at = errorStep(found)
+      if (at >= 0 && at !== stepIndex) goTo(at)
+      toast.error('Some details need attention before the document can be saved.')
+      focusFirstError()
+      return false
+    }
+
+    // Every GST tax and rate it charges must have a ledger - none is ever assumed.
+    if (gstCheck.status !== 'ok') {
+      const productsStep = INVOICE_STEPS.findIndex((entry) => entry.key === INVOICE_STEP.PRODUCTS)
+      if (stepIndex !== productsStep) goTo(productsStep)
+      toast.error(
+        gstCheck.status === 'missing'
+          ? missingGstTypes(gstCheck.missing)
+              .map(
+                (type) =>
+                  `${type.tax} ledger is missing (needed for ${type.rates.map((rate) => `${type.tax} ${rateText(rate)}%`).join(', ')}). Please create the required ${type.tax} ledger before creating this invoice.`,
+              )
+              .join(' ')
+          : gstCheck.status === 'loading'
+            ? 'The GST ledgers are still being checked. Please save again in a moment.'
+            : 'The GST ledgers could not be checked. Press Retry, then save.',
+      )
+      return false
+    }
+    return true
+  }
+
+  /* ---- a challan's copies ----
+     Save Challan first asks which copies to print. They go into ONE PDF for
+     the ONE saved document - choosing three never saves three challans. A
+     Retry PDF prints the same copies again (`copiesRef`). */
+  const [copyDialog, setCopyDialog] = useState({ open: false, copies: ALL_COPIES })
+  const copiesRef = useRef(ALL_COPIES)
+
+  /** The Save button: a challan asks for its copies first (once the form is fine); anything else saves. */
+  const onSaveClick = () => {
+    if (busyRef.current) return
+    if (isChallanDoc && !saved) {
+      if (readyToSave()) setCopyDialog((previous) => ({ ...previous, open: true }))
+      return
+    }
+    save(copiesRef.current)
+  }
+
+  const save = async (copies = ALL_COPIES) => {
     if (busyRef.current) return
     busyRef.current = true
+    copiesRef.current = copies
 
     try {
       let request = null
       // A document that already exists needs only its PDF - nothing is checked or created again.
       if (!saved) {
-        const found = validateInvoice(form, context)
-        if (Object.keys(found).length > 0) {
-          setErrors(found)
-          const at = errorStep(found)
-          if (at >= 0 && at !== stepIndex) goTo(at)
-          toast.error('Some details need attention before the document can be saved.')
-          focusFirstError()
-          return
-        }
-
-        // Every GST tax and rate it charges must have a ledger - none is ever assumed.
-        if (gstCheck.status !== 'ok') {
-          const productsStep = INVOICE_STEPS.findIndex((entry) => entry.key === INVOICE_STEP.PRODUCTS)
-          if (stepIndex !== productsStep) goTo(productsStep)
-          toast.error(
-            gstCheck.status === 'missing'
-              ? `No GST ledger found for ${gstListText(gstCheck.missing)}. Map or create one before saving.`
-              : gstCheck.status === 'loading'
-                ? 'The GST ledgers are still being checked. Please save again in a moment.'
-                : 'The GST ledgers could not be checked. Press Retry, then save.',
-          )
-          return
-        }
+        if (!readyToSave()) return
 
         const dispatch = effectiveDispatch(form)
         const shipping = effectiveShipping(form)
         request = buildInvoiceSaveRequest({
           form,
           figures,
-          gstCharges: gst.map((entry) => ({ ...entry, rateText: rateText(entry.rate) })),
+          // Each with the real ledger it is posted to - gst_charges is keyed by it.
+          gstCharges: gstLedgers.map((entry) => ({ ...entry, rateText: rateText(entry.rate) })),
           company,
           dispatch: { ...dispatch, stateCode: stateCodeOf(dispatch.state) },
           shipping: { ...shipping, stateCode: stateCodeOf(shipping.state) },
@@ -410,7 +472,7 @@ export default function SalesInvoiceWorkspace({ company }) {
         saved,
         invoiceNo,
         createDocument: () => createBusinessDocument(request),
-        makePdf: () => makeInvoicePdf(model, layoutRef),
+        makePdf: () => makeInvoicePdf(model, layoutRef, isChallanDoc ? copies : undefined),
         uploadPdf: (documentId, bytes) => saveDocumentPdf(documentId, bytes, fileNameFor(invoiceNo)),
         onStage: setPhase,
       })
@@ -430,12 +492,13 @@ export default function SalesInvoiceWorkspace({ company }) {
     goTo(0)
   }
 
+  const saveWord = isChallanDoc ? 'Save Challan' : 'Save Invoice'
   const saveLabel = {
-    download: saved ? 'Retry PDF' : 'Save Invoice',
+    download: saved ? 'Retry PDF' : saveWord,
     creating: 'Saving...',
     pdf: 'Generating PDF...',
     uploading: 'Uploading PDF...',
-  }[phase] ?? (saved ? 'Retry PDF' : 'Save Invoice')
+  }[phase] ?? (saved ? 'Retry PDF' : saveWord)
 
   const stepProps = { invoice, disabled: locked }
 
@@ -480,6 +543,8 @@ export default function SalesInvoiceWorkspace({ company }) {
               ledgers={ledgers}
               figures={figures}
               mappings={mappings}
+              gstLedgers={gstLedgers}
+              gstCheck={gstCheck}
               buyerProducts={buyerProducts}
               showMapping={isInvoice}
             />
@@ -504,7 +569,7 @@ export default function SalesInvoiceWorkspace({ company }) {
             </Button>
 
             {lastStep || saved ? (
-              <Button type="button" variant="secondary" icon={saved ? RefreshCw : Save} loading={busy} onClick={save}>
+              <Button type="button" variant="secondary" icon={saved ? RefreshCw : Save} loading={busy} onClick={onSaveClick}>
                 {saveLabel}
               </Button>
             ) : (
@@ -529,6 +594,52 @@ export default function SalesInvoiceWorkspace({ company }) {
           />
         </aside>
       </div>
+
+      {/* ---------------- Save Challan: which copies to print ---------------- */}
+      <Modal
+        open={copyDialog.open}
+        onOpenChange={(open) => setCopyDialog((previous) => ({ ...previous, open }))}
+        title="Save Challan"
+        description="The challan is saved once; each copy ticked is printed in its PDF under its own heading."
+        size="sm"
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setCopyDialog((previous) => ({ ...previous, open: false }))}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              icon={Save}
+              disabled={copyDialog.copies.length === 0}
+              onClick={() => {
+                const copies = ALL_COPIES.filter((value) => copyDialog.copies.includes(value))
+                setCopyDialog((previous) => ({ ...previous, open: false }))
+                save(copies)
+              }}
+            >
+              Save Challan
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-2.5" role="group" aria-label="Challan copies">
+          {CHALLAN_COPIES.map((copy) => (
+            <CheckboxField
+              key={copy.value}
+              id={`challan-copy-${copy.value}`}
+              label={copy.label}
+              checked={copyDialog.copies.includes(copy.value)}
+              onCheckedChange={(checked) =>
+                setCopyDialog((previous) => ({
+                  ...previous,
+                  copies: checked ? [...new Set([...previous.copies, copy.value])] : previous.copies.filter((value) => value !== copy.value),
+                }))
+              }
+            />
+          ))}
+          {copyDialog.copies.length === 0 ? <p className="text-xs text-destructive">Choose at least one copy.</p> : null}
+        </div>
+      </Modal>
     </div>
   )
 }

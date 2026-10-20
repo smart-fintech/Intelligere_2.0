@@ -32,13 +32,14 @@
  * never a float tail. Rupees appear only when shown (formatINR) or sent.
  */
 
-import { gstBreakdown } from '@/Constants/gst'
+import { GST_RATES, gstBreakdown } from '@/Constants/gst'
 import { INDIAN_STATES, findStateByGstNumber, findStateByName } from '@/Constants/indianStates'
 import {
   ADDRESS_MAX_LENGTH,
   DEFAULT_SUPPLY,
   DEFAULT_SUPPLY_TYPE,
   DESCRIPTION_MAX_LENGTH,
+  DOCUMENT_TYPE_CHALLAN,
   DOCUMENT_TYPE_INVOICE,
   INVOICE_NO_MAX_LENGTH,
   INVOICE_STEP,
@@ -129,9 +130,41 @@ const matchName = (names, value) => names.find((name) => sameText(name, value)) 
 
 const EMPTY_PARTY_ADDRESS = { name: '', gstin: '', state: '', address: '', pincode: '' }
 
-/** One empty product line. */
-export const newInvoiceLine = () => ({
+/**
+ * What a line of the invoice is:
+ *   product   chosen from the product list (inventory/product/) - SKU, unit
+ *   service   chosen from the company's ledgers (tally/create-ledger/) - its
+ *             SAC; no SKU, no unit
+ */
+export const LINE_KIND = Object.freeze({ PRODUCT: 'product', SERVICE: 'service' })
+
+/** True for a service line (a ledger), false for a product line. */
+export const isServiceLine = (line) => line?.kind === LINE_KIND.SERVICE
+
+/**
+ * The kind a NEW line is entered as: Service while Reverse Charge Applicable
+ * is ticked (the Product / Service choice is not offered then), else the
+ * choice - Product unless Service was picked.
+ */
+export const entryModeOf = (form) =>
+  isChallan(form) ? LINE_KIND.PRODUCT : form.settings.reverseCharge ? LINE_KIND.SERVICE : form.entryMode
+
+/**
+ * A Challan - goods sent, not sold: products only, no GST, discount or
+ * other charges, its own document fields, and the company's invoice
+ * settings (e-invoice, e-way bill, reverse charge, ...) not in play.
+ */
+export const isChallan = (form) => form?.documentType === DOCUMENT_TYPE_CHALLAN
+
+/** The invoice settings that apply to this document - none for a Challan, whose Settings are not shown. */
+export const portalSettingsOf = (form) => (isChallan(form) ? {} : form.settings)
+
+/** One empty line - a product line unless `kind` says service. */
+export const newInvoiceLine = (kind = LINE_KIND.PRODUCT) => ({
   id: newRowId('line'),
+  kind,
+  // a service line's ledger (its ledger_obj_id, as text)
+  ledgerId: '',
   productKey: '',
   skuValue: '',
   hsn: '',
@@ -215,6 +248,10 @@ export const createInvoiceForm = (company) => ({
     termsOfPayment: '',
     referenceNo: '',
     referenceDate: '',
+    // Challan only: the invoice the goods go with, and the kind of challan.
+    challanInvoiceNo: '',
+    challanInvoiceDate: '',
+    challanType: '',
     poNo: '',
     poDate: '',
     deliveryNote: '',
@@ -236,6 +273,8 @@ export const createInvoiceForm = (company) => ({
 
   gstLedgerMapping: false,
   withDiscount: false,
+  // Product / Service - what the entry form takes a new line as (entryModeOf).
+  entryMode: LINE_KIND.PRODUCT,
   // The products already on the invoice - what the preview, the totals and the
   // saved document read - and the ONE entry form a product is typed into
   // before Add Product commits it. `editingLineId` is the line the entry form
@@ -379,8 +418,38 @@ const productFields = (product, variant) => ({
  */
 export const lineFromProduct = (line, product) => {
   const variant = isSkuManaged(product) ? null : (product?.variants[0] ?? null)
-  return { ...line, productKey: product ? String(product.key) : '', skuValue: '', ...productFields(product, variant) }
+  return { ...line, kind: LINE_KIND.PRODUCT, ledgerId: '', productKey: product ? String(product.key) : '', skuValue: '', ...productFields(product, variant) }
 }
+
+/** A GST slab as the slab list writes it ("18", "0.25"), from a ledger's gst_rate - '' when it is none of them. */
+const slabOf = (value) => {
+  const raw = textOf(value)
+  if (!raw || !Number.isFinite(Number(raw))) return ''
+  return GST_RATES.find((rate) => Number(rate) === Number(raw)) ?? ''
+}
+
+/**
+ * A service line after its ledger is chosen - filled from that ledger's own
+ * record (tally/create-ledger/, the fields the Ledger Form saves):
+ *
+ *   ledger_sac   -> HSN/SAC
+ *   gst_rate     -> GST slab, when it is one of the slabs
+ *
+ * A field the ledger does not carry is left empty for the user, never
+ * guessed. Every product-only value (product, SKU, unit) is cleared; what
+ * the user typed that is not about the ledger - quantity, rate, discount,
+ * description - stays.
+ */
+export const lineFromServiceLedger = (line, ledger, ledgerId) => ({
+  ...line,
+  kind: LINE_KIND.SERVICE,
+  ledgerId: ledger ? String(ledgerId) : '',
+  productKey: '',
+  skuValue: '',
+  per: '',
+  hsn: textOf(ledger?.ledger_sac).replace(/[^\dA-Za-z]/g, '').slice(0, 10),
+  gstRate: slabOf(ledger?.gst_rate),
+})
 
 /** A line after its SKU is chosen: the SKU's own values, over the product's. */
 export const lineFromSku = (line, product, skuValue) => {
@@ -425,13 +494,14 @@ export const lineFromExistingProduct = (line, existing, products) => {
  * already empty) can never add a blank or a duplicate line.
  */
 export const commitEntryToLines = (form) => {
-  if (!form.entry.productKey) return form
+  if (isServiceLine(form.entry) ? !form.entry.ledgerId : !form.entry.productKey) return form
   const editing = form.editingLineId && form.lines.some((line) => line.id === form.editingLineId)
   const line = { ...form.entry, id: editing ? form.editingLineId : newInvoiceLine().id }
   return {
     ...form,
     lines: editing ? form.lines.map((current) => (current.id === line.id ? line : current)) : [...form.lines, line],
-    entry: newInvoiceLine(),
+    // The next line is entered as the current mode (Product / Service).
+    entry: newInvoiceLine(entryModeOf(form)),
     editingLineId: null,
   }
 }
@@ -750,6 +820,8 @@ export const portalRequiredFields = (settings, card) =>
   new Set(PORTAL_RULES.filter((rule) => settings?.[rule.setting]).flatMap((rule) => rule[card]))
 
 const checkPortalRequirements = (found, form) => {
+  // A challan's Settings are not shown - their requirements do not apply.
+  if (isChallan(form)) return
   const values = { dispatch: effectiveDispatch(form), shipping: effectiveShipping(form), document: form.document }
   // While "Same as ..." is ticked the card IS its source, so that is where the field is fixed.
   const keyOf = {
@@ -806,31 +878,44 @@ const validateDocumentStep = (form, found, { allowedTypes }) => {
 
   if (!textOf(document.invoiceDate)) found['document.invoiceDate'] = 'Invoice date is required'
   if (textOf(document.distance) && !(numberOf(document.distance) >= 0)) found['document.distance'] = 'Enter the distance in km'
-  if (!supplyTypesOf(document.supply).some((option) => option.value === document.supplyType)) {
+  // A challan has no Supply Type to choose - and its Reference No. / PO No. is required.
+  if (isChallan(form)) {
+    if (!textOf(document.referenceNo)) found['document.referenceNo'] = 'Reference No. / PO No. is required'
+  } else if (!supplyTypesOf(document.supply).some((option) => option.value === document.supplyType)) {
     found['document.supplyType'] = 'Select a supply type'
   }
 }
 
 /**
- * The checks one product line is held to - an added line, or the entry form
- * before Add Product. `key(field)` is where each error goes.
+ * The checks one line is held to - an added line, or the entry form before
+ * Add Product. `key(field)` is where each error goes. A product line needs
+ * its product (and SKU); a service line its ledger - the rest is the same.
  */
-const checkLine = (found, line, key, { productsByKey, withDiscount }) => {
-  const product = productsByKey.get(line.productKey)
-
-  if (!line.productKey) found[key('productKey')] = 'Select a product'
-  else if (!product) found[key('productKey')] = 'This product is no longer in the list'
-  else if (isSkuManaged(product) && !lineVariant(product, line)) found[key('skuValue')] = 'Select a SKU'
+const checkLine = (found, line, key, { productsByKey, ledgersById, withDiscount, challan = false }) => {
+  if (isServiceLine(line)) {
+    if (!line.ledgerId) found[key('ledgerId')] = 'Select the service ledger'
+    else if (ledgersById && !ledgersById.has(String(line.ledgerId))) found[key('ledgerId')] = 'This ledger is no longer in the list'
+  } else {
+    const product = productsByKey.get(line.productKey)
+    if (!line.productKey) found[key('productKey')] = 'Select a product'
+    else if (!product) found[key('productKey')] = 'This product is no longer in the list'
+    else if (isSkuManaged(product) && !lineVariant(product, line)) found[key('skuValue')] = 'Select a SKU'
+  }
 
   // The invoice backend refuses a line without an HSN/SAC code.
   if (!textOf(line.hsn)) found[key('hsn')] = 'HSN/SAC is required'
   if (!(numberOf(line.quantity) > 0)) found[key('quantity')] = 'Enter a quantity above 0'
-  if (!textOf(line.rate) || !(numberOf(line.rate) >= 0) || !Number.isFinite(Number(line.rate))) {
-    found[key('rate')] = 'Enter the rate'
+  // A challan carries goods, not prices: no rate, no slab, no discount.
+  if (challan) {
+    if (isServiceLine(line)) found[key('ledgerId')] = 'A challan takes products only - remove this service'
+  } else {
+    if (!textOf(line.rate) || !(numberOf(line.rate) >= 0) || !Number.isFinite(Number(line.rate))) {
+      found[key('rate')] = 'Enter the rate'
+    }
+    // The GST slab the invoice taxes this line at - 0 is a real slab, blank is not.
+    if (!textOf(line.gstRate)) found[key('gstRate')] = 'Select the GST slab'
   }
-  // The GST slab the invoice taxes this line at - 0 is a real slab, blank is not.
-  if (!textOf(line.gstRate)) found[key('gstRate')] = 'Select the GST slab'
-  if (withDiscount && textOf(line.discount)) {
+  if (!challan && withDiscount && textOf(line.discount)) {
     const percent = Number(line.discount)
     if (!Number.isFinite(percent) || percent < 0 || percent > 100) found[key('discount')] = 'Between 0 and 100'
   }
@@ -841,28 +926,34 @@ const checkLine = (found, line, key, { productsByKey, withDiscount }) => {
 
 /** Whether the entry form holds something not yet added to the invoice. */
 export const isEntryDirty = (entry) =>
-  ['productKey', 'hsn', 'quantity', 'rate', 'discount', 'description'].some((field) => textOf(entry?.[field]))
+  ['productKey', 'ledgerId', 'hsn', 'quantity', 'rate', 'discount', 'description'].some((field) => textOf(entry?.[field]))
 
 /** What is wrong with the entry form - checked by Add Product. Keys are 'entry.<field>'. */
-export const validateEntry = (form, { productsByKey }) => {
+export const validateEntry = (form, { productsByKey, ledgersById }) => {
   const found = {}
-  checkLine(found, form.entry, (field) => `entry.${field}`, { productsByKey, withDiscount: form.withDiscount })
+  checkLine(found, form.entry, (field) => `entry.${field}`, { productsByKey, ledgersById, withDiscount: form.withDiscount, challan: isChallan(form) })
   return found
 }
 
-const validateProductsStep = (form, found, { productsByKey }) => {
-  if (form.lines.length === 0) found.lines = 'Add at least one product'
+const validateProductsStep = (form, found, { productsByKey, ledgersById }) => {
+  const challan = isChallan(form)
+  if (form.lines.length === 0) found.lines = challan ? 'Add at least one product' : 'Add at least one product or service'
 
   form.lines.forEach((line) => {
-    checkLine(found, line, (field) => `lines.${line.id}.${field}`, { productsByKey, withDiscount: form.withDiscount })
+    checkLine(found, line, (field) => `lines.${line.id}.${field}`, { productsByKey, ledgersById, withDiscount: form.withDiscount, challan })
   })
 
-  // A product typed in but never added would silently not be invoiced.
+  // A line typed in but never added would silently not be invoiced.
   if (isEntryDirty(form.entry)) {
-    found['entry.productKey'] = form.editingLineId
-      ? 'Update this product, or cancel the edit, before saving'
-      : 'Add this product to the invoice (Add Product), or clear it, before saving'
+    const service = isServiceLine(form.entry)
+    const what = service ? 'service' : 'product'
+    found[service ? 'entry.ledgerId' : 'entry.productKey'] = form.editingLineId
+      ? `Update this ${what}, or cancel the edit, before saving`
+      : `Add this ${what} to the invoice (Add Product), or clear it, before saving`
   }
+
+  // A challan has no Other Details - nothing of them is checked (or saved).
+  if (challan) return
 
   // A charge is saved under its ledger's name (other_details), so one ledger
   // can only be charged once per document.

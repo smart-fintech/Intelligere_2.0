@@ -10,6 +10,7 @@ import { toast } from '@/Library/toast'
 import { InvoiceGrid } from '@/Modules/SalesInvoice/Components/InvoiceGrid'
 import { rateText } from '@/Modules/SalesInvoice/salesInvoiceForm'
 import { MAPPING_KIND } from '@/Services/salesInvoiceService'
+import { ledgerFitsGst, readGstLedgerName } from '@/Utils/gstLedgers'
 
 /**
  * GST LEDGER MAPPING - which ledger each GST tax is posted to, for Sales
@@ -18,13 +19,13 @@ import { MAPPING_KIND } from '@/Services/salesInvoiceService'
  *
  *   tax        CGST | SGST | IGST
  *   rate       a GST rate - CGST and SGST are each half the slab
- *              (GST_RATES, Constants/gst), IGST the whole slab. Always one:
- *              a ledger is posted to for its own tax AND rate (Utils/gstLedgers),
- *              so a mapping for "any rate" would never be used. Such rows
- *              saved earlier are listed as "Any (not used)" and can be deleted.
+ *              (GST_RATES, Constants/gst), IGST the whole slab - or "Any
+ *              rate": the tax's ledger for every rate not mapped on its own
+ *              (Utils/gstLedgers - a mapping comes before any name match)
  *   ledger     one of the company's ledgers, sent by name
  *
- * The mapping key is the tax with the rate after it: "sgst_6", "igst_18". OK saves it (invoice/document-mapping/) and
+ * The mapping key is the tax, with the rate after it when one is chosen:
+ * "cgst", "sgst_6", "igst_18". OK saves it (invoice/document-mapping/) and
  * the table below is read again from the server.
  *
  *   mappings   useDocumentMappings(...)
@@ -32,10 +33,12 @@ import { MAPPING_KIND } from '@/Services/salesInvoiceService'
  */
 
 const TAX_OPTIONS = ['CGST', 'SGST', 'IGST'].map((tax) => ({ value: tax, label: tax }))
-/** The rates one tax can be mapped for: half of each slab for CGST / SGST, the slab itself for IGST - 0% charges no tax, so it needs no ledger. */
+const ANY_RATE = 'any'
+
+/** The rates one tax can be mapped for: any (its basic ledger), half of each slab for CGST / SGST, the slab itself for IGST - 0% charges no tax, so it needs no ledger. */
 const rateOptions = (tax) => {
   const rates = [...new Set(GST_RATES.map((rate) => rateText(tax === 'IGST' ? Number(rate) : Number(rate) / 2)))].filter((rate) => Number(rate) > 0)
-  return rates.map((rate) => ({ value: rate, label: `${rate}%` }))
+  return [{ value: ANY_RATE, label: 'Any rate' }, ...rates.map((rate) => ({ value: rate, label: `${rate}%` }))]
 }
 
 const KIND_LABEL = { [MAPPING_KIND.LEDGER]: 'Ledger', [MAPPING_KIND.PRODUCT]: 'Product' }
@@ -63,7 +66,7 @@ export default function GstLedgerMapping({ mappings, ledgers, disabled }) {
     setErrors(found)
     if (Object.keys(found).length > 0) return
 
-    const key = `${tax.toLowerCase()}_${rate}`
+    const key = rate === ANY_RATE ? tax.toLowerCase() : `${tax.toLowerCase()}_${rate}`
     try {
       await mappings.save(key, ledger)
       setTax('')
@@ -187,19 +190,19 @@ export default function GstLedgerMapping({ mappings, ledgers, disabled }) {
                       </td>
                       <td className="px-2 py-1.5">{row.tax}</td>
                       <td className="px-2 py-1.5">
-                        {row.rate ? (
-                          `${row.rate}%`
-                        ) : (
-                          <span className="text-muted-foreground" title="A ledger is chosen per tax and rate, so a mapping without a rate is not used.">
-                            Any (not used)
-                          </span>
-                        )}
+                        {row.rate ? `${row.rate}%` : 'Any'}
                       </td>
                       <td className="px-2 py-1.5">
                         {row.ledger}
                         {/* A mapping to a ledger the company no longer has is skipped (Utils/gstLedgers). */}
                         {ledgers.status === 'succeeded' && row.ledger && !ledgerNames.has(row.ledger.trim().replace(/\s+/g, ' ').toLowerCase()) ? (
                           <span className="block text-[11px] text-destructive">Not in this company&apos;s ledgers - not used</span>
+                        ) : null}
+                        {/* Nor one whose name says another tax or rate (IGST mapped to "CGST"). */}
+                        {row.kind === MAPPING_KIND.LEDGER &&
+                        row.ledger &&
+                        !ledgerFitsGst(row.ledger, row.tax, row.rate ? Number(row.rate) : (readGstLedgerName(row.ledger)?.rate ?? null)) ? (
+                          <span className="block text-[11px] text-destructive">A ledger for another tax or rate - not used</span>
                         ) : null}
                       </td>
                       <td className="px-2 py-1.5 text-right">

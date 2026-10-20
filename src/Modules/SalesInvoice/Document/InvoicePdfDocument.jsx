@@ -76,6 +76,7 @@ const s = StyleSheet.create({
   itemName: { fontSize: 9, fontFamily: 'Helvetica-Bold' },
   col12: { fontSize: 9 },
   charge: { fontSize: 9, fontFamily: 'Helvetica-Bold' },
+  noLedger: { color: '#dc2626' },
   itemDesc: { fontSize: 7.5, color: '#333' },
   totalRow: { flexDirection: 'row', borderWidth: 1, borderColor: B, fontFamily: 'Helvetica-Bold', fontSize: 7.5 },
   continuedRow: { borderWidth: 1, borderColor: B },
@@ -256,7 +257,16 @@ function GoodsRowView({ row, minHeight }) {
   return (
     <View style={[s.tRow, fixed]} wrap={false}>
       <Cell style={s.cNo} />
-      <Cell style={[s.cDesc, { textAlign: 'right', paddingRight: 6 }, s.charge]}>{row.label}</Cell>
+      <Cell style={[s.cDesc, { textAlign: 'right', paddingRight: 6 }, s.charge]}>
+        {row.label}
+        {/* The same red "No Ledger" as the sheet, for a GST row with no ledger. */}
+        {row.missingLedger ? (
+          <>
+            {' - '}
+            <Text style={s.noLedger}>No Ledger</Text>
+          </>
+        ) : null}
+      </Cell>
       <Cell style={s.cHsn} />
       <Cell style={s.cQty} />
       <Cell style={s.cRate} />

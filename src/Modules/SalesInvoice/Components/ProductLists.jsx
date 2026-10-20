@@ -3,7 +3,7 @@ import { Pencil, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/Components/ui/button'
 import { cn } from '@/Library/utils'
 import { formatINR } from '@/Modules/Payment/pricing'
-import { lineVariant, rateText, textOf } from '@/Modules/SalesInvoice/salesInvoiceForm'
+import { isServiceLine, lineVariant, rateText, textOf } from '@/Modules/SalesInvoice/salesInvoiceForm'
 
 /**
  * The two lists under the Product Details entry form:
@@ -21,13 +21,19 @@ const cell = 'px-2 py-1.5'
 /**
  *   lines           form.lines
  *   productsByKey   Map of the products, for names and SKUs
+ *   ledgersById     Map of the ledgers, for a service line's name
+ *   challan         a Challan's lines - no Rate, GST or Amount columns
  *   figures         invoiceFigures(form).lines - each line's amounts
  *   editingLineId   the line loaded into the entry form, highlighted
  *   errors          the form's errors - a line with any is flagged
  */
-export function AddedProducts({ lines, productsByKey, figures, editingLineId, errors, disabled, onEdit, onRemove }) {
+export function AddedProducts({ lines, productsByKey, ledgersById, figures, editingLineId, errors, disabled, onEdit, onRemove, challan = false }) {
   if (lines.length === 0) {
-    return <p className="text-xs text-muted-foreground">No products added yet - fill in the form above and press Add Product.</p>
+    return (
+      <p className="text-xs text-muted-foreground">
+        {challan ? 'No products added yet' : 'No products or services added yet'} - fill in the form above and press Add Product.
+      </p>
+    )
   }
 
   return (
@@ -39,9 +45,13 @@ export function AddedProducts({ lines, productsByKey, figures, editingLineId, er
             <th className={cn(cell, 'font-medium')}>Product</th>
             <th className={cn(cell, 'font-medium')}>HSN/SAC</th>
             <th className={cn(cell, 'text-right font-medium')}>Qty</th>
-            <th className={cn(cell, 'text-right font-medium')}>Rate</th>
-            <th className={cn(cell, 'text-right font-medium')}>GST</th>
-            <th className={cn(cell, 'text-right font-medium')}>Amount</th>
+            {challan ? null : (
+              <>
+                <th className={cn(cell, 'text-right font-medium')}>Rate</th>
+                <th className={cn(cell, 'text-right font-medium')}>GST</th>
+                <th className={cn(cell, 'text-right font-medium')}>Amount</th>
+              </>
+            )}
             <th className={cn(cell, 'w-16')}>
               <span className="sr-only">Actions</span>
             </th>
@@ -49,14 +59,21 @@ export function AddedProducts({ lines, productsByKey, figures, editingLineId, er
         </thead>
         <tbody>
           {lines.map((line, index) => {
-            const product = productsByKey.get(line.productKey)
+            const service = isServiceLine(line)
+            const product = service ? null : productsByKey.get(line.productKey)
             const variant = lineVariant(product, line)
+            const name = service
+              ? (ledgersById?.get(String(line.ledgerId))?.ledeger_name ?? 'Ledger no longer listed')
+              : (product?.name ?? 'Product no longer listed')
             const flagged = Object.keys(errors).some((key) => key.startsWith(`lines.${line.id}.`))
             return (
               <tr key={line.id} className={cn('border-t border-border', line.id === editingLineId && 'bg-brand-soft/60')}>
                 <td className={cn(cell, 'text-xs text-muted-foreground tabular-nums')}>{index + 1}</td>
                 <td className={cell}>
-                  <span className="font-medium">{product?.name ?? 'Product no longer listed'}</span>
+                  <span className="font-medium">{name}</span>
+                  {service ? (
+                    <span className="ml-1.5 rounded-full bg-brand-soft px-1.5 py-0.5 text-[10px] font-medium text-brand">Service</span>
+                  ) : null}
                   {variant?.skuCode ? <span className="block text-xs text-muted-foreground">{variant.skuCode}</span> : null}
                   {flagged ? <span className="block text-xs text-destructive">Needs attention - Edit to fix</span> : null}
                 </td>
@@ -64,9 +81,13 @@ export function AddedProducts({ lines, productsByKey, figures, editingLineId, er
                 <td className={cn(cell, 'text-right tabular-nums')}>
                   {line.quantity} {line.per}
                 </td>
-                <td className={cn(cell, 'text-right tabular-nums')}>{line.rate}</td>
-                <td className={cn(cell, 'text-right tabular-nums')}>{line.gstRate ? `${rateText(line.gstRate)}%` : '--'}</td>
-                <td className={cn(cell, 'text-right tabular-nums')}>{formatINR(figures[line.id]?.taxablePaise)}</td>
+                {challan ? null : (
+                  <>
+                    <td className={cn(cell, 'text-right tabular-nums')}>{line.rate}</td>
+                    <td className={cn(cell, 'text-right tabular-nums')}>{line.gstRate ? `${rateText(line.gstRate)}%` : '--'}</td>
+                    <td className={cn(cell, 'text-right tabular-nums')}>{formatINR(figures[line.id]?.taxablePaise)}</td>
+                  </>
+                )}
                 <td className={cn(cell, 'whitespace-nowrap text-right')}>
                   <Button
                     type="button"

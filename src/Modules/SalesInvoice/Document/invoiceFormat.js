@@ -182,13 +182,20 @@ export const hasDispatch = (dispatch) => [dispatch.company, dispatch.address, di
 /* ------------------------------------------------------------------ */
 
 /**
- * The document details beside the parties, two to a row. Blank cells are
- * dropped and the ones after them move up, so a half-empty row never
- * stretches one value across the width; an odd last cell is padded by the
- * template so it stays half-width.
+ * Header boxes two to a row. Blank cells are dropped and the ones after them
+ * move up, so a half-empty row never stretches one value across the width; an
+ * odd last cell is padded by the template so it stays half-width.
  */
-export const headerMetaRows = (invoice) => {
-  const cells = [
+const twoUpRows = (cells) => {
+  const filled = cells.filter((cell) => has(cell.value))
+  const rows = []
+  for (let index = 0; index < filled.length; index += 2) rows.push(filled.slice(index, index + 2))
+  return rows
+}
+
+/** The document details beside the parties, two to a row, blanks removed (twoUpRows). */
+export const headerMetaRows = (invoice) =>
+  twoUpRows([
     { label: 'Invoice No', value: invoice.invoiceNo },
     { label: 'Invoice Date', value: formatSheetDate(invoice.invoiceDate) },
     { label: 'Reference No', value: invoice.referenceNo },
@@ -203,12 +210,7 @@ export const headerMetaRows = (invoice) => {
     { label: 'Freight Terms of Payment', value: invoice.freightTerms },
     { label: 'BL / LR-RR No', value: invoice.lrNo },
     { label: 'LR-RR Date', value: formatSheetDate(invoice.lrDate) },
-  ].filter((cell) => has(cell.value))
-
-  const rows = []
-  for (let index = 0; index < cells.length; index += 2) rows.push(cells.slice(index, index + 2))
-  return rows
-}
+  ])
 
 /**
  * The transport rows under them, blanks removed: Transporter ID | Vehicle No,
@@ -228,3 +230,42 @@ export const transportRows = (invoice) =>
   ]
     .map((row) => row.filter((cell) => has(cell.value)))
     .filter((row) => row.length > 0)
+
+/**
+ * A CHALLAN's header boxes, in the order the earlier challan PDFs print them,
+ * with only the ones that have a value - blanks are dropped and the rest move
+ * up two to a row, as the invoice's (twoUpRows):
+ *
+ *   Challan No./Delivery No.  | Challan Date/Delivery Date.
+ *   Invoice No.               | Invoice Date
+ *   Reference No./PO No.      | Reference Date./PO Date.
+ *   Reason For Transport      | Freight Terms of Payment
+ *   Dispatched Through        | Approx Distance  Delivery Mode   (one box, two values)
+ *   Bill of Lading/LR-RR No.  | Motor Vehicle No.
+ *   Challan Type
+ *
+ * Approx Distance and Delivery Mode share a box only when both are given;
+ * either alone is a plain box of its own.
+ */
+export const challanMetaRows = (model) => {
+  const { invoice, challan } = model
+  const distance = { label: 'Approx Distance', value: invoice.distance }
+  const mode = { label: 'Delivery Mode', value: invoice.deliveryMode }
+  const distanceAndMode = !has(distance.value) ? mode : has(mode.value) ? { ...distance, pair: mode } : distance
+
+  return twoUpRows([
+    { label: 'Challan No./Delivery No.', value: invoice.invoiceNo },
+    { label: 'Challan Date/Delivery Date.', value: formatSheetDate(invoice.invoiceDate) },
+    { label: 'Invoice No.', value: challan.invoiceNo },
+    { label: 'Invoice Date', value: formatSheetDate(challan.invoiceDate) },
+    { label: 'Reference No./PO No.', value: invoice.referenceNo },
+    { label: 'Reference Date./PO Date.', value: formatSheetDate(invoice.referenceDate) },
+    { label: 'Reason For Transport', value: invoice.transportReason },
+    { label: 'Freight Terms of Payment', value: invoice.freightTerms },
+    { label: 'Dispatched Through', value: invoice.dispatchThrough },
+    distanceAndMode,
+    { label: 'Bill of Lading/LR-RR No.', value: invoice.lrNo },
+    { label: 'Motor Vehicle No.', value: invoice.vehicleNo },
+    { label: 'Challan Type', value: challan.type },
+  ])
+}

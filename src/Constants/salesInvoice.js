@@ -47,6 +47,37 @@ export const DOCUMENT_TYPES = [
 export const findDocumentType = (value) => DOCUMENT_TYPES.find((type) => type.value === value) ?? null
 
 /* ------------------------------------------------------------------ */
+/* Challan                                                            */
+/* ------------------------------------------------------------------ */
+
+/** The Challan document type (DOCUMENT_TYPES) - every Challan-only rule keys off it. */
+export const DOCUMENT_TYPE_CHALLAN = 'Challan'
+
+/** Challan Type - saved as `challan_type`, the name the earlier challan screens used. */
+export const CHALLAN_TYPES = ['Permanent', 'Temporary', 'Inward', 'Outward', 'Internal'].map((type) => ({ value: type, label: type }))
+
+/**
+ * The copies a challan is printed as - each one the whole challan under its
+ * own heading, as the earlier challan PDFs were. Saving asks which to make;
+ * they go into ONE PDF, one after another, for the one saved document.
+ */
+export const CHALLAN_COPIES = [
+  { value: 'original', label: 'ORIGINAL FOR CONSIGNEE' },
+  { value: 'duplicate', label: 'DUPLICATE FOR TRANSPORTER' },
+  { value: 'triplicate', label: 'TRIPLICATE FOR SUPPLIER' },
+]
+
+/**
+ * The Terms & Conditions printed at the foot of every challan - the wording
+ * of the earlier challan PDFs (invoicedoc GenerateChallanPdf), kept as it is.
+ */
+export const CHALLAN_TERMS = [
+  'Our responsibility ceases as soon as the stores leaves our godown.',
+  'Delivery under this memo cannot be enforced.',
+  'Subject to Ahmedabad Jurisdiction.',
+]
+
+/* ------------------------------------------------------------------ */
 /* The steps of the form                                              */
 /* ------------------------------------------------------------------ */
 

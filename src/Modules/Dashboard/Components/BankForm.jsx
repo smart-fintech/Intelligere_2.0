@@ -56,26 +56,35 @@ import { useSelector } from 'react-redux'
 import { Building2, Hash, Landmark, MapPin } from 'lucide-react'
 
 import { InlineAlert, RetryButton } from '@/Components/Common/DataList'
-import { Field, FormActions, FormGrid, SelectField } from '@/Components/Common/FormFields'
+import { Field, FileField, FormActions, FormGrid, SelectField } from '@/Components/Common/FormFields'
 import { Panel } from '@/Components/Common/Panel'
 import { Button } from '@/Components/ui/button'
 import { toast } from '@/Library/toast'
 import { addBank, updateBank } from '@/Services/bankService'
 import { getLedgerId } from '@/Services/ledgerService'
+import { paymentQrOfBank } from '@/Services/salesInvoiceService'
 import {
   selectBankNames,
   selectBankOptionsError,
   selectBankOptionsStatus,
 } from '@/Store/Slices/bankSlice'
 
-// The four fields the backend asks for, named exactly as it names them, so
-// the payload is the form with nothing renamed on the way out.
+// The fields the backend asks for, named exactly as it names them, so the
+// payload is the form with nothing renamed on the way out.
+//
+// `payment_qr` is not text: it holds the File the user picked, the QR the
+// bank already has on the server as { url, name } (shown, never re-sent), or
+// null for none.
 const EMPTY_FORM = {
   bank_name: '',
   bank_ledger_name: '',
   account_no: '',
   ifsc_code: '',
+  payment_qr: null,
 }
+
+// The text fields - every field but the QR, which is compared differently.
+const TEXT_FIELDS = Object.keys(EMPTY_FORM).filter((field) => field !== 'payment_qr')
 
 /** A ledger's optional text field, as a form value - null and blanks become ''. */
 const textOf = (value) => (value === null || value === undefined ? '' : String(value).trim())
@@ -106,6 +115,8 @@ export default function BankForm({
         bank_ledger_name: bank.bank_ledger_name ?? '',
         account_no: bank.account_no ?? '',
         ifsc_code: bank.ifsc_code ?? '',
+        // The saved QR's link, as the file box shows it - or null.
+        payment_qr: paymentQrOfBank(bank),
       }
       : EMPTY_FORM,
   )
@@ -184,13 +195,19 @@ export default function BankForm({
    * The backend identifies the row by `id` and updates only the fields that
    * arrive with it, so just the ones the user actually changed go up - which
    * is what the API's own example does.
+   *
+   * The QR goes up only when it changed: a newly picked File, or '' when the
+   * one the bank had was removed. The saved QR left in place is not sent.
    */
   const buildEditPayload = () => {
-    const changed = Object.keys(EMPTY_FORM).reduce((payload, field) => {
+    const changed = TEXT_FIELDS.reduce((payload, field) => {
       const value = form[field].trim()
       if (value !== (bank[field] ?? '')) payload[field] = value
       return payload
     }, {})
+
+    if (form.payment_qr instanceof File) changed.payment_qr = form.payment_qr
+    else if (!form.payment_qr && paymentQrOfBank(bank)) changed.payment_qr = ''
 
     return Object.keys(changed).length > 0 ? { id: bank.id, ...changed } : null
   }
@@ -234,6 +251,8 @@ export default function BankForm({
           ifsc_code: form.ifsc_code.trim(),
           // Never typed by the user - it is the company the header is on.
           company_id: companyId,
+          // The QR image, only when one was picked - it is optional.
+          ...(form.payment_qr instanceof File ? { payment_qr: form.payment_qr } : {}),
         })
       }
 
@@ -316,21 +335,22 @@ export default function BankForm({
             name, valued by `ledger_obj_id`. Picking one fills in the account
             number and IFSC below when the ledger has them. Searchable,
             because a company can have a great many ledgers. */}
-        <SelectField
-          id="bank_ledger_name"
-          label="Select Bank Ledger"
-          required
-          icon={Building2}
-          placeholder={ledgerPlaceholder}
-          value={selectedLedger ? String(getLedgerId(selectedLedger)) : ''}
-          error={errors.bank_ledger_name}
-          disabled={submitting || loadingLedgers || ledgers.length === 0}
-          searchable
-          searchPlaceholder="Search ledger..."
-          onValueChange={selectLedger}
-          options={ledgerOptions}
-        />
         <FormGrid>
+          <SelectField
+            id="bank_ledger_name"
+            label="Select Bank Ledger"
+            required
+            icon={Building2}
+            placeholder={ledgerPlaceholder}
+            value={selectedLedger ? String(getLedgerId(selectedLedger)) : ''}
+            error={errors.bank_ledger_name}
+            disabled={submitting || loadingLedgers || ledgers.length === 0}
+            searchable
+            searchPlaceholder="Search ledger..."
+            onValueChange={selectLedger}
+            options={ledgerOptions}
+          />
+
           <Field
             id="account_no"
             label="Bank Account Number"
@@ -354,6 +374,17 @@ export default function BankForm({
             onChange={(e) => setField('ifsc_code', e.target.value.toUpperCase())}
           />
 
+          {/* Optional. The file box hands back the File itself (or null when
+              it is removed), not an event. An edited bank's saved QR shows
+              here as a thumbnail until it is removed or replaced. */}
+          <FileField
+            id="payment_qr"
+            label="Payment QR"
+            accept="image/*"
+            value={form.payment_qr}
+            disabled={submitting}
+            onChange={(file) => setField('payment_qr', file)}
+          />
         </FormGrid>
         {/* ---------------- Actions ----------------
             Cancel only exists while editing - there is nothing to go back to
