@@ -12,7 +12,13 @@ import {
   TRANSPORT_REASONS,
 } from '@/Constants/salesInvoice'
 import { FULL_FIELD, InvoiceCard, InvoiceGrid, WIDE_FIELD } from '@/Modules/SalesInvoice/Components/InvoiceGrid'
-import { isChallan, portalRequiredFields, portalSettingsOf, supplyTypesOf, toDecimalInput } from '@/Modules/SalesInvoice/salesInvoiceForm'
+import {
+  documentProfile,
+  portalRequiredFields,
+  portalSettingsOf,
+  supplyTypesOf,
+  toDecimalInput,
+} from '@/Modules/SalesInvoice/salesInvoiceForm'
 import { paymentQrOfBank } from '@/Services/salesInvoiceService'
 
 /**
@@ -22,10 +28,11 @@ import { paymentQrOfBank } from '@/Services/salesInvoiceService'
  * on, the number is typed as three parts joined by "/"; off, it is one box.
  * The document type is chosen on Step 1 (DocumentTypeCard), not here.
  *
- * A CHALLAN shows its own set instead - Challan No. and Date, the invoice it
- * goes with (Invoice No. / Date), Reference No. / PO No. (required) and its
- * date, the transport fields, and Challan Type. The fields it shares with the
- * invoice are the same fields (same state, same handlers).
+ * Each document type shows its own set, in its own order and with its own
+ * labels (documentProfile's `fields`: Sales Invoice all of them; a Challan
+ * its Invoice No. / Date, Reference No. / PO No. (required), transport and
+ * Challan Type; a Sales Order its references and payment terms; ...). A field
+ * is the same field whichever type shows it - same state, same handler.
  *
  *   banks           { list, options, status, error, retry } - bank_statement/
  *                   bankDetails/, read from the store (bankSlice); choosing
@@ -74,8 +81,8 @@ export default function DocumentStep({ invoice, banks, numbering, numberLocked, 
   const document = form.document
   // E-way bill makes Distance and Delivery Mode required (portalRequiredFields) - never on a Challan.
   const portalRequired = portalRequiredFields(portalSettingsOf(form), 'document')
-  const challan = isChallan(form)
-  const numberLabel = challan ? 'Challan No.' : 'Invoice No.'
+  const profile = documentProfile(form)
+  const numberLabel = profile.number
   const set = (field) => (value) => setField(`document.${field}`, value)
   const onText = (field, transform = (value) => value) => (event) => set(field)(transform(event.target.value))
 
@@ -118,7 +125,7 @@ export default function DocumentStep({ invoice, banks, numbering, numberLocked, 
         ? 'No banks yet - add one in Bank Details'
         : 'Select Bank'
 
-  /* ---- fields both layouts show, written once ---- */
+  /* ---- every field, written once; each type shows its own (profile.fields) ---- */
   const numberField = document.autoIncrement ? (
     <InvoiceNumberParts
       className={WIDE_FIELD}
@@ -135,44 +142,135 @@ export default function DocumentStep({ invoice, banks, numbering, numberLocked, 
       disabled: disabled || numberLocked,
     })
   )
-  const reasonField = (
-    <SelectField
-      id="document-transportReason"
-      label="Reason for Transportation"
-      placeholder="Select Reason"
-      options={TRANSPORT_REASONS}
-      value={document.transportReason}
-      disabled={disabled}
-      onValueChange={set('transportReason')}
-    />
-  )
-  const vehicleField = textField('vehicleNo', 'Vehicle Number', {
-    inputClassName: 'uppercase',
-    placeholder: 'GJ01AB1234',
-    transform: (value) => value.toUpperCase(),
-  })
-  // The pin is a marker for now - working the distance out from the two
-  // addresses is a later phase, so it asks for nothing.
-  const distanceField = textField('distance', 'Distance (km)', {
-    required: portalRequired.has('distance'),
-    icon: MapPin,
-    inputMode: 'decimal',
-    placeholder: '0',
-    transform: toDecimalInput,
-  })
-  const deliveryModeField = (
-    <SelectField
-      id="document-deliveryMode"
-      label="Delivery Mode"
-      required={portalRequired.has('deliveryMode')}
-      placeholder="Select Delivery Mode"
-      options={DELIVERY_MODES}
-      value={document.deliveryMode}
-      error={errors['document.deliveryMode']}
-      disabled={disabled}
-      onValueChange={set('deliveryMode')}
-    />
-  )
+  const DATE_FIELDS = new Set(['referenceDate', 'poDate', 'deliveryNoteDate', 'lrDate', 'challanInvoiceDate'])
+  const upper = { inputClassName: 'uppercase', transform: (value) => value.toUpperCase() }
+
+  /** One Document Details field by its form key, under the type's label. */
+  const fieldFor = (key, label, extra = {}) => {
+    switch (key) {
+      case 'transportReason':
+        return (
+          <SelectField
+            key={key}
+            id="document-transportReason"
+            label={label}
+            placeholder="Select Reason"
+            options={TRANSPORT_REASONS}
+            value={document.transportReason}
+            disabled={disabled}
+            onValueChange={set('transportReason')}
+          />
+        )
+      case 'transporterId':
+        return <Fragment key={key}>{textField(key, label, upper)}</Fragment>
+      case 'vehicleNo':
+        return <Fragment key={key}>{textField(key, label, { ...upper, placeholder: 'GJ01AB1234' })}</Fragment>
+      case 'distance':
+        // The pin is a marker for now - working the distance out from the two
+        // addresses is a later phase, so it asks for nothing.
+        return (
+          <Fragment key={key}>
+            {textField(key, label, {
+              required: portalRequired.has('distance'),
+              icon: MapPin,
+              inputMode: 'decimal',
+              placeholder: '0',
+              transform: toDecimalInput,
+            })}
+          </Fragment>
+        )
+      case 'deliveryMode':
+        return (
+          <SelectField
+            key={key}
+            id="document-deliveryMode"
+            label={label}
+            required={portalRequired.has('deliveryMode')}
+            placeholder="Select Delivery Mode"
+            options={DELIVERY_MODES}
+            value={document.deliveryMode}
+            error={errors['document.deliveryMode']}
+            disabled={disabled}
+            onValueChange={set('deliveryMode')}
+          />
+        )
+      case 'challanType':
+        return (
+          <SelectField
+            key={key}
+            id="document-challanType"
+            label={label}
+            placeholder={`Select ${label}`}
+            options={CHALLAN_TYPES}
+            value={document.challanType}
+            disabled={disabled}
+            onValueChange={(value) => value && set('challanType')(value)}
+          />
+        )
+      case 'supply':
+        return (
+          <SelectField
+            key={key}
+            id="document-supply"
+            label={label}
+            options={SUPPLY_OPTIONS}
+            value={document.supply}
+            disabled={disabled}
+            onValueChange={changeSupply}
+          />
+        )
+      case 'supplyType':
+        return (
+          <SelectField
+            key={key}
+            id="document-supplyType"
+            label={label}
+            required
+            placeholder="Select Supply Type"
+            options={supplyTypesOf(document.supply)}
+            value={document.supplyType}
+            error={errors['document.supplyType']}
+            disabled={disabled}
+            onValueChange={set('supplyType')}
+          />
+        )
+      case 'bankId':
+        return (
+          <Fragment key={key}>
+            <SelectField
+              id="document-bankId"
+              label={label}
+              placeholder={bankPlaceholder}
+              options={banks.options}
+              value={document.bankId}
+              disabled={disabled || banks.options.length === 0}
+              onValueChange={chooseBank}
+            />
+            {banks.status === 'failed' ? (
+              <div className={FULL_FIELD}>
+                <InlineAlert action={<RetryButton onClick={banks.retry} />}>
+                  {banks.error || 'The bank accounts could not be loaded.'}
+                </InlineAlert>
+              </div>
+            ) : null}
+          </Fragment>
+        )
+      case 'paymentQr':
+        return (
+          <FileField
+            key={key}
+            id="document-paymentQr"
+            label={label}
+            accept="image/*"
+            value={document.paymentQr}
+            disabled={disabled}
+            onChange={set('paymentQr')}
+          />
+        )
+      default:
+        return <Fragment key={key}>{(DATE_FIELDS.has(key) ? dateField : textField)(key, label, extra)}</Fragment>
+    }
+  }
 
   return (
     <InvoiceCard
@@ -201,109 +299,13 @@ export default function DocumentStep({ invoice, banks, numbering, numberLocked, 
         </div>
       ) : null}
 
-      {/* ---------------- Challan: its own fields, and only those ---------------- */}
-      {challan ? (
-        <InvoiceGrid>
-          {numberField}
-          {dateField('invoiceDate', 'Challan Date', { required: true })}
-          {textField('challanInvoiceNo', 'Invoice No.')}
-
-          {dateField('challanInvoiceDate', 'Invoice Date')}
-          {textField('referenceNo', 'Reference No. / PO No.', { required: true })}
-          {dateField('referenceDate', 'Reference Date / PO Date')}
-
-          {reasonField}
-          {textField('transporter', 'Dispatch Through')}
-          {textField('freightTerms', 'Freight Terms of Payment')}
-
-          {textField('lrNo', 'Bill of Lading / LR-RR No.')}
-          {vehicleField}
-          {distanceField}
-
-          {deliveryModeField}
-          <SelectField
-            id="document-challanType"
-            label="Challan Type"
-            placeholder="Select Challan Type"
-            options={CHALLAN_TYPES}
-            value={document.challanType}
-            disabled={disabled}
-            onValueChange={(value) => value && set('challanType')(value)}
-          />
-        </InvoiceGrid>
-      ) : (
-        <InvoiceGrid>
-          {numberField}
-          {dateField('invoiceDate', 'Invoice Date', { required: true })}
-          {textField('termsOfPayment', 'Mode/Terms of Payment')}
-
-          {textField('referenceNo', 'Reference No.')}
-          {dateField('referenceDate', 'Reference Date')}
-          {textField('poNo', 'PO No.')}
-
-          {dateField('poDate', 'PO Date')}
-          {textField('deliveryNote', 'Delivery Note')}
-          {dateField('deliveryNoteDate', 'Delivery Note Date')}
-
-          {reasonField}
-          {textField('transporter', 'Delivery Transporter')}
-          {textField('transporterId', 'Transporter ID', { inputClassName: 'uppercase', transform: (value) => value.toUpperCase() })}
-
-          {textField('freightTerms', 'Freight Terms of Payment')}
-          {textField('lrNo', 'Bill of Lading/LR-RR No.')}
-          {dateField('lrDate', 'LR-RR Date')}
-
-          {vehicleField}
-          {distanceField}
-          {deliveryModeField}
-
-          <SelectField
-            id="document-supply"
-            label="Supply"
-            options={SUPPLY_OPTIONS}
-            value={document.supply}
-            disabled={disabled}
-            onValueChange={changeSupply}
-          />
-          <SelectField
-            id="document-supplyType"
-            label="Supply Type"
-            required
-            placeholder="Select Supply Type"
-            options={supplyTypesOf(document.supply)}
-            value={document.supplyType}
-            error={errors['document.supplyType']}
-            disabled={disabled}
-            onValueChange={set('supplyType')}
-          />
-          <SelectField
-            id="document-bankId"
-            label="Select Bank"
-            placeholder={bankPlaceholder}
-            options={banks.options}
-            value={document.bankId}
-            disabled={disabled || banks.options.length === 0}
-            onValueChange={chooseBank}
-          />
-
-          {banks.status === 'failed' ? (
-            <div className={FULL_FIELD}>
-              <InlineAlert action={<RetryButton onClick={banks.retry} />}>
-                {banks.error || 'The bank accounts could not be loaded.'}
-              </InlineAlert>
-            </div>
-          ) : null}
-
-          <FileField
-            id="document-paymentQr"
-            label="Payment QR"
-            accept="image/*"
-            value={document.paymentQr}
-            disabled={disabled}
-            onChange={set('paymentQr')}
-          />
-        </InvoiceGrid>
-      )}
+      {/* The number and date, then this type's own fields, in its order. */}
+      <InvoiceGrid>
+        {numberField}
+        {dateField('invoiceDate', profile.date, { required: true })}
+        {profile.fields.map(([key, label, extra]) => fieldFor(key, label, extra))}
+      </InvoiceGrid>
     </InvoiceCard>
   )
 }
+

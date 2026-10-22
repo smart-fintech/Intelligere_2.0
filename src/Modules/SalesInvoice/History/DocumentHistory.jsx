@@ -1,23 +1,47 @@
 import { useMemo, useState } from 'react'
-import { AlertCircle, Download, FileText, Info, Pencil, Trash2 } from 'lucide-react'
+import { AlertCircle, Download, Eye, FileSpreadsheet, FileText, Info, Pencil, RefreshCcw, Trash2, X } from 'lucide-react'
 
 import { ConfirmPopover } from '@/Components/Common/ConfirmPopover'
 import { InlineAlert, ListSkeleton, RetryButton, StateMessage } from '@/Components/Common/DataList'
-import { SelectField } from '@/Components/Common/FormFields'
-import { DataTable, PlainHead } from '@/Components/Common/TableTools'
+import { Field, FieldError, SelectField } from '@/Components/Common/FormFields'
+import { DataTable, DateRangeFilter, PlainHead, TablePager } from '@/Components/Common/TableTools'
 import { Button } from '@/Components/ui/button'
 import { Card, CardContent } from '@/Components/ui/card'
 import { Switch } from '@/Components/ui/switch'
 import { TableCell, TableRow } from '@/Components/ui/table'
 import { Tooltip } from '@/Components/ui/tooltip'
+import { QUERY } from '@/Constants/queryKeys'
 import { DOCUMENT_TYPE_INVOICE } from '@/Constants/salesInvoice'
+import { invalidateQueries } from '@/Library/queryCache'
 import { cn } from '@/Library/utils'
 import { toast } from '@/Library/toast'
+import { useListView } from '@/Hooks/useListView'
+import HistoryPdfModal from '@/Modules/SalesInvoice/History/HistoryPdfModal'
 import TallyFetchModal from '@/Modules/SalesInvoice/History/TallyFetchModal'
-import { financialYearOf, financialYearOptions, historyTotal } from '@/Modules/SalesInvoice/History/historyHelpers'
+import {
+  EMPTY_HISTORY_FILTERS,
+  HISTORY_SOURCE,
+  amountRangeError,
+  buildDocumentExportBody,
+  filterHistoryRows,
+  financialYearOf,
+  financialYearOptions,
+  hasHistoryFilters,
+  historyPartyOptions,
+  historyTotal,
+} from '@/Modules/SalesInvoice/History/historyHelpers'
+import { toDecimalInput } from '@/Modules/SalesInvoice/salesInvoiceForm'
 import useDocumentHistory from '@/Modules/SalesInvoice/History/useDocumentHistory'
 import useTallyInvoiceFetch from '@/Modules/SalesInvoice/History/useTallyInvoiceFetch'
-import { deleteBusinessDocument, getDocumentTypeAccess } from '@/Services/salesInvoiceService'
+import {
+  REGENERATE_VOUCHER_TYPES,
+  deleteBusinessDocument,
+  documentTypeOfRecord,
+  exportDocumentsExcel,
+  getDocumentTypeAccess,
+  regenerateVoucher,
+} from '@/Services/salesInvoiceService'
+import { downloadFileFromUrl } from '@/Utils/fileDownload'
 import { formatIndianCurrency } from '@/Utils/currency'
 import { formatDate } from '@/Utils/date'
 
@@ -32,6 +56,32 @@ import { formatDate } from '@/Utils/date'
  *               that is on, Invoice No. (with the count), Invoice Date,
  *               Total (with every listed document's total added up), Actions
  *
+ * FILTERS AND PAGES - the history answers with every document of the type
+ * and year at once, so both are done here, on the rows already loaded, with
+ * no request: Document Date from / to (document_date), Buyer - or Seller on
+ * a purchase - by its ledger id, Source (Tally when past_tally_invoice is
+ * true, else Intelligere - the earlier history screens' rule), and From / To
+ * Amount (total_amount). They all apply together; changing any, or the type
+ * or year, goes back to page 1; Clear Filters sets them all back. The count
+ * and the total in the headings are the filtered rows'. Rows are keyed by
+ * document_id, each document listed once.
+ *
+ * Regenerate Voucher (Sales Invoice, Credit Note, Debit Note, Purchase
+ * Invoice) asks invoice/regenerate_voucher/ to make the document's voucher
+ * again - by its document_id - and the company's vouchers are read again.
+ * One request per document at a time.
+ *
+ * Download Excel exports what the filters show (buildDocumentExportBody) -
+ * every page of it, not just the one on screen - and saves the file the
+ * server names (downloadFileFromUrl).
+ *
+ * PDF opens the row's saved PDF (doc_pdf) in a modal - nothing generated,
+ * no API called (HistoryPdfModal).
+ *
+ * Edit is offered only for a document made in Intelligere: one fetched from
+ * Tally (past_tally_invoice - readHistoryRow's `fromTally`) shows it disabled,
+ * with TALLY_EDIT_BLOCKED on hover - it is Tally's to change.
+ *
  * Delete asks first (the app's confirm popover), and a row leaves the table
  * only when the server says it is gone - the list is then read again, and
  * the count, the total and the numbering with it. The server's own message
@@ -39,26 +89,43 @@ import { formatDate } from '@/Utils/date'
  *
  *   company   the active company's record
  *   isTally   the user works in Tally - Fetch from Tally is offered
+ *   documentTypesOf(company)   the types offered - Sales Invoice's by default;
+ *             Purchase Invoice passes its own (getPurchaseDocumentTypeAccess)
+ *   defaultType   the type listed first
+ *   partyLabel    whose name the party column shows - the buyer on a sale; on
+ *             a purchase the ledger saved as buyer_id is the supplier, "Seller"
+ *   onEdit(record)  Edit on a row - the row as the server sent it
+ *   refresh   a number that changes when a document was saved or updated -
+ *             the list is read again
  */
+
+/** The "every one" entry of a filter dropdown - Radix forbids "". */
+const ALL = '__all__'
+
+const SOURCE_OPTIONS = [
+  { value: ALL, label: 'All Sources' },
+  { value: HISTORY_SOURCE.TALLY, label: 'Tally Invoice' },
+  { value: HISTORY_SOURCE.INTELLIGERE, label: 'Intelligere Invoice' },
+]
 
 /** Money as the app shows it - formatIndianCurrency, from paise. */
 const rupees = (paise) => (paise === null ? '--' : formatIndianCurrency(paise / 100))
 
-/** Buyer Name's heading: the name, then the switch that adds the GSTIN column, then what it does. */
-function BuyerHead({ showGstin, onShowGstinChange }) {
+/** The party column's heading: the name, then the switch that adds the GSTIN column, then what it does. */
+function BuyerHead({ showGstin, onShowGstinChange, partyLabel }) {
   return (
     <span className="flex items-center gap-2">
-      <span className="truncate">Buyer Name</span>
+      <span className="truncate">{partyLabel} Name</span>
       <span className="flex shrink-0 items-center gap-1.5">
         <Switch
           id="history-show-gstin"
           checked={showGstin}
           onCheckedChange={onShowGstinChange}
-          aria-label="Show Buyer GSTIN"
+          aria-label={`Show ${partyLabel} GSTIN`}
           className="h-4 w-7 [&>span]:size-3"
         />
-        <Tooltip text="Show Buyer GSTIN - adds each buyer's GSTIN in a column beside the name">
-          <span tabIndex={0} className="inline-flex cursor-help outline-none focus-visible:text-brand-dark" aria-label="About Show Buyer GSTIN">
+        <Tooltip text={`Show ${partyLabel} GSTIN - adds each ${partyLabel.toLowerCase()}'s GSTIN in a column beside the name`}>
+          <span tabIndex={0} className="inline-flex cursor-help outline-none focus-visible:text-brand-dark" aria-label={`About Show ${partyLabel} GSTIN`}>
             <Info className="size-3.5" />
           </span>
         </Tooltip>
@@ -67,20 +134,64 @@ function BuyerHead({ showGstin, onShowGstinChange }) {
   )
 }
 
-/** A row's Edit and Delete. Edit is shown, not offered: no edit flow exists for a saved document yet. */
+/** Whether the history sent this row's document_id - the id an update names. */
+const hasDocumentId = (row) => row.source?.document_id !== undefined && row.source?.document_id !== null && String(row.source.document_id).trim() !== ''
+
+/** The document type a row is - as the history names it ("Invoice" was "Sales Invoice"). */
+const typeOfRow = (row, listedType) => documentTypeOfRecord(String(row.source?.document_type ?? '').trim() || listedType)
+
+/** What a Tally document's disabled Edit says on hover. */
+const TALLY_EDIT_BLOCKED = 'Tally invoice will not edit'
+
+/** A row's Regenerate Voucher (the types that have vouchers), PDF, Edit (the document opens in Create Document, filled in) and Delete. */
 function RowActions({ row, rowKey, actions }) {
-  const { confirming, setConfirming, deleting, remove } = actions
+  const { confirming, setConfirming, deleting, remove, onEdit, regenerating, regenerate, listedType, previewPdf } = actions
+  const canRegenerate = REGENERATE_VOUCHER_TYPES.includes(typeOfRow(row, listedType))
   return (
     <span className="inline-flex items-center justify-end gap-1">
+      {canRegenerate ? (
+        <Button
+          type="button"
+          variant="iconEdit"
+          size="icon-sm"
+          icon={RefreshCcw}
+          loading={regenerating.has(rowKey)}
+          // Only a document the history names by its document_id - and one request at a time for it.
+          disabled={!hasDocumentId(row) || regenerating.has(rowKey) || deleting}
+          tooltip="Regenerate Voucher"
+          aria-label={`Regenerate voucher for ${row.documentNo}`}
+          onClick={() => regenerate(row, rowKey)}
+        />
+      ) : null}
       <Button
         type="button"
         variant="iconEdit"
         size="icon-sm"
-        icon={Pencil}
-        disabled
-        tooltip="Editing a saved document is not available yet"
-        aria-label={`Edit ${row.documentNo}`}
+        icon={Eye}
+        tooltip="View PDF"
+        aria-label={`View PDF of ${row.documentNo}`}
+        onClick={() => previewPdf(row)}
       />
+      {row.fromTally ? (
+        // Disabled buttons take no pointer events, so the tooltip hangs on a wrapper the pointer and Tab reach.
+        <Tooltip text={TALLY_EDIT_BLOCKED}>
+          <span tabIndex={0} className="inline-flex rounded-md outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50" aria-label={`Edit ${row.documentNo}: ${TALLY_EDIT_BLOCKED}`}>
+            <Button type="button" variant="iconEdit" size="icon-sm" icon={Pencil} disabled aria-hidden="true" tabIndex={-1} />
+          </span>
+        </Tooltip>
+      ) : (
+        <Button
+          type="button"
+          variant="iconEdit"
+          size="icon-sm"
+          icon={Pencil}
+          // Only a document the history names by its document_id can be updated.
+          disabled={!onEdit || !hasDocumentId(row) || deleting}
+          tooltip="Edit"
+          aria-label={`Edit ${row.documentNo}`}
+          onClick={() => onEdit?.(row.source)}
+        />
+      )}
       <ConfirmPopover
         open={confirming === rowKey}
         onOpenChange={(next) => !deleting && setConfirming(next ? rowKey : null)}
@@ -126,13 +237,13 @@ const HISTORY_COLUMNS = [
     key: 'serial',
     width: 64,
     head: () => 'S.No.',
-    cell: (row, ctx) => ctx.index + 1,
+    cell: (row, ctx) => ctx.serial,
     cellClass: 'tabular-nums text-brand-muted',
   },
   {
     key: 'buyerName',
     width: 230,
-    head: (ctx) => <BuyerHead showGstin={ctx.showGstin} onShowGstinChange={ctx.onShowGstinChange} />,
+    head: (ctx) => <BuyerHead showGstin={ctx.showGstin} onShowGstinChange={ctx.onShowGstinChange} partyLabel={ctx.partyLabel} />,
     cell: (row) => row.buyerName || '--',
     cellClass: 'truncate font-medium',
   },
@@ -140,7 +251,7 @@ const HISTORY_COLUMNS = [
     key: 'buyerGstin',
     width: 160,
     when: (ctx) => ctx.showGstin,
-    head: () => 'Buyer GSTIN',
+    head: (ctx) => `${ctx.partyLabel} GSTIN`,
     cell: (row) => row.buyerGstin || '--',
     cellClass: 'truncate font-mono text-xs',
   },
@@ -173,7 +284,7 @@ const HISTORY_COLUMNS = [
   },
   {
     key: 'actions',
-    width: 96,
+    width: 160,
     align: 'right',
     head: () => 'Actions',
     cell: (row, ctx) => <RowActions row={row} rowKey={ctx.rowKey} actions={ctx.actions} />,
@@ -181,16 +292,46 @@ const HISTORY_COLUMNS = [
   },
 ]
 
-export default function DocumentHistory({ company, isTally }) {
-  const documentTypes = useMemo(() => getDocumentTypeAccess(company).filter((type) => type.enabled), [company])
+export default function DocumentHistory({
+  company,
+  isTally,
+  documentTypesOf = getDocumentTypeAccess,
+  defaultType = DOCUMENT_TYPE_INVOICE,
+  partyLabel = 'Buyer',
+  onEdit,
+  refresh = 0,
+}) {
+  const documentTypes = useMemo(() => documentTypesOf(company).filter((type) => type.enabled), [documentTypesOf, company])
   const yearOptions = useMemo(() => financialYearOptions(), [])
 
-  const [documentType, setDocumentType] = useState(DOCUMENT_TYPE_INVOICE)
+  const [documentType, setDocumentType] = useState(defaultType)
   const [financialYear, setFinancialYear] = useState(() => financialYearOf())
   const [showGstin, setShowGstin] = useState(false)
 
-  const history = useDocumentHistory({ companyId: company.company_id, documentType, financialYear })
-  const total = useMemo(() => historyTotal(history.rows), [history.rows])
+  const history = useDocumentHistory({ companyId: company.company_id, documentType, financialYear, refresh })
+
+  /* ---- filters and pages - on the rows already loaded ---- */
+  const [filters, setFilters] = useState(EMPTY_HISTORY_FILTERS)
+  const partyOptions = useMemo(() => historyPartyOptions(history.rows), [history.rows])
+  const filtered = useMemo(() => filterHistoryRows(history.rows, filters), [history.rows, filters])
+  const view = useListView(filtered)
+  const total = useMemo(() => historyTotal(filtered), [filtered])
+  const amountError = amountRangeError(filters)
+  const filtering = hasHistoryFilters(filters)
+  const { setPage } = view
+  const setFilter = (changes) => {
+    setFilters((previous) => ({ ...previous, ...changes }))
+    setPage(1)
+  }
+  const clearFilters = () => {
+    setFilters(EMPTY_HISTORY_FILTERS)
+    setPage(1)
+  }
+  const changeList = (apply) => (value) => {
+    if (!value) return
+    apply(value)
+    setPage(1)
+  }
 
   /* ---- Fetch from Tally ---- */
   const [fetchOpen, setFetchOpen] = useState(false)
@@ -223,20 +364,67 @@ export default function DocumentHistory({ company, isTally }) {
     }
   }
 
+  /* ---- PDF - the row's own doc_pdf, in a modal ---- */
+  const [pdfRow, setPdfRow] = useState(null)
+
+  /* ---- Regenerate Voucher - one request per document at a time ---- */
+  const [regenerating, setRegenerating] = useState(() => new Set())
+  const regenerate = async (row, rowKey) => {
+    if (regenerating.has(rowKey) || !hasDocumentId(row)) return
+    setRegenerating((current) => new Set(current).add(rowKey))
+    try {
+      const reply = await regenerateVoucher({ companyId: company.company_id, documentId: row.source.document_id, documentType: typeOfRow(row, documentType) })
+      toast.success(reply?.msg || 'Voucher regenerated.')
+      // The voucher is the Voucher view's - read again wherever it is open.
+      invalidateQueries(QUERY.TALLY_VOUCHERS, { whose: company.company_id, refetchActive: true })
+    } catch (failure) {
+      toast.error(failure.message || 'The voucher could not be regenerated.')
+    } finally {
+      setRegenerating((current) => {
+        const next = new Set(current)
+        next.delete(rowKey)
+        return next
+      })
+    }
+  }
+
+  /* ---- Download Excel - the filters as applied ---- */
+  const [exporting, setExporting] = useState(false)
+  const downloadExcel = async () => {
+    if (exporting) return
+    setExporting(true)
+    try {
+      const partyName = partyOptions.find((option) => option.value === filters.party)?.label ?? ''
+      const reply = await exportDocumentsExcel(buildDocumentExportBody({ financialYear, documentType, filters, partyName }))
+      const fileUrl = typeof reply?.file_name === 'string' ? reply.file_name.trim() : ''
+      if (!fileUrl) {
+        toast.error(reply?.msg || 'The export sent no file to download.')
+        return
+      }
+      await downloadFileFromUrl(fileUrl, `${documentType} ${financialYear}.xlsx`)
+      toast.success(reply?.msg || 'Excel exported successfully')
+    } catch (failure) {
+      toast.error(failure.message || 'The Excel file could not be exported.')
+    } finally {
+      setExporting(false)
+    }
+  }
+
   /* ---- what the columns' headings and cells read ---- */
   const context = {
-    count: history.rows.length,
+    count: filtered.length,
     total,
     showGstin,
     onShowGstinChange: setShowGstin,
-    actions: { confirming, setConfirming, deleting, remove },
+    partyLabel,
+    actions: { confirming, setConfirming, deleting, remove, onEdit, regenerating, regenerate, listedType: documentType, previewPdf: setPdfRow },
   }
   const columns = HISTORY_COLUMNS.filter((column) => !column.when || column.when(context))
 
   return (
     <div className="space-y-3">
       {/* ---------------- Toolbar ---------------- */}
-      <Card className="border-border/70 py-3 shadow-sm">
+      <Card className="gap-0 border-border/70 py-3 shadow-sm">
         <CardContent className="flex flex-wrap items-end gap-3 px-3">
           <SelectField
             id="history-document-type"
@@ -244,7 +432,7 @@ export default function DocumentHistory({ company, isTally }) {
             className="w-full sm:w-52"
             options={documentTypes.map((type) => ({ value: type.value, label: type.label }))}
             value={documentType}
-            onValueChange={(value) => value && setDocumentType(value)}
+            onValueChange={changeList(setDocumentType)}
           />
           <SelectField
             id="history-financial-year"
@@ -252,7 +440,7 @@ export default function DocumentHistory({ company, isTally }) {
             className="w-full sm:w-44"
             options={yearOptions}
             value={financialYear}
-            onValueChange={(value) => value && setFinancialYear(value)}
+            onValueChange={changeList(setFinancialYear)}
           />
           {isTally ? (
             // The right-hand end of the row, where the total used to be.
@@ -267,6 +455,74 @@ export default function DocumentHistory({ company, isTally }) {
               {tallyFetch.fetching ? 'Fetching from Tally...' : 'Fetch from Tally'}
             </Button>
           ) : null}
+        </CardContent>
+
+        {/* ---- the filters: all apply together, on the rows loaded ---- */}
+        <CardContent className="mt-3 flex flex-wrap items-end gap-3 border-t border-border px-3 pt-3" role="group" aria-label="History filters">
+          <DateRangeFilter
+            label="Document Date"
+            from={filters.from}
+            to={filters.to}
+            onChange={({ from, to }) => setFilter({ from, to })}
+          />
+          <SelectField
+            id="history-party"
+            label={partyLabel}
+            className="w-full sm:w-52"
+            searchable
+            searchPlaceholder={`Search ${partyLabel.toLowerCase()}`}
+            options={[{ value: ALL, label: `All ${partyLabel}s` }, ...partyOptions]}
+            value={filters.party || ALL}
+            onValueChange={(value) => value && setFilter({ party: value === ALL ? '' : value })}
+          />
+          <SelectField
+            id="history-source"
+            label="Source"
+            className="w-full sm:w-44"
+            options={SOURCE_OPTIONS}
+            value={filters.source || ALL}
+            onValueChange={(value) => value && setFilter({ source: value === ALL ? '' : value })}
+          />
+          <div className="space-y-1">
+            <div className="flex items-end gap-2">
+              <Field
+                id="history-amount-from"
+                label="From Amount"
+                inputMode="decimal"
+                placeholder="0.00"
+                className="w-28"
+                value={filters.minAmount}
+                onChange={(event) => setFilter({ minAmount: toDecimalInput(event.target.value) })}
+              />
+              <Field
+                id="history-amount-to"
+                label="To Amount"
+                inputMode="decimal"
+                placeholder="0.00"
+                className="w-28"
+                value={filters.maxAmount}
+                onChange={(event) => setFilter({ maxAmount: toDecimalInput(event.target.value) })}
+              />
+            </div>
+            <FieldError id="history-amount-error">{amountError}</FieldError>
+          </div>
+          {filtering ? (
+            <Button type="button" variant="ghost" size="sm" icon={X} onClick={clearFilters}>
+              Clear Filters
+            </Button>
+          ) : null}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            icon={FileSpreadsheet}
+            loading={exporting}
+            disabled={exporting || history.rows.length === 0}
+            className="sm:ml-auto"
+            onClick={downloadExcel}
+          >
+            {exporting ? 'Exporting...' : 'Download Excel'}
+          </Button>
         </CardContent>
       </Card>
 
@@ -283,6 +539,18 @@ export default function DocumentHistory({ company, isTally }) {
             <StateMessage icon={FileText} title="No documents yet">
               Nothing saved for this document type in {financialYear}.
             </StateMessage>
+          ) : filtered.length === 0 ? (
+            <StateMessage
+              icon={FileText}
+              title="No documents match the filters"
+              action={
+                <Button type="button" variant="outline" size="sm" icon={X} onClick={clearFilters}>
+                  Clear Filters
+                </Button>
+              }
+            >
+              None of the {history.rows.length} documents for {financialYear} passes every filter set.
+            </StateMessage>
           ) : (
             <div className="space-y-3">
               {history.status === 'failed' ? (
@@ -297,9 +565,11 @@ export default function DocumentHistory({ company, isTally }) {
                     </PlainHead>
                   ))}
                 >
-                  {history.rows.map((row, index) => {
-                    const rowKey = row.id ?? `${row.documentNo}-${index}`
-                    const cellContext = { ...context, index, rowKey }
+                  {view.rows.map((row, index) => {
+                    // Each document by its document_id - never its place or number.
+                    const rowKey = row.id ?? `no-id-${row.documentNo}-${index}`
+                    const pageSize = Number(view.pageSize) || view.rows.length
+                    const cellContext = { ...context, index, rowKey, serial: (view.page - 1) * pageSize + index + 1 }
                     return (
                       <TableRow key={rowKey} className={cn(history.status === 'loading' && 'opacity-60')}>
                         {columns.map((column) => (
@@ -312,10 +582,13 @@ export default function DocumentHistory({ company, isTally }) {
                   })}
                 </DataTable>
               </div>
+              <TablePager view={view} />
             </div>
           )}
         </CardContent>
       </Card>
+
+      <HistoryPdfModal row={pdfRow} onClose={() => setPdfRow(null)} />
 
       {isTally ? (
         <TallyFetchModal open={fetchOpen} onOpenChange={setFetchOpen} companyName={company.comp_name} tallyFetch={tallyFetch} />

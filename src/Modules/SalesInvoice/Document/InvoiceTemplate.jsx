@@ -400,8 +400,8 @@ function DeclarationBlock({ model }) {
       <div className="inv-decl-left">
         <div>Declaration :</div>
         <div className="strong">
-          We declare that this invoice shows the actual price of the goods described and that all particulars are true
-          and correct.
+          We declare that this {(model.invoice.word || 'Invoice').toLowerCase()} shows the actual price of the goods
+          described and that all particulars are true and correct.
         </div>
       </div>
       <div className="inv-decl-right">
@@ -416,10 +416,10 @@ function DeclarationBlock({ model }) {
   )
 }
 
-function SheetFoot({ page, total }) {
+function SheetFoot({ page, total, word = 'Invoice' }) {
   return (
     <>
-      <div className="inv-genfoot">This is a Computer Generated Invoice</div>
+      <div className="inv-genfoot">This is a Computer Generated {word}</div>
       {total > 1 ? (
         <div className="inv-pageno">
           Page {page} of {total}
@@ -462,7 +462,7 @@ export function InvoiceSheet({ model, page, pageNo, pageCount, rowsByKey }) {
           <DeclarationBlock model={model} />
         </>
       ) : null}
-      <SheetFoot page={pageNo} total={pageCount} />
+      <SheetFoot page={pageNo} total={pageCount} word={model.invoice.word} />
     </div>
   )
 }
@@ -526,10 +526,10 @@ export function MeasureHost({ model, register }) {
           <DeclarationBlock model={model} />
         </div>
         <div ref={register('foot')}>
-          <SheetFoot page={1} total={2} />
+          <SheetFoot page={1} total={2} word={model.invoice.word} />
         </div>
         <div ref={register('footSingle')}>
-          <SheetFoot page={1} total={1} />
+          <SheetFoot page={1} total={1} word={model.invoice.word} />
         </div>
       </div>
     </div>

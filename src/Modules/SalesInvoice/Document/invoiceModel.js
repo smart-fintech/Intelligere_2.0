@@ -15,28 +15,38 @@
  * registered with the IRP.
  */
 
-import { CHALLAN_COPIES, DOCUMENT_TYPE_CHALLAN, TRANSPORT_REASONS, DELIVERY_MODES, documentTitle } from '@/Constants/salesInvoice'
 import {
+  CHALLAN_COPIES,
+  DOCUMENT_TYPE_INVOICE,
+  TRANSPORT_REASONS,
+  DELIVERY_MODES,
+  documentTitle,
+  findDocumentType,
+} from '@/Constants/salesInvoice'
+import {
+  documentProfile,
   effectiveDispatch,
   effectiveShipping,
   invoiceNumberOf,
   isServiceLine,
   lineVariant,
   rateText,
+  showsDocumentField,
   stateCodeOf,
   supplyTypesOf,
 } from '@/Modules/SalesInvoice/salesInvoiceForm'
-import { gstChargesByLedger } from '@/Utils/gstLedgers'
+import { gstChargesBySlab } from '@/Utils/gstLedgers'
 
 const rupees = (paise) => Math.round(paise || 0) / 100
 const labelOf = (options, value) => options.find((option) => option.value === value)?.label ?? value ?? ''
 
 /**
- * @param form           the Sales Invoice form
+ * @param form           the form as its type has it (applicableForm) - a field
+ *                       the type does not show is empty, so it is not printed
  * @param figures        invoiceFigures(form)
  * @param gst            gstByRate(figures) with each entry's `ledger`
  *                       (resolveGstLedgers, Utils/gstLedgers) - printed as the
- *                       saved gst_charges are (gstChargesByLedger)
+ *                       saved gst_charges are (gstChargesBySlab)
  * @param productsByKey  Map of the products (readProducts)
  * @param ledgersById    Map of the ledgers, for charge names and SAC codes
  * @param bank           the chosen bank account record, or null
@@ -48,6 +58,12 @@ export function toInvoiceModel({ form, figures, gst, productsByKey, ledgersById,
   const ledgerOf = (id) => (id ? ledgersById.get(String(id)) : null)
   const dispatch = effectiveDispatch(form)
   const shipping = effectiveShipping(form)
+  const profile = documentProfile(form)
+  // What the sheet calls the document in its own words - "Invoice" for a Sales
+  // Invoice, else the type's name ("Sales Order", "Credit Note", "Purchase
+  // Invoice" - a type of another module names itself in its profile).
+  const word =
+    form.documentType === DOCUMENT_TYPE_INVOICE ? 'Invoice' : (profile.label ?? findDocumentType(form.documentType)?.label ?? 'Document')
 
   /* ---- the lines - products with a product chosen, services with a ledger ----
      A service is named by its ledger, with its SAC as the code and no unit. */
@@ -74,6 +90,8 @@ export function toInvoiceModel({ form, figures, gst, productsByKey, ledgersById,
         per: service ? '' : line.per,
         gst: interState ? row.igst : row.cgst + row.sgst,
         taxable: rupees(row.taxablePaise),
+        // Less its share of the overall discount - what its GST is charged on.
+        netTaxable: rupees(row.netTaxablePaise ?? row.taxablePaise),
         cgst: rupees(row.cgstPaise),
         sgst: rupees(row.sgstPaise),
         igst: rupees(row.igstPaise),
@@ -108,19 +126,20 @@ export function toInvoiceModel({ form, figures, gst, productsByKey, ledgersById,
   if (figures.discountPaise) {
     rows.push({ type: 'meta', key: 'discount', label: ledgerName('discount', 'Discount'), amount: -rupees(figures.discountPaise) })
   }
-  // The GST rows ARE the saved gst_charges (gstChargesByLedger - the one
-  // grouping the payload uses): one row per real ledger, named exactly as the
-  // ledger is, with the amount saved under it. A tax with no ledger (none
+  // The GST rows ARE the saved gst_charges (gstChargesBySlab - the one
+  // grouping the payload uses): one row per slab and real ledger, named
+  // exactly as the ledger is, with the amount saved under it. A tax with no ledger (none
   // mapped, none for the rate, no basic one) is never given a made-up ledger
   // name: its row is the tax and rate ("IGST 12%") with `missingLedger` set,
   // which the sheet and the PDF mark "No Ledger" in red - and such a
   // document cannot be saved.
-  gstChargesByLedger(gst).forEach((charge) => {
+  gstChargesBySlab(gst).forEach((charge) => {
     const taxes = charge.entries.map((entry) => `${entry.tax} ${rateText(entry.rate)}%`).join(', ')
     rows.push({
       type: 'meta',
-      key: charge.ledger ? `gst-ledger-${charge.ledger}` : `gst-missing-${taxes}`,
+      key: charge.ledger ? `gst-ledger-${charge.slab}-${charge.ledger}` : `gst-missing-${taxes}`,
       label: charge.ledger ?? taxes,
+      slab: charge.slab,
       missingLedger: !charge.ledger,
       amount: rupees(charge.paise),
     })
@@ -149,7 +168,7 @@ export function toInvoiceModel({ form, figures, gst, productsByKey, ledgersById,
       sgst: 0,
       igst: 0,
     }
-    entry.taxable += line.taxable
+    entry.taxable += line.netTaxable ?? line.taxable
     entry.cgst += line.cgst
     entry.sgst += line.sgst
     entry.igst += line.igst
@@ -196,6 +215,8 @@ export function toInvoiceModel({ form, figures, gst, productsByKey, ledgersById,
       state: buyer.state,
       stateCode: stateCodeOf(buyer.state),
       pincode: buyer.pincode,
+      // Printed only when the buyer has one (a purchase document's buyer - the company).
+      pan: buyer.pan,
     },
     shipping: {
       name: shipping.name,
@@ -214,9 +235,16 @@ export function toInvoiceModel({ form, figures, gst, productsByKey, ledgersById,
       pincode: dispatch.pincode,
     },
     invoice: {
-      type: documentTitle(form.documentType),
+      type: profile.title ?? documentTitle(form.documentType),
+      word,
+      // The type's own labels for document_no / document_date ("Sales Order No").
+      numberLabel: profile.number.replace(/\.$/, ''),
+      dateLabel: profile.date,
       invoiceNo: invoiceNumberOf(document),
       invoiceDate: document.invoiceDate,
+      // The invoice a Credit / Debit Note adjusts (empty for a type without it).
+      linkedInvoiceNo: document.challanInvoiceNo,
+      linkedInvoiceDate: document.challanInvoiceDate,
       referenceNo: document.referenceNo,
       referenceDate: document.referenceDate,
       poNo: document.poNo,
@@ -232,7 +260,8 @@ export function toInvoiceModel({ form, figures, gst, productsByKey, ledgersById,
       transporterId: document.transporterId,
       vehicleNo: document.vehicleNo,
       distance: document.distance ? `${document.distance} km` : '',
-      supply: labelOf(supplyTypesOf(document.supply), document.supplyType) || document.supply,
+      // Only where the type has a Supply Type to choose - never the default it was left on.
+      supply: showsDocumentField(form, 'supplyType') ? labelOf(supplyTypesOf(document.supply), document.supplyType) || document.supply : '',
       deliveryMode: labelOf(DELIVERY_MODES, document.deliveryMode),
       paymentQr: images.paymentQr,
     },
@@ -260,12 +289,12 @@ export function toInvoiceModel({ form, figures, gst, productsByKey, ledgersById,
     },
   }
 
-  /* ---- a CHALLAN: goods only - its own header, no money at all ----
+  /* ---- a CHALLAN (or Inbound Challan): goods only - its own header, no money ----
      Its lines are the product lines (a service never goes on a challan) and
      its rows those lines alone - no charges, discount, GST, TCS or round off,
      no bank. `copy` is the heading of the copy on screen; the PDF prints each
      copy chosen at saving under its own (CHALLAN_COPIES). */
-  if (form.documentType === DOCUMENT_TYPE_CHALLAN) {
+  if (profile.challan) {
     const goods = lines.filter((line) => !line.service).map((line, index) => ({ ...line, sr: index + 1 }))
     return {
       ...model,
@@ -273,7 +302,9 @@ export function toInvoiceModel({ form, figures, gst, productsByKey, ledgersById,
       lines: goods,
       rows: goods.map((line) => ({ type: 'product', key: `prod-${line.id}`, sr: line.sr, data: line, amount: 0 })),
       challan: {
-        title: 'DELIVERY CHALLAN',
+        title: profile.challanTitle,
+        numberLabel: profile.challanLabels?.[0],
+        dateLabel: profile.challanLabels?.[1],
         copy: CHALLAN_COPIES[0].label,
         type: document.challanType,
         invoiceNo: document.challanInvoiceNo,

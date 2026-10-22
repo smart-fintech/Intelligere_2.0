@@ -51,6 +51,7 @@ import {
 import { percentOf, toPaise } from '@/Modules/Payment/pricing'
 import { savedValue } from '@/Modules/Dashboard/productList'
 import { isValidGstNumber } from '@/Services/gstService'
+import { getLedgerSac } from '@/Services/ledgerService'
 import { DEFAULT_COUNTRY } from '@/Services/locationService'
 import { toInputDate } from '@/Utils/date'
 import { isValidEmail, isValidPan, isValidPhone, isValidPincode, isValidWebsite } from '@/Utils/validation'
@@ -141,23 +142,257 @@ export const LINE_KIND = Object.freeze({ PRODUCT: 'product', SERVICE: 'service' 
 /** True for a service line (a ledger), false for a product line. */
 export const isServiceLine = (line) => line?.kind === LINE_KIND.SERVICE
 
+/* ------------------------------------------------------------------ */
+/* What each document type has                                        */
+/* ------------------------------------------------------------------ */
+
 /**
- * The kind a NEW line is entered as: Service while Reverse Charge Applicable
- * is ticked (the Product / Service choice is not offered then), else the
- * choice - Product unless Service was picked.
+ * EVERY DOCUMENT TYPE'S FORM, in one table - what Step 1 offers of the
+ * Settings, which Document Details Step 3 shows (in order, with the type's
+ * own labels), whether services and discounts are taken, and which Other
+ * Details sections there are. Sales Invoice has everything; the other types
+ * are the same form with less of it. One table, so a type can never show a
+ * field its preview, checks or payload then ignore - applicableForm reads it
+ * too.
+ *
+ *   settings      the Settings boxes shown (SellerStep). A box not shown is
+ *                 off for this document - except Round Off, which follows the
+ *                 company's setting wherever Other Details has a Round Off.
+ *   number, date  the labels of document_no / document_date
+ *   fields        [key, label, extra] in order - `key` is the form's own
+ *                 document field (and handler); `extra` e.g. { required }
+ *   services      the Product / Service choice is offered
+ *   discount      With Discount (the lines' Disc. %) is offered
+ *   other         the Other Details sections: charges, discount, tcs,
+ *                 roundOff, note - [] is no Other Details card at all
+ *   gst           GST is charged, listed and posted to ledgers (mapping)
+ *   roundOffAlways  Round Off is worked out whatever the company's Show Round
+ *                 Off setting (its box is not shown) - Sales Order
+ *   challan       a challan: goods only - products, no rates, GST, discount or
+ *                 Other Details, its own sheet (challanTitle) and copies
+ *   numberMessage the error when the number is missing (default "Invoice
+ *                 number is required")
+ *   label, title  a type outside DOCUMENT_TYPES (another module's, see
+ *                 defineDocumentProfiles): its name, and its sheet's title
+ *   challanLabels a challan's number / date boxes on its sheet, when not
+ *                 "Challan No./Delivery No." / "Challan Date/Delivery Date."
+ */
+const ALL_SETTINGS = ['eWayBill', 'eInvoice', 'reverseCharge', 'voucherQr', 'roundOff']
+const ALL_OTHER_DETAILS = ['charges', 'discount', 'tcs', 'roundOff', 'note']
+
+const DOCUMENT_PROFILES = {
+  [DOCUMENT_TYPE_INVOICE]: {
+    settings: ALL_SETTINGS,
+    number: 'Invoice No.',
+    date: 'Invoice Date',
+    fields: [
+      ['termsOfPayment', 'Mode/Terms of Payment'],
+      ['referenceNo', 'Reference No.'],
+      ['referenceDate', 'Reference Date'],
+      ['poNo', 'PO No.'],
+      ['poDate', 'PO Date'],
+      ['deliveryNote', 'Delivery Note'],
+      ['deliveryNoteDate', 'Delivery Note Date'],
+      ['transportReason', 'Reason for Transportation'],
+      ['transporter', 'Delivery Transporter'],
+      ['transporterId', 'Transporter ID'],
+      ['freightTerms', 'Freight Terms of Payment'],
+      ['lrNo', 'Bill of Lading/LR-RR No.'],
+      ['lrDate', 'LR-RR Date'],
+      ['vehicleNo', 'Vehicle Number'],
+      ['distance', 'Distance (km)'],
+      ['deliveryMode', 'Delivery Mode'],
+      ['supply', 'Supply'],
+      ['supplyType', 'Supply Type', { required: true }],
+      ['bankId', 'Select Bank'],
+      ['paymentQr', 'Payment QR'],
+    ],
+    services: true,
+    discount: true,
+    other: ALL_OTHER_DETAILS,
+    gst: true,
+  },
+  [DOCUMENT_TYPE_CHALLAN]: {
+    settings: [],
+    number: 'Challan No.',
+    date: 'Challan Date',
+    fields: [
+      ['challanInvoiceNo', 'Invoice No.'],
+      ['challanInvoiceDate', 'Invoice Date'],
+      ['referenceNo', 'Reference No. / PO No.', { required: true }],
+      ['referenceDate', 'Reference Date / PO Date'],
+      ['transportReason', 'Reason for Transportation'],
+      ['transporter', 'Dispatch Through'],
+      ['freightTerms', 'Freight Terms of Payment'],
+      ['lrNo', 'Bill of Lading / LR-RR No.'],
+      ['vehicleNo', 'Vehicle Number'],
+      ['distance', 'Distance (km)'],
+      ['deliveryMode', 'Delivery Mode'],
+      ['challanType', 'Challan Type'],
+    ],
+    services: false,
+    discount: false,
+    other: [],
+    gst: false,
+    challan: true,
+    challanTitle: 'DELIVERY CHALLAN',
+  },
+}
+
+/** Sales Order and Purchase Order: the same short set - no transport, no bank. */
+const orderProfile = (name, { poFields }) => ({
+  settings: [],
+  number: `${name} No.`,
+  date: `${name} Date`,
+  fields: [
+    ['referenceNo', 'Reference No.'],
+    ['referenceDate', 'Reference Date'],
+    ...(poFields
+      ? [
+          ['poNo', 'PO No.'],
+          ['poDate', 'PO Date'],
+        ]
+      : []),
+    ['transporter', 'Dispatch Through'],
+    ['termsOfPayment', 'Mode/Terms of Payment'],
+    ['freightTerms', 'Freight Terms of Payment'],
+  ],
+  services: true,
+  discount: false,
+  other: ['roundOff', 'note'],
+  gst: true,
+})
+
+/** Credit Note and Debit Note: the invoice they adjust, transport, bank - and the invoice's Other Details. */
+const noteProfile = (name) => ({
+  settings: ['voucherQr', 'eInvoice', 'eWayBill'],
+  number: `${name} No.`,
+  date: `${name} Date`,
+  fields: [
+    ['challanInvoiceNo', 'Invoice No.'],
+    ['challanInvoiceDate', 'Invoice Date'],
+    ['referenceNo', 'Reference No.'],
+    ['referenceDate', 'Reference Date'],
+    ['deliveryNote', 'Delivery Note'],
+    ['deliveryNoteDate', 'Delivery Note Date'],
+    ['transportReason', 'Reason for Transportation'],
+    ['transporter', 'Dispatch Through'],
+    ['freightTerms', 'Freight Terms of Payment'],
+    ['lrNo', 'Bill of Lading/LR-RR No.'],
+    ['vehicleNo', 'Vehicle Number'],
+    ['distance', 'Distance (km)'],
+    ['deliveryMode', 'Delivery Mode'],
+    ['bankId', 'Select Bank'],
+    ['paymentQr', 'Payment QR'],
+  ],
+  services: true,
+  discount: true,
+  other: ALL_OTHER_DETAILS,
+  gst: true,
+})
+
+// A Sales Order shows no Show Round Off box, yet always rounds: its Round
+// Off is in Other Details whatever the company's setting.
+DOCUMENT_PROFILES['Sales Order'] = { ...orderProfile('Sales Order', { poFields: true }), roundOffAlways: true }
+DOCUMENT_PROFILES['Purchase Order'] = orderProfile('Purchase Order', { poFields: false })
+DOCUMENT_PROFILES['Credit Note'] = noteProfile('Credit Note')
+DOCUMENT_PROFILES['Debit Note'] = noteProfile('Debit Note')
+DOCUMENT_PROFILES.Proforma = {
+  settings: ['reverseCharge'],
+  number: 'Proforma No.',
+  date: 'Proforma Date',
+  fields: [
+    ['referenceNo', 'Reference No.'],
+    ['referenceDate', 'Reference Date'],
+    ['poNo', 'PO No.'],
+    ['poDate', 'PO Date'],
+    ['termsOfPayment', 'Mode/Terms of Payment'],
+    ['freightTerms', 'Freight Terms of Payment'],
+    ['bankId', 'Select Bank'],
+    ['paymentQr', 'Payment QR'],
+  ],
+  services: true,
+  discount: true,
+  other: ['discount', 'roundOff', 'note'],
+  gst: true,
+}
+DOCUMENT_PROFILES.Quotation = {
+  settings: [],
+  number: 'Quotation No.',
+  date: 'Quotation Date',
+  fields: [
+    ['referenceNo', 'Reference No.'],
+    ['referenceDate', 'Reference Date'],
+    ['transporter', 'Dispatch Through'],
+    ['termsOfPayment', 'Mode/Terms of Payment'],
+    ['freightTerms', 'Freight Terms of Payment'],
+    ['bankId', 'Select Bank'],
+    ['paymentQr', 'Payment QR'],
+  ],
+  services: true,
+  discount: false,
+  other: ['roundOff', 'note'],
+  gst: true,
+}
+
+/**
+ * Adds another module's document types (Purchase Invoice's) to the table -
+ * each under its own name, never replacing a type already there, so a sales
+ * type can never be changed from outside. Their rules then apply to them
+ * everywhere the profile is read.
+ */
+export const defineDocumentProfiles = (profiles) => {
+  Object.entries(profiles).forEach(([type, profile]) => {
+    if (DOCUMENT_PROFILES[type] && DOCUMENT_PROFILES[type] !== profile) throw new Error(`Document type "${type}" is already defined`)
+    DOCUMENT_PROFILES[type] = profile
+  })
+}
+
+/** The type's profile (DOCUMENT_PROFILES) - Sales Invoice's for a type it does not know. */
+export const documentProfile = (form) => DOCUMENT_PROFILES[form?.documentType] ?? DOCUMENT_PROFILES[DOCUMENT_TYPE_INVOICE]
+
+/** Whether this type's Document Details show `field` (a form document key). */
+export const showsDocumentField = (form, field) => documentProfile(form).fields.some(([key]) => key === field)
+
+/** Whether this type's Other Details have `section` ('charges' | 'discount' | 'tcs' | 'roundOff' | 'note'). */
+export const hasOtherDetail = (form, section) => documentProfile(form).other.includes(section)
+
+/**
+ * The Settings as they apply to THIS document: a box the type does not show
+ * is off - its value (the company's, or a tick from another type) has no
+ * say. Round Off is the company's setting and follows it wherever Other
+ * Details has a Round Off - always on for a type that rounds regardless
+ * (roundOffAlways), never for one with no Round Off (Challan).
+ */
+export const settingsOf = (form) => {
+  const profile = documentProfile(form)
+  const on = (key) => {
+    if (key !== 'roundOff') return Boolean(form.settings[key]) && profile.settings.includes(key)
+    if (!profile.other.includes('roundOff')) return false
+    return Boolean(profile.roundOffAlways) || Boolean(form.settings.roundOff)
+  }
+  return Object.fromEntries(ALL_SETTINGS.map((key) => [key, on(key)]))
+}
+
+/**
+ * The kind a NEW line is entered as: Product where the type takes no
+ * services; Service while Reverse Charge Applicable is ticked (the Product /
+ * Service choice is not offered then); else the choice - Product unless
+ * Service was picked.
  */
 export const entryModeOf = (form) =>
-  isChallan(form) ? LINE_KIND.PRODUCT : form.settings.reverseCharge ? LINE_KIND.SERVICE : form.entryMode
+  !documentProfile(form).services ? LINE_KIND.PRODUCT : settingsOf(form).reverseCharge ? LINE_KIND.SERVICE : form.entryMode
 
 /**
- * A Challan - goods sent, not sold: products only, no GST, discount or
- * other charges, its own document fields, and the company's invoice
- * settings (e-invoice, e-way bill, reverse charge, ...) not in play.
+ * A Challan (or another module's challan - Inbound Challan) - goods sent, not
+ * sold: products only, no GST, discount or other charges, its own document
+ * fields, and the company's invoice settings (e-invoice, e-way bill, reverse
+ * charge, ...) not in play. Read from the type's profile (`challan`).
  */
-export const isChallan = (form) => form?.documentType === DOCUMENT_TYPE_CHALLAN
+export const isChallan = (form) => Boolean(form && documentProfile(form).challan)
 
-/** The invoice settings that apply to this document - none for a Challan, whose Settings are not shown. */
-export const portalSettingsOf = (form) => (isChallan(form) ? {} : form.settings)
+/** The invoice settings that apply to this document (settingsOf) - what the e-invoice / e-way bill rules read. */
+export const portalSettingsOf = (form) => settingsOf(form)
 
 /** One empty line - a product line unless `kind` says service. */
 export const newInvoiceLine = (kind = LINE_KIND.PRODUCT) => ({
@@ -293,6 +528,50 @@ export const createInvoiceForm = (company) => ({
   note: '',
 })
 
+/** The Document Details every type has - its number and date. */
+const ALWAYS_DOCUMENT_FIELDS = new Set(['autoIncrement', 'invoiceNo', 'invoiceNoParts', 'invoiceDate'])
+
+/**
+ * THE FORM AS THIS DOCUMENT TYPE HAS IT (documentProfile): what the type
+ * does not show is cleared - Settings it has no box for are off (settingsOf),
+ * Document Details it has no field for are empty (Supply and Supply Type back
+ * to an ordinary sale), the lines' discount is off without With Discount, and
+ * Other Details sections it does not have are empty.
+ *
+ * The figures, the checks, the preview and the saved document all read this,
+ * so nothing hidden - a value typed while another type was chosen, a stale
+ * tick - can change a total or reach the payload. The form itself keeps every
+ * value, so switching back to that type finds them again.
+ */
+export const applicableForm = (form) => {
+  const profile = documentProfile(form)
+  const shown = new Set(profile.fields.map(([key]) => key))
+  const blank = createInvoiceForm(null)
+  const keeps = (section) => profile.other.includes(section)
+
+  const document = Object.fromEntries(
+    Object.entries(form.document).map(([key, value]) => {
+      if (ALWAYS_DOCUMENT_FIELDS.has(key) || shown.has(key)) return [key, value]
+      if (key === 'supply') return [key, DEFAULT_SUPPLY]
+      if (key === 'supplyType') return [key, DEFAULT_SUPPLY_TYPE]
+      return [key, key in blank.document ? blank.document[key] : '']
+    }),
+  )
+
+  return {
+    ...form,
+    settings: settingsOf(form),
+    document,
+    gstLedgerMapping: profile.gst && form.gstLedgerMapping,
+    withDiscount: profile.discount && form.withDiscount,
+    charges: keeps('charges') ? form.charges : [],
+    discount: keeps('discount') ? form.discount : blank.discount,
+    roundOff: keeps('roundOff') ? form.roundOff : blank.roundOff,
+    tcs: keeps('tcs') ? form.tcs : blank.tcs,
+    note: keeps('note') ? form.note : '',
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /* Same as Seller / Same as Buyer                                     */
 /* ------------------------------------------------------------------ */
@@ -356,7 +635,7 @@ export const buyerFromLedger = (ledger, ledgerId, { countryNames = [], stateName
 }
 
 /** True when the buyer is outside India. */
-const isForeignBuyer = (buyer) => Boolean(textOf(buyer?.country)) && !sameText(buyer.country, DEFAULT_COUNTRY)
+export const isForeignBuyer = (buyer) => Boolean(textOf(buyer?.country)) && !sameText(buyer.country, DEFAULT_COUNTRY)
 
 /* ------------------------------------------------------------------ */
 /* Products and SKUs                                                  */
@@ -663,6 +942,28 @@ export const roundOffFor = (paise) => {
 }
 
 /**
+ * The overall discount shared out over the lines, in proportion to each
+ * line's taxable value - largest remainder, so the shares add up to the
+ * discount to the paisa. { [lineId]: paise }
+ */
+const discountShares = (lines, discountPaise) => {
+  const entries = Object.entries(lines).filter(([, row]) => row.taxablePaise > 0)
+  const totalPaise = entries.reduce((total, [, row]) => total + row.taxablePaise, 0)
+  if (!discountPaise || !totalPaise) return {}
+  const exact = entries.map(([id, row]) => ({ id, value: (discountPaise * row.taxablePaise) / totalPaise }))
+  const shares = Object.fromEntries(exact.map(({ id, value }) => [id, Math.floor(value)]))
+  let left = discountPaise - Object.values(shares).reduce((total, share) => total + share, 0)
+  ;[...exact]
+    .sort((a, b) => (b.value % 1) - (a.value % 1))
+    .forEach(({ id }) => {
+      if (left <= 0) return
+      shares[id] += 1
+      left -= 1
+    })
+  return shares
+}
+
+/**
  * EVERY AMOUNT ON THE INVOICE, in paise:
  *
  *   Total = taxable value of the lines + other charges + all GST
@@ -676,6 +977,14 @@ export const roundOffFor = (paise) => {
  *   discount             (after their own discounts), never more than that
  *                        value - whatever the With Discount box says
  *
+ * The overall discount comes off BEFORE tax: it is shared out over the lines
+ * in proportion to their taxable value (discountShares), and each line's GST
+ * is charged on what is left of it - so lines on different slabs are each
+ * taxed on their own discounted value. A line keeps its own taxable value
+ * (taxablePaise, what it was sold at); netTaxablePaise is that less its share,
+ * and the document's taxable value after the discount is netTaxablePaise.
+ * Other Charges are not discounted.
+ *
  * Round off is worked out last, from everything before it, and only while
  * "Show Round Off" is ticked (roundOffFor) - it may be negative.
  */
@@ -683,18 +992,27 @@ export const invoiceFigures = (form) => {
   const tax = taxTreatment(form)
   const options = { interState: tax.interState, reverseCharge: form.settings.reverseCharge, withDiscount: form.withDiscount }
 
-  const lines = Object.fromEntries(form.lines.map((line) => [line.id, lineFigures(line, options)]))
+  const ownLines = Object.fromEntries(form.lines.map((line) => [line.id, lineFigures(line, options)]))
   const charges = Object.fromEntries(form.charges.map((charge) => [charge.id, chargeFigures(charge, options)]))
 
   const sum = (rows, key) => Object.values(rows).reduce((total, row) => total + row[key], 0)
 
-  const taxablePaise = sum(lines, 'taxablePaise')
+  const taxablePaise = sum(ownLines, 'taxablePaise')
+  const discountPaise = Math.min(Math.max(toPaise(form.discount.amount) ?? 0, 0), taxablePaise)
+  // Each line taxed on its taxable value less its share of the overall discount.
+  const shares = discountShares(ownLines, discountPaise)
+  const lines = Object.fromEntries(
+    Object.entries(ownLines).map(([id, row]) => {
+      const share = shares[id] ?? 0
+      const netTaxablePaise = row.taxablePaise - share
+      return [id, { ...row, overallDiscountPaise: share, netTaxablePaise, ...taxesOn(netTaxablePaise, { cgst: row.cgst, sgst: row.sgst, igst: row.igst }) }]
+    }),
+  )
   const chargesPaise = sum(charges, 'amountPaise')
   const cgstPaise = sum(lines, 'cgstPaise') + sum(charges, 'cgstPaise')
   const sgstPaise = sum(lines, 'sgstPaise') + sum(charges, 'sgstPaise')
   const igstPaise = sum(lines, 'igstPaise') + sum(charges, 'igstPaise')
   const gstPaise = cgstPaise + sgstPaise + igstPaise
-  const discountPaise = Math.min(Math.max(toPaise(form.discount.amount) ?? 0, 0), taxablePaise)
   const tcsPaise = toPaise(form.tcs.amount) ?? 0
   const beforeRoundOff = taxablePaise + chargesPaise + gstPaise - discountPaise + tcsPaise
   const roundOffPaise = form.settings.roundOff ? roundOffFor(beforeRoundOff) : 0
@@ -704,6 +1022,8 @@ export const invoiceFigures = (form) => {
     lines,
     charges,
     taxablePaise,
+    // The products' taxable value after the overall discount - what GST is charged on.
+    netTaxablePaise: taxablePaise - discountPaise,
     chargesPaise,
     cgstPaise,
     sgstPaise,
@@ -777,7 +1097,7 @@ const checkAddressLength = (found, key, value) => {
 }
 
 /** The checks every optional contact field gets, only when something is typed. */
-const checkContact = (found, prefix, party) => {
+export const checkContact = (found, prefix, party) => {
   if (textOf(party.phone) && !isValidPhone(party.phone)) found[`${prefix}.phone`] = 'Enter a valid 10-digit phone number'
   if (textOf(party.email) && !isValidEmail(party.email)) found[`${prefix}.email`] = 'Enter a valid email address'
   if (textOf(party.website) && !isValidWebsite(party.website)) found[`${prefix}.website`] = 'Enter a valid website, e.g. example.com'
@@ -786,7 +1106,7 @@ const checkContact = (found, prefix, party) => {
 }
 
 /** A dispatch / shipping card's own fields - only checked while it is not "Same as". */
-const checkAddressCard = (found, prefix, party, { indian = true } = {}) => {
+export const checkAddressCard = (found, prefix, party, { indian = true } = {}) => {
   if (textOf(party.gstin) && !isValidGstNumber(party.gstin)) found[`${prefix}.gstin`] = 'Enter a valid 15-character GSTIN'
   if (indian && textOf(party.pincode) && !isValidPincode(party.pincode)) found[`${prefix}.pincode`] = 'Enter a valid 6-digit pincode'
   checkAddressLength(found, `${prefix}.address`, party.address)
@@ -866,24 +1186,30 @@ const validateBuyerStep = (form, found) => {
 
 const validateDocumentStep = (form, found, { allowedTypes }) => {
   const { document } = form
-  const type = findDocumentType(form.documentType)
+  // Any type with a profile - Sales Invoice's own, or another module's (defineDocumentProfiles).
+  const profile = DOCUMENT_PROFILES[form.documentType]
+  const label = profile?.label ?? findDocumentType(form.documentType)?.label ?? form.documentType
 
-  if (!type) found.documentType = 'Select a document type'
-  else if (!allowedTypes.includes(type.value)) found.documentType = `${type.label} is not part of this company's plan`
+  if (!profile) found.documentType = 'Select a document type'
+  else if (!allowedTypes.includes(form.documentType)) found.documentType = `${label} is not part of this company's plan`
 
   const number = invoiceNumberOf(document)
   const numberKey = document.autoIncrement ? 'document.invoiceNoParts' : 'document.invoiceNo'
-  if (!number) found[numberKey] = 'Invoice number is required'
+  if (!number) found[numberKey] = documentProfile(form).numberMessage || 'Invoice number is required'
   else if (number.length > INVOICE_NO_MAX_LENGTH) found[numberKey] = `Keep it to ${INVOICE_NO_MAX_LENGTH} characters`
 
   if (!textOf(document.invoiceDate)) found['document.invoiceDate'] = 'Invoice date is required'
   if (textOf(document.distance) && !(numberOf(document.distance) >= 0)) found['document.distance'] = 'Enter the distance in km'
-  // A challan has no Supply Type to choose - and its Reference No. / PO No. is required.
-  if (isChallan(form)) {
-    if (!textOf(document.referenceNo)) found['document.referenceNo'] = 'Reference No. / PO No. is required'
-  } else if (!supplyTypesOf(document.supply).some((option) => option.value === document.supplyType)) {
-    found['document.supplyType'] = 'Select a supply type'
-  }
+  // Only the fields this type shows - a Challan's Reference No. / PO No., an
+  // invoice's Supply Type (one its Supply offers).
+  documentProfile(form).fields.forEach(([key, label, extra]) => {
+    if (!extra?.required) return
+    if (key === 'supplyType') {
+      if (!supplyTypesOf(document.supply).some((option) => option.value === document.supplyType)) {
+        found['document.supplyType'] = 'Select a supply type'
+      }
+    } else if (!textOf(document[key])) found[`document.${key}`] = `${label} is required`
+  })
 }
 
 /**
@@ -931,13 +1257,26 @@ export const isEntryDirty = (entry) =>
 /** What is wrong with the entry form - checked by Add Product. Keys are 'entry.<field>'. */
 export const validateEntry = (form, { productsByKey, ledgersById }) => {
   const found = {}
-  checkLine(found, form.entry, (field) => `entry.${field}`, { productsByKey, ledgersById, withDiscount: form.withDiscount, challan: isChallan(form) })
+  const withDiscount = applicableForm(form).withDiscount
+  checkLine(found, form.entry, (field) => `entry.${field}`, { productsByKey, ledgersById, withDiscount, challan: isChallan(form) })
   return found
 }
 
-const validateProductsStep = (form, found, { productsByKey, ledgersById }) => {
+/**
+ * What a charge whose ledger has no SAC number says, by the company's ERP:
+ * on Intelligere the SAC can be added here; on Tally it is added in Tally
+ * (the ledger is Tally's), or another ledger chosen.
+ */
+export const missingChargeSacMessage = (erp) =>
+  erp === 'tally'
+    ? 'This ledger has no SAC number - add it in Tally, or choose a ledger that has one'
+    : erp === 'intelligere'
+      ? 'This ledger has no SAC number - add it below, or choose a ledger that has one'
+      : 'This ledger has no SAC number'
+
+const validateProductsStep = (form, found, { productsByKey, ledgersById, chargeSac }) => {
   const challan = isChallan(form)
-  if (form.lines.length === 0) found.lines = challan ? 'Add at least one product' : 'Add at least one product or service'
+  if (form.lines.length === 0) found.lines = documentProfile(form).services ? 'Add at least one product or service' : 'Add at least one product'
 
   form.lines.forEach((line) => {
     checkLine(found, line, (field) => `lines.${line.id}.${field}`, { productsByKey, ledgersById, withDiscount: form.withDiscount, challan })
@@ -962,6 +1301,12 @@ const validateProductsStep = (form, found, { productsByKey, ledgersById }) => {
     const key = (field) => `charges.${charge.id}.${field}`
     if (!charge.ledgerId) found[key('ledgerId')] = 'Select the ledger'
     else if (chargeLedgers.has(charge.ledgerId)) found[key('ledgerId')] = 'This ledger is already charged above'
+    // Sales Invoice saves each charge with its own ledger's SAC (ledger_sac) -
+    // a ledger without one cannot be charged (`chargeSac`: { erp }, or absent
+    // where the module does not save it).
+    else if (chargeSac && ledgersById?.has(String(charge.ledgerId)) && !getLedgerSac(ledgersById.get(String(charge.ledgerId)))) {
+      found[key('ledgerId')] = missingChargeSacMessage(chargeSac.erp)
+    }
     chargeLedgers.add(charge.ledgerId)
     if (!(numberOf(charge.amount) > 0)) found[key('amount')] = 'Enter an amount above 0'
   })
@@ -978,9 +1323,13 @@ const validateProductsStep = (form, found, { productsByKey, ledgersById }) => {
     else if (paise > 0 && !form.discount.ledgerId) found['discount.ledgerId'] = 'Select the discount ledger'
   }
 
-  // Round off needs a ledger only when there IS a round off.
-  if (figures.roundOffPaise !== 0 && !form.roundOff.ledgerId) {
-    found['roundOff.ledgerId'] = 'Select the round off ledger'
+  // Round off needs a ledger only when there IS a round off - one this
+  // company has: a ledger chosen earlier and since gone (or another
+  // company's) would be saved with no name, and the round off left out.
+  const roundOffLedger = form.roundOff.ledgerId
+  if (figures.roundOffPaise !== 0) {
+    if (!roundOffLedger) found['roundOff.ledgerId'] = 'Select the round off ledger'
+    else if (ledgersById && !ledgersById.has(String(roundOffLedger))) found['roundOff.ledgerId'] = 'This ledger is no longer in the list'
   }
 
   // TCS: an amount needs its ledger.
@@ -1011,16 +1360,21 @@ const STEP_OF_PREFIX = {
 const stepOfKey = (key) => STEP_OF_PREFIX[key.split('.')[0]] ?? INVOICE_STEP.PRODUCTS
 
 /**
- * Everything wrong with the form, or only what belongs to one step.
+ * A validator - everything wrong with the form, or only what belongs to one
+ * step - with `partyChecks` for the Seller and Buyer steps: Sales Invoice's
+ * own (the company sells to a buyer ledger), or another module's (Purchase
+ * Invoice buys from a supplier ledger). The Document and Products steps are
+ * checked the same way for every module.
  *
  *   context.allowedTypes   the document types this company may make
  *   context.productsByKey  Map of the products, by their key
  */
-export const validateInvoice = (form, context, step = null) => {
+export const validateFormWith = (partyChecks) => (entered, context, step = null) => {
   const found = {}
+  // Only what this document type has is checked (applicableForm).
+  const form = applicableForm(entered)
 
-  validateSellerStep(form, found)
-  validateBuyerStep(form, found)
+  partyChecks.forEach((check) => check(form, found, context))
   validateDocumentStep(form, found, context)
   validateProductsStep(form, found, context)
   checkPortalRequirements(found, form)
@@ -1028,6 +1382,9 @@ export const validateInvoice = (form, context, step = null) => {
   if (!step) return found
   return Object.fromEntries(Object.entries(found).filter(([key]) => stepOfKey(key) === step))
 }
+
+/** Sales Invoice's validator - the company's seller details and a buyer ledger. */
+export const validateInvoice = validateFormWith([validateSellerStep, validateBuyerStep])
 
 /** The index of the first step with an error, or -1. */
 export const errorStep = (errors) => {

@@ -15,7 +15,7 @@ import PartyAddressFields from '@/Modules/SalesInvoice/Components/PartyAddressFi
 import {
   INDIAN_STATE_OPTIONS,
   effectiveDispatch,
-  isChallan,
+  documentProfile,
   portalRequiredFields,
   portalSettingsOf,
   stateCodeOf,
@@ -54,7 +54,8 @@ const copyText = async (value, what) => {
 export default function SellerStep({ invoice, disabled }) {
   const { form, errors, setField, setSameAs } = invoice
   const seller = form.seller
-  const challan = isChallan(form)
+  const shownSettings = documentProfile(form).settings
+  const settings = SELLER_SETTINGS.filter((setting) => shownSettings.includes(setting.key))
   const set = (field) => (value) => setField(`seller.${field}`, value)
   const onText = (field, transform = (value) => value) => (event) => set(field)(transform(event.target.value))
 
@@ -206,14 +207,15 @@ export default function SellerStep({ invoice, disabled }) {
           />
         </InvoiceGrid>
 
-        {/* The seller's invoice settings - one wrapping row of tick boxes. A
-            Challan has none of them (no GST, e-invoice or round off). */}
-        {challan ? null : (
+        {/* The seller's invoice settings - one wrapping row of tick boxes, only
+            the ones this document type has (documentProfile); with none (Challan,
+            Sales Order, Purchase Order, Quotation) the row is not there at all. */}
+        {settings.length === 0 ? null : (
           <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-border pt-2.5" role="group" aria-labelledby="seller-settings-label">
             <span id="seller-settings-label" className={fieldLabelClass}>
               Settings
             </span>
-            {SELLER_SETTINGS.map((setting) => (
+            {settings.map((setting) => (
               <CheckboxField
                 key={setting.key}
                 id={`setting-${setting.key}`}

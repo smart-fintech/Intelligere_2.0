@@ -1,7 +1,7 @@
-import { Fragment, useId, useState } from 'react'
+import { Fragment, useId, useMemo, useState } from 'react'
 import { ChevronDown, ChevronUp, ChevronsUpDown, Search, SlidersHorizontal, X } from 'lucide-react'
 
-import { Field, fieldLabelClass } from '@/Components/Common/FormFields'
+import { Field, fieldLabelClass, OPTIONS_PAGE } from '@/Components/Common/FormFields'
 import { Button } from '@/Components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/Components/ui/popover'
 import {
@@ -28,6 +28,17 @@ import { cn } from '@/Library/utils'
 
 /** The value a "no filter" dropdown entry carries - Radix forbids "". */
 const ANY = '__any__'
+
+/** A filter with nothing to offer, or nothing drawn - one array, so memos built on it hold. */
+const NO_OPTIONS = []
+
+/**
+ * How many options a filter longer than OPTIONS_PAGE draws at a time - a
+ * box's worth and more. Radix draws every drawn option again several times
+ * as the list opens, so this is what opening it costs; the search box and
+ * scrolling reach the rest.
+ */
+const FILTER_PAGE = 30
 
 /**
  * How wide a column is when nobody says otherwise - wide enough for a name,
@@ -240,14 +251,60 @@ export function DateRangeFilter({ label, from = '', to = '', onChange }) {
  * each option's <SelectItem> and returns what to draw in its place - the
  * item wrapped in a tooltip, say, for a choice whose own text is a code that
  * says little by itself (a SKU code, and the SKU's details).
+ *
+ * A LONG LIST IS DRAWN AS SelectField DRAWS ONE - a product list's SKU Code
+ * filter can offer tens of thousands of codes, and Radix mounts every item
+ * it is given, closed or open, on every redraw of the filter row:
+ *   - closed, only the chosen option is mounted (Radix shows its text)
+ *   - open, the first FILTER_PAGE, and the next lot as the list is
+ *     scrolled to its end
+ *   - a list longer than that gets a search box ("contains", as
+ *     SelectField's), so any value can be reached without scrolling to it
+ * A short list is drawn whole, exactly as before.
  */
 function FilterSelect({ view, field, label, anyLabel, className }) {
+  const options = view.filterOptions[field] ?? NO_OPTIONS
+  const chosen = view.filters[field] || ''
+  const searchable = options.length > OPTIONS_PAGE
+  // A short list is drawn whole; a long one a lot at a time.
+  const page = searchable ? FILTER_PAGE : OPTIONS_PAGE
+
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const [limit, setLimit] = useState(page)
+
+  const term = searchable ? search.trim().toLowerCase() : ''
+  const matches = useMemo(
+    () => (term ? options.filter((option) => option.toLowerCase().includes(term)) : options),
+    [options, term],
+  )
+
+  const drawn = useMemo(() => {
+    if (!open) return chosen ? [chosen] : NO_OPTIONS
+
+    const first = matches.length > limit ? matches.slice(0, limit) : matches
+    // The chosen one on top when the list has not got to it yet.
+    return chosen && !first.includes(chosen) && matches.includes(chosen) ? [chosen, ...first] : first
+  }, [open, chosen, matches, limit])
+
+  const drawMore = (event) => {
+    const list = event.currentTarget
+    if (list.scrollHeight - list.scrollTop - list.clientHeight > 200) return
+
+    setLimit((count) => (count < matches.length ? count + page : count))
+  }
+
   return (
     <Select
       // Radix treats "" as "nothing chosen", so the "any" entry needs a
       // value of its own; it is turned back into "" on the way out.
-      value={view.filters[field] || ANY}
+      value={chosen || ANY}
       onValueChange={(value) => view.setFilter(field, value === ANY ? '' : value)}
+      onOpenChange={(next) => {
+        setOpen(next)
+        setLimit(page)
+        if (!next) setSearch('')
+      }}
     >
       {/* A value too long for its box is cut short with "..." - never
           spilled over the next control - and shown in full on hover. */}
@@ -265,12 +322,26 @@ function FilterSelect({ view, field, label, anyLabel, className }) {
 
       {/* As wide as its box at least, and never wider than the screen -
           a long option wraps instead of running off it. */}
-      <SelectContent className="max-w-[min(24rem,calc(100vw-2rem))]">
+      <SelectContent
+        className="max-w-[min(24rem,calc(100vw-2rem))]"
+        searchable={searchable}
+        searchPlaceholder={`Search ${label}`}
+        searchValue={search}
+        // A new search starts from the first lot of its own matches.
+        onSearchChange={(text) => {
+          setSearch(text)
+          setLimit(page)
+        }}
+        onViewportScroll={drawMore}
+      >
         <SelectItem value={ANY}>{anyLabel}</SelectItem>
-        {(view.filterOptions[field] ?? []).map((option) => {
+        {drawn.map((option) => {
           const item = <SelectItem value={option}>{option}</SelectItem>
           return <Fragment key={option}>{view.renderFilterOption ? view.renderFilterOption(field, option, item) : item}</Fragment>
         })}
+        {open && term && matches.length === 0 ? (
+          <p className="px-2 py-3 text-center text-sm text-muted-foreground">No matches for &ldquo;{search.trim()}&rdquo;</p>
+        ) : null}
       </SelectContent>
     </Select>
   )

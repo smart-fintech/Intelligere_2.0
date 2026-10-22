@@ -81,6 +81,7 @@ import PaymentStatusPage from '@/Modules/Payment/Pages/PaymentStatusPage'
 import PremiumRechargePage from '@/Modules/Payment/Pages/PremiumRechargePage'
 import Profile from '@/Modules/Profile/Pages/Profile'
 import ComingSoonPage from '@/Modules/Misc/Pages/ComingSoonPage'
+import PurchaseInvoicePage from '@/Modules/PurchaseInvoice/Pages/PurchaseInvoicePage'
 import SalesInvoicePage from '@/Modules/SalesInvoice/Pages/SalesInvoicePage'
 import CreateSubUser from '@/Modules/SubUser/Pages/CreateSubUser'
 import NotFound from '@/Modules/Misc/Pages/NotFound'
@@ -97,6 +98,7 @@ import ReportIssue from '@/Modules/Support/Pages/ReportIssue'
  */
 const PRODUCT_MODULE_PAGES = {
   'Sales Invoice': SalesInvoicePage,
+  'Purchase Invoice': PurchaseInvoicePage,
 }
 
 export default function AppRoutes() {

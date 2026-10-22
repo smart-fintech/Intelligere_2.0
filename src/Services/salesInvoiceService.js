@@ -41,6 +41,8 @@
  * SAVING - TWO CALLS, in this order
  * ------------------------------------------------------------------
  *   1. POST invoice/business-documents/   multipart   the document
+ *      PUT  invoice/business-documents/   multipart   the same body + document_id:
+ *           an existing document, edited (History's Edit)
  *        -> { "document_id": 1, "msg": "Document saved" }
  *   2. POST invoice/save-document-pdf/    multipart   { id: document_id, file: <the PDF> }
  *
@@ -55,15 +57,15 @@
  */
 
 import { ENV } from '@/Config/env'
-import { DOCUMENT_TYPES, DOCUMENT_TYPE_CHALLAN } from '@/Constants/salesInvoice'
+import { DOCUMENT_TYPES, DOCUMENT_TYPES_WITH_INVOICE_REF, DOCUMENT_TYPE_CHALLAN } from '@/Constants/salesInvoice'
 import { getEmail } from '@/Library/secureStorage'
 import { hasActiveModule, listsModule } from '@/Services/accessService'
 import { api } from '@/Services/authService'
 import { updateCompany } from '@/Services/companyService'
-import { getLedgerId, updateLedger } from '@/Services/ledgerService'
+import { getLedgerId, getLedgerSac, updateLedger } from '@/Services/ledgerService'
 import { changesProducts } from '@/Services/productCache'
 import { toInputDate } from '@/Utils/date'
-import { gstChargesByLedger } from '@/Utils/gstLedgers'
+import { gstChargesBySlab } from '@/Utils/gstLedgers'
 
 const BUSINESS_DOCUMENT_URL = 'invoice/business-documents/'
 const DOCUMENT_PDF_URL = 'invoice/save-document-pdf/'
@@ -157,12 +159,17 @@ const taxFields = (figures, interState, rate) => ({
  *   prefill_from, ship_to, dispatch_from, invoice_master_details,
  *   product_data, other_details, gst_charges       JSON text
  *
+ *   gst_charges            by GST slab, then by the ledger each tax is posted to:
+ *                          { "5": { "Output CGST 2.5%": 13.5, "Output SGST 2.5%": 13.5 },
+ *                            "18": { "Output IGST 18%": 90 } }
+ *
  * Returned as a plain object (the JSON already stringified) so it can be read
  * and checked; toFormData makes the body of it.
  *
  *   total_amount           the invoice total: taxable value + other charges +
  *                          GST - discount + TCS + round off (invoiceFigures)
- *   total_taxable_amount   the product lines' taxable value, before tax
+ *   total_taxable_amount   the product lines' taxable value after the overall
+ *                          discount - what GST is charged on
  *   prefill_from           {} - a document made here is not prefilled from
  *                          another one
  */
@@ -191,8 +198,13 @@ export const buildBusinessDocumentPayload = (request) => {
 
   // A CHALLAN carries goods, not money: its lines without rates, amounts or
   // taxes, no other_details and no gst_charges, totals of 0. Everything else
-  // is the document as any other type sends it.
-  const challan = request.documentType === DOCUMENT_TYPE_CHALLAN
+  // is the document as any other type sends it. Which types are challans,
+  // name an invoice, or have a Challan Type is the screen's to say (`rules`,
+  // from the type's profile) - Sales Invoice's own types when it does not.
+  const rules = request.rules ?? {}
+  const challan = rules.goodsOnly ?? request.documentType === DOCUMENT_TYPE_CHALLAN
+  const namesInvoice = rules.invoiceRef ?? DOCUMENT_TYPES_WITH_INVOICE_REF.includes(request.documentType)
+  const hasChallanType = rules.challanType ?? challan
 
   const masterDetails = {
     document_no: request.invoiceNo,
@@ -219,16 +231,12 @@ export const buildBusinessDocumentPayload = (request) => {
     distance: numberOrNull(document.distance),
     delivery_mode: text(document.deliveryMode),
     rcm: challan ? false : request.reverseCharge,
-    // A challan's own details - only on a challan, under the names the
-    // earlier challan screens gave them (challan_type) or, new, beside
-    // document_no / reference_no (invoice_no, invoice_date).
-    ...(challan
-      ? {
-          invoice_no: text(document.challanInvoiceNo),
-          invoice_date: toDocumentDate(document.challanInvoiceDate),
-          challan_type: text(document.challanType),
-        }
-      : null),
+    // The invoice a Challan goes with, or a Credit / Debit Note adjusts - only
+    // on those types, beside document_no / reference_no (invoice_no,
+    // invoice_date) - and a challan's Challan Type, under the name the earlier
+    // challan screens gave it (challan_type).
+    ...(namesInvoice ? { invoice_no: text(document.challanInvoiceNo), invoice_date: toDocumentDate(document.challanInvoiceDate) } : null),
+    ...(hasChallanType ? { challan_type: text(document.challanType) } : null),
   }
 
   // A product line as it always was. A service line (a ledger) has the same
@@ -272,7 +280,8 @@ export const buildBusinessDocumentPayload = (request) => {
 
   // Only what applies to this document, each under the names the contract
   // gives it: every Other Charges row under its own ledger's name, marked
-  // `source: "Other Charges"`; the discount, TCS and round off each as
+  // `source: "Other Charges"` - on Sales Invoice with that ledger's SAC
+  // (`ledger_sac`) too; the discount, TCS and round off each as
   // { <its ledger's name>: amount } - the discount only when the Discount
   // Ledger discounts something, round off only when there is one (signed, as
   // worked out), TCS only when charged; the note only when written. Nothing
@@ -284,6 +293,7 @@ export const buildBusinessDocumentPayload = (request) => {
     otherDetails[charge.ledgerName] = {
       amount: rupees(charge.figures.amountPaise),
       ...taxFields(charge.figures, interState, (rate) => rate),
+      ...(charge.ledgerSac === undefined ? null : { ledger_sac: charge.ledgerSac }),
       source: OTHER_CHARGES_SOURCE,
     }
   })
@@ -300,14 +310,14 @@ export const buildBusinessDocumentPayload = (request) => {
   // A challan has no Other Details at all - nothing stale from them is sent.
   if (challan) Object.keys(otherDetails).forEach((key) => delete otherDetails[key])
 
-  // gst_charges is keyed by the LEDGER each tax is posted to - the real
-  // ledger chosen for it (Utils/gstLedgers: GST mapping, else the ledger for
-  // that rate, else the tax's basic ledger), never a name made up from the
-  // tax and rate. gstChargesByLedger is the one grouping - the printed
-  // invoice shows exactly these names and amounts. A charge with no ledger is
-  // never sent: the save is refused here, before invoice/business-documents/
-  // is called (the screen refuses it earlier).
-  const charges = gstChargesByLedger(challan ? [] : request.gstCharges)
+  // gst_charges is keyed by the GST SLAB (the whole rate - CGST / SGST 2.5%
+  // are slab "5"), then by the LEDGER each tax is posted to - the real ledger
+  // chosen for it (Utils/gstLedgers: GST mapping, else the ledger for that
+  // rate, else the tax's basic ledger), never a name made up from the tax
+  // and rate. Two slabs posted to one ledger stay apart (gstChargesBySlab). A
+  // charge with no ledger is never sent: the save is refused here, before
+  // invoice/business-documents/ is called (the screen refuses it earlier).
+  const charges = gstChargesBySlab(challan ? [] : request.gstCharges)
   const unposted = charges.filter((charge) => !charge.ledger).flatMap((charge) => charge.entries)
   if (unposted.length > 0) {
     const taxes = [...new Set(unposted.map((entry) => entry.tax))]
@@ -316,7 +326,10 @@ export const buildBusinessDocumentPayload = (request) => {
         `Please create the required ${taxes.join(' / ')} ledger before creating this document.`,
     )
   }
-  const gstCharges = Object.fromEntries(charges.map((charge) => [charge.ledger, rupees(charge.paise)]))
+  const gstCharges = {}
+  charges.forEach((charge) => {
+    gstCharges[charge.slab] = { ...gstCharges[charge.slab], [charge.ledger]: rupees(charge.paise) }
+  })
 
   return {
     seller_id: request.sellerId ?? '',
@@ -325,7 +338,7 @@ export const buildBusinessDocumentPayload = (request) => {
     created_by: getEmail() || '',
     document_type: request.documentType,
     total_amount: forChallan(rupees(figures.totalPaise), 0),
-    total_taxable_amount: forChallan(rupees(figures.taxablePaise), 0),
+    total_taxable_amount: forChallan(rupees(figures.netTaxablePaise ?? figures.taxablePaise), 0),
     prefill_from: JSON.stringify({}),
     ship_to: JSON.stringify(shipTo),
     dispatch_from: JSON.stringify(dispatchFrom),
@@ -365,6 +378,28 @@ export const createBusinessDocument = (request) => {
   return changesProducts(api.post(BUSINESS_DOCUMENT_URL, body, MULTIPART))
 }
 
+/**
+ * 1b. Updates an existing document (History's Edit) - PUT to the same URL,
+ * with the same multipart body a save sends plus that document's
+ * `document_id`, so it is the document saved before that changes, never a
+ * new one. As with a save, a payload that cannot be built is a rejected
+ * request and nothing is sent. Resolves with the reply, its document_id
+ * always the one updated - its PDF goes up under that document, whatever id
+ * the reply may name.
+ */
+export const updateBusinessDocument = (documentId, request) => {
+  let body
+  try {
+    body = toFormData({ ...buildBusinessDocumentPayload(request), document_id: documentId })
+  } catch (failure) {
+    return Promise.reject(failure)
+  }
+  return changesProducts(api.put(BUSINESS_DOCUMENT_URL, body, MULTIPART)).then((reply) => ({
+    ...(reply && typeof reply === 'object' ? reply : null),
+    document_id: documentId,
+  }))
+}
+
 /** The saved document's id from the reply - null when it sent none. */
 export const documentIdOf = (response) => response?.document_id ?? response?.data?.document_id ?? null
 
@@ -379,6 +414,21 @@ export const buildDocumentPdfFormData = (documentId, pdfBytes, fileName) => {
 /** 2. Uploads the document's PDF, naming the document by the id step 1 returned. */
 export const saveDocumentPdf = (documentId, pdfBytes, fileName) =>
   api.post(DOCUMENT_PDF_URL, buildDocumentPdfFormData(documentId, pdfBytes, fileName), MULTIPART)
+
+/**
+ * The upload body for a file the user chose (Purchase Invoice, Inbound
+ * Challan) - the same { id, file } as the PDF's, with the very file picked:
+ * its own bytes, type and name, nothing made from the form.
+ */
+export const buildDocumentFileFormData = (documentId, file) => {
+  const body = new FormData()
+  body.append('id', String(documentId))
+  body.append('file', file, file.name)
+  return body
+}
+
+/** 2. Uploads the document's own file (one the user chose) - POST invoice/save-document-pdf/. */
+export const saveDocumentFile = (documentId, file) => api.post(DOCUMENT_PDF_URL, buildDocumentFileFormData(documentId, file), MULTIPART)
 
 /**
  * A document's PDF file name - its type and number, made safe for a file
@@ -406,14 +456,28 @@ export const documentPdfFileName = (documentLabel, invoiceNo) => {
  * as if it were a new file.
  */
 export const paymentQrOfBank = (bank) => {
-  const raw = text(bank?.payment_qr)
-  if (!raw || ['null', 'none', 'undefined'].includes(raw.toLowerCase())) return null
+  const url = fileUrlOf(bank?.payment_qr)
+  if (!url) return null
   try {
-    const url = /^(https?:|data:|blob:)/i.test(raw)
-      ? raw
-      : new URL(raw.startsWith('/') ? raw : `/${raw}`, new URL(ENV.API_BASE_URL, window.location.href).origin).href
     const fileName = /^data:/i.test(url) ? '' : decodeURIComponent(url.split('?')[0].split('/').pop() || '')
     return { url, name: fileName || 'Payment QR', fromBank: true }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * A file the backend links to, as a URL the browser can open: a full URL as
+ * it is, a path read against the API's own origin. null for nothing ("",
+ * null, "null") or for something that is not a link at all.
+ */
+export const fileUrlOf = (value) => {
+  const raw = text(value)
+  if (!raw || ['null', 'none', 'undefined'].includes(raw.toLowerCase())) return null
+  try {
+    return /^(https?:|data:|blob:)/i.test(raw)
+      ? raw
+      : new URL(raw.startsWith('/') ? raw : `/${raw}`, new URL(ENV.API_BASE_URL, window.location.href).origin).href
   } catch {
     return null
   }
@@ -666,7 +730,136 @@ export const getUniqueProducts = async ({ companyId, ledgerId, documentType }) =
 /* ------------------------------------------------------------------ */
 
 const DOCUMENT_HISTORY_URL = 'invoice/business-document-history/'
+const TALLY_VOUCHERS_URL = 'invoice/tally-vouchers/'
+
+/**
+ * POST invoice/tally-vouchers/  { company_id }  -> the company's vouchers,
+ * grouped by document type:
+ *   { "Sales Invoice": [...], "Purchase Invoice": [...], "Credit Note": [...], "Debit Note": [...] }
+ * The answer is handed back exactly as it came; voucherGroupsOf reads the
+ * groups out of it. Called through the shared cache (useTallyVouchers), never
+ * straight from a screen.
+ */
+export const getTallyVouchers = (companyId) => api.post(TALLY_VOUCHERS_URL, { company_id: companyId })
+
+const isRecord = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+
+/**
+ * The vouchers of an answer, by document type: { "<type>": [voucher, ...] }.
+ * The grouped object is read as it came (or under `data`); a group that is
+ * not a list is left out, and so is anything in a list that is not a
+ * voucher. A bare list is grouped by each voucher's own document_type. {}
+ * for anything else.
+ */
+export const voucherGroupsOf = (reply) => {
+  const body = isRecord(reply?.data) ? reply.data : reply
+  if (Array.isArray(body)) {
+    return body.filter(isRecord).reduce((groups, row) => {
+      const type = text(row.document_type)
+      if (type) groups[type] = [...(groups[type] ?? []), row]
+      return groups
+    }, {})
+  }
+  if (!isRecord(body)) return {}
+  return Object.fromEntries(
+    Object.entries(body)
+      .filter(([, list]) => Array.isArray(list))
+      .map(([type, list]) => [text(type), list.filter(isRecord)]),
+  )
+}
+
+/** One document type's vouchers out of the groups - its name matched case and outer spaces aside; [] when there are none. */
+export const vouchersOfType = (groups, documentType) => {
+  const wanted = text(documentType).toLowerCase()
+  const found = Object.entries(groups ?? {}).find(([type]) => type.toLowerCase() === wanted)
+  return found ? found[1] : []
+}
+
+/**
+ * VOUCHER DELETE - the same URL as the list, POST with the voucher named:
+ *   POST invoice/tally-vouchers/  { company_id, document_no, document_type }
+ * (the list is POST { company_id } alone). document_type is the voucher's
+ * own: Sales Invoice, Purchase Invoice, Credit Note or Debit Note.
+ */
+export const buildVoucherDeleteBody = ({ companyId, documentNo, documentType }) => ({
+  company_id: companyId,
+  document_no: text(documentNo),
+  document_type: text(documentType),
+})
+
+export const deleteTallyVoucher = (voucher) => api.delete(TALLY_VOUCHERS_URL, buildVoucherDeleteBody(voucher))
+
+/**
+ * THE VOUCHER UPDATE - the same URL as the list, but PUT (the list is read
+ * with POST { company_id }):
+ *   PUT invoice/tally-vouchers/  { company_id, document_no, document_type, voucher_type,
+ *                                  narration, account_ledger, is_deleted }
+ * Sent once a voucher is done - after Tally confirms it (Send to Tally), or
+ * straight away for a company not on Tally (Verified) - with is_deleted
+ * true: a done voucher leaves the list, as the earlier voucher screens
+ * removed one once it was sent.
+ */
+export const buildVoucherUpdateBody = ({ companyId, documentNo, documentType, voucherType, narration, accountLedger }) => ({
+  company_id: companyId,
+  document_no: text(documentNo),
+  document_type: text(documentType),
+  voucher_type: text(voucherType),
+  narration: text(narration),
+  account_ledger: text(accountLedger),
+  is_deleted: true,
+})
+
+export const updateTallyVoucher = (body) => api.put(TALLY_VOUCHERS_URL, body)
+
+const EDIT_INVOICE_URL = 'invoice/edit_invoice/'
+
+/**
+ * POST invoice/edit_invoice/ - a voucher's own changes, saved:
+ *
+ *   { document_id, ...only the fields that changed, product_details: [{ product_id, ...changed fields }] }
+ *
+ * every field under the name the voucher API sends it (buildVoucherEditPayload,
+ * Voucher/voucherModel). Only a PDF-uploaded voucher (upload_type "pdf") is edited.
+ */
+export const editVoucherDocument = (payload) => api.post(EDIT_INVOICE_URL, payload)
+
+/** The module a voucher goes to Tally under - sent as `module_name`, answered as `return_module_name`. */
+export const TALLY_VOUCHER_MODULE = 'demo module'
+
+/** The WebSocket message for a voucher, in the envelope every Tally message is sent in. */
+export const buildVoucherSocketMessage = (payload) => ({ payload })
 const DOCUMENT_DELETE_URL = 'invoice/document-delete/'
+const REGENERATE_VOUCHER_URL = 'invoice/regenerate_voucher/'
+const EXPORT_DOCUMENTS_URL = 'invoice/export-documents-excel/'
+
+/** A saved document's type as the backend names it now - one saved as "Invoice" (the earlier name) is a "Sales Invoice". */
+export const documentTypeOfRecord = (documentType) => {
+  const name = text(documentType)
+  return name.toLowerCase() === 'invoice' ? 'Sales Invoice' : numberingDocumentType(name)
+}
+
+/** The document types History can regenerate a voucher for. */
+export const REGENERATE_VOUCHER_TYPES = Object.freeze(['Sales Invoice', 'Credit Note', 'Debit Note', 'Purchase Invoice'])
+
+/**
+ * POST invoice/regenerate_voucher/  { company_id, document_id, document_type }
+ *   -> { msg: "Voucher regenerated successfully." }
+ * The document by its own document_id, its type as the history names it.
+ */
+export const buildRegenerateVoucherBody = ({ companyId, documentId, documentType }) => ({
+  company_id: companyId,
+  document_id: documentId,
+  document_type: documentTypeOfRecord(documentType),
+})
+
+export const regenerateVoucher = (record) => api.post(REGENERATE_VOUCHER_URL, buildRegenerateVoucherBody(record))
+
+/**
+ * POST invoice/export-documents-excel/ - the history's documents, as the
+ * filters applied choose them (buildDocumentExportBody, historyHelpers)
+ *   -> { msg: "Excel exported successfully", file_name: "https://.../Invoice_x.xlsx" }
+ */
+export const exportDocumentsExcel = (body) => api.post(EXPORT_DOCUMENTS_URL, body)
 
 /**
  * POST invoice/business-document-history/  { company_id, date: "2025-2026", document_type }
@@ -702,8 +895,68 @@ const TALLY_VOUCHER_LIST_URL = 'tally/voucher-list/'
  */
 export const getTallyVoucherTypes = async (companyName) => {
   const reply = await api.post(TALLY_VOUCHER_LIST_URL, { company_name: companyName })
+  return [...new Set(voucherTypesOf(reply).map((type) => type.name))]
+}
+
+/**
+ * The voucher types of a tally/voucher-list/ answer, each once:
+ *   [{ voucher_type_name: "Credit Note acc", voucher_group: "Credit Note" }, ...]
+ *   -> [{ name: "Credit Note acc", group: "Credit Note" }]
+ * A plain name in the list (the earlier answer) is a type with no group.
+ */
+export const voucherTypesOf = (reply) => {
   const list = Array.isArray(reply) ? reply : Array.isArray(reply?.data) ? reply.data : []
-  return [...new Set(list.map(text).filter(Boolean))]
+  const seen = new Set()
+  return list
+    .map((row) => (row && typeof row === 'object' ? { name: text(row.voucher_type_name), group: text(row.voucher_group) } : { name: text(row), group: '' }))
+    .filter((type) => {
+      if (!type.name || seen.has(type.name)) return false
+      seen.add(type.name)
+      return true
+    })
+}
+
+/** POST tally/voucher-list/ { company_name } -> voucherTypesOf - read through the shared cache (useVoucherTypes). */
+export const getVoucherTypeList = async (companyName) => voucherTypesOf(await api.post(TALLY_VOUCHER_LIST_URL, { company_name: companyName }))
+
+/** The voucher_group a document type's vouchers are made in. */
+export const VOUCHER_GROUP_OF = Object.freeze({
+  'Sales Invoice': 'Sales',
+  'Credit Note': 'Credit Note',
+  'Debit Note': 'Debit Note',
+  'Purchase Invoice': 'Purchase',
+})
+
+/** The voucher_type_name a document type's voucher starts with - when the company's Tally has it. */
+export const DEFAULT_VOUCHER_TYPE_OF = Object.freeze({
+  'Sales Invoice': 'Sales',
+  'Purchase Invoice': 'Purchase',
+  'Credit Note': 'Credit Note',
+  'Debit Note': 'Debit Note',
+})
+
+/**
+ * The voucher type a document type's voucher is given until the user picks
+ * one: the type of tally/voucher-list/ whose voucher_type_name is
+ * DEFAULT_VOUCHER_TYPE_OF's (case and outer spaces aside), as Tally names it.
+ * '' when Tally has none of that name - nothing else is picked for the user.
+ */
+export const defaultVoucherTypeFor = (types, documentType) => {
+  const wanted = text(DEFAULT_VOUCHER_TYPE_OF[text(documentType)]).toLowerCase()
+  if (!wanted) return ''
+  return (types ?? []).find((type) => type.name.toLowerCase() === wanted)?.name ?? ''
+}
+
+/**
+ * The voucher types a document type's voucher may be made as - those whose
+ * voucher_group is the document type's group (VOUCHER_GROUP_OF; case and
+ * outer spaces aside), in the order Tally sent them. [] for a document type
+ * with no group, or a group Tally has no type in.
+ */
+export const voucherTypesOfGroup = (types, documentType) => {
+  const group = text(VOUCHER_GROUP_OF[text(documentType)]).toLowerCase()
+  if (!group) return []
+  return (types ?? []).filter((type) => text(type.group).toLowerCase() === group)
 }
 
 /**
@@ -756,6 +1009,12 @@ export const buildTallyInvoiceFetchMessage = (companyName, { startYear, startMon
  *   ledgersById, banks       the ledger and bank lists
  *   productsByKey            the products, for each line's name and SKU
  *   lineVariantOf(product, line)   the SKU a line chose
+ *   partyLedgerId            the ledger saved as buyer_id - the buyer's on a
+ *                            sale (the default), the supplier's on a purchase
+ *   rules                    { goodsOnly, invoiceRef, challanType } - from the
+ *                            type's profile (buildBusinessDocumentPayload)
+ *   chargeLedgerSac          each Other Charges row carries its own ledger's
+ *                            SAC (`ledgerSac`, saved as ledger_sac) - Sales Invoice
  */
 export const buildInvoiceSaveRequest = ({
   form,
@@ -769,6 +1028,9 @@ export const buildInvoiceSaveRequest = ({
   banks,
   productsByKey,
   lineVariantOf,
+  partyLedgerId = form.buyer.ledgerId,
+  rules,
+  chargeLedgerSac = false,
 }) => {
   const ledgerOf = (id) => (id ? ledgersById.get(String(id)) : null)
   const ledgerName = (id) => text(ledgerOf(id)?.ledeger_name)
@@ -778,7 +1040,8 @@ export const buildInvoiceSaveRequest = ({
     documentType: form.documentType,
     invoiceNo,
     sellerId: company?.company_id ?? null,
-    buyerId: getLedgerId(ledgerOf(form.buyer.ledgerId)) ?? (form.buyer.ledgerId || null),
+    buyerId: getLedgerId(ledgerOf(partyLedgerId)) ?? (partyLedgerId || null),
+    rules,
     bankId: bank?.id ?? null,
     dispatch,
     shipping,
@@ -794,6 +1057,8 @@ export const buildInvoiceSaveRequest = ({
     charges: form.charges.map((charge) => ({
       id: charge.id,
       ledgerName: ledgerName(charge.ledgerId),
+      // The SAC of THIS charge's ledger - looked up by its own id, never another row's.
+      ...(chargeLedgerSac ? { ledgerSac: getLedgerSac(ledgerOf(charge.ledgerId)) } : null),
       figures: figures.charges[charge.id],
     })),
     lines: form.lines.map((line) => {

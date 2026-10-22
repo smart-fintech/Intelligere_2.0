@@ -53,6 +53,13 @@ export const findDocumentType = (value) => DOCUMENT_TYPES.find((type) => type.va
 /** The Challan document type (DOCUMENT_TYPES) - every Challan-only rule keys off it. */
 export const DOCUMENT_TYPE_CHALLAN = 'Challan'
 
+/**
+ * The types that name the invoice they go with - a Challan the invoice its
+ * goods go with, a Credit / Debit Note the invoice it adjusts. Their Invoice
+ * No. / Invoice Date are saved as `invoice_no` / `invoice_date`.
+ */
+export const DOCUMENT_TYPES_WITH_INVOICE_REF = [DOCUMENT_TYPE_CHALLAN, 'Credit Note', 'Debit Note']
+
 /** Challan Type - saved as `challan_type`, the name the earlier challan screens used. */
 export const CHALLAN_TYPES = ['Permanent', 'Temporary', 'Inward', 'Outward', 'Internal'].map((type) => ({ value: type, label: type }))
 

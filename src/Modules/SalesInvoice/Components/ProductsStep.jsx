@@ -7,20 +7,24 @@ import { Label } from '@/Components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/Components/ui/radio-group'
 import { GST_RATES } from '@/Constants/gst'
 import { formatINR } from '@/Modules/Payment/pricing'
+import ChargeLedgerSac from '@/Modules/SalesInvoice/Components/ChargeLedgerSac'
 import { InvoiceCard, InvoiceGrid, WIDE_FIELD } from '@/Modules/SalesInvoice/Components/InvoiceGrid'
 import GstLedgerMapping from '@/Modules/SalesInvoice/Components/GstLedgerMapping'
 import ProductEntry from '@/Modules/SalesInvoice/Components/ProductEntry'
 import { AddedProducts, BuyerProducts } from '@/Modules/SalesInvoice/Components/ProductLists'
 import { toast } from '@/Library/toast'
+import { getLedgerSac } from '@/Services/ledgerService'
 import {
   LINE_KIND,
   entryModeOf,
+  documentProfile,
   isEntryDirty,
   isChallan,
   isServiceLine,
   lineFigures,
   lineFromExistingProduct,
   rateText,
+  settingsOf,
   toDecimalInput,
   validateEntry,
 } from '@/Modules/SalesInvoice/salesInvoiceForm'
@@ -51,7 +55,10 @@ const ENTRY_MODES = [
  *              (resolveGstLedgers, Utils/gstLedgers) - the GST this invoice charges, listed under
  *              Other Details with the ledger each is posted to
  *   buyerProducts   useBuyerProducts(...) - the buyer's earlier products
- *   showMapping     the document is a Sales Invoice - the mapping box is offered
+ *   showMapping     the document charges GST (every type but Challan) - the mapping box is offered
+ *   chargeSac       Sales Invoice only - an Other Charges ledger without a SAC
+ *                   number is marked under its row (ChargeLedgerSac), with Add
+ *                   SAC on Intelligere and what to do in Tally on Tally
  */
 
 /** Paise as a plain "1234.50" - for a read-only amount box. */
@@ -161,12 +168,19 @@ export default function ProductsStep({
   gstCheck,
   buyerProducts,
   showMapping,
+  // Sales Invoice: { erp, companyId, onSaved(chargeId) } - each charge's ledger needs a SAC; null elsewhere.
+  chargeSac = null,
   disabled,
 }) {
   const { form, errors, setErrors, setField, updateEntry, commitEntry, editLine, cancelEntry, removeLine, setEntryMode } = invoice
   const { addCharge, updateCharge, removeCharge } = invoice
   const interState = figures.tax.interState
   const challan = isChallan(form)
+  // What this document type has (documentProfile): services, With Discount, its Other Details sections.
+  const profile = documentProfile(form)
+  const settings = settingsOf(form)
+  const withDiscount = profile.discount && form.withDiscount
+  const has = (section) => profile.other.includes(section)
   const editing = Boolean(form.editingLineId)
   const mappingOpen = showMapping && form.gstLedgerMapping
 
@@ -180,8 +194,8 @@ export default function ProductsStep({
   // The Amount box of the entry form - the same line rule the invoice uses.
   const entryFigures = lineFigures(form.entry, {
     interState,
-    reverseCharge: form.settings.reverseCharge,
-    withDiscount: form.withDiscount,
+    reverseCharge: settings.reverseCharge,
+    withDiscount,
   })
 
   /** Add Product / Update: check the entry, then make it a line; the form empties for the next. */
@@ -211,8 +225,9 @@ export default function ProductsStep({
         actions={
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
             {/* Product / Service - what a new line is entered as. Not offered
-                while Reverse Charge Applicable is ticked: then it is Service. */}
-            {!mappingOpen && !form.settings.reverseCharge && !challan ? (
+                while Reverse Charge Applicable is ticked (then it is Service), nor
+                by a type that takes products only (Challan). */}
+            {!mappingOpen && !settings.reverseCharge && profile.services ? (
               <RadioGroup
                 value={entryModeOf(form)}
                 onValueChange={setEntryMode}
@@ -233,7 +248,7 @@ export default function ProductsStep({
                 ))}
               </RadioGroup>
             ) : null}
-            {/* Sales Invoice only. Switching the view never touches the products. */}
+            {/* Every type that charges GST. Switching the view never touches the products. */}
             {showMapping ? (
               <CheckboxField
                 id="gst-ledger-mapping"
@@ -243,8 +258,9 @@ export default function ProductsStep({
                 onCheckedChange={(checked) => setField('gstLedgerMapping', checked)}
               />
             ) : null}
-            {/* The products' own Disc. % only - never the Other Charges discount. A challan has no discount. */}
-            {challan ? null : (
+            {/* The products' own Disc. % only - never the Other Charges discount.
+                Only where the type takes discounts (not Challan, Sales / Purchase Order, Quotation). */}
+            {!profile.discount ? null : (
               <CheckboxField
                 id="with-discount"
                 label="With Discount"
@@ -276,7 +292,7 @@ export default function ProductsStep({
               ledgersById={ledgers.byId}
               ledgersLoading={ledgers.status === 'loading' || ledgers.status === 'idle'}
               figures={entryFigures}
-              withDiscount={!challan && form.withDiscount}
+              withDiscount={withDiscount}
               challan={challan}
               errors={errors}
               disabled={disabled}
@@ -316,14 +332,17 @@ export default function ProductsStep({
         )}
       </InvoiceCard>
 
-      {/* A challan has no Other Details - no charges, discount, round off, TCS or note. */}
-      {challan ? null : (
+      {/* Only the Other Details sections this type has (documentProfile's
+          `other`) - a challan has none, so no card at all. */}
+      {profile.other.length === 0 ? null : (
         <InvoiceCard
           title="Other Details"
           actions={
-            <Button type="button" variant="outline" size="sm" icon={Plus} disabled={disabled} onClick={addCharge}>
-              Add Other Charges
-            </Button>
+            has('charges') ? (
+              <Button type="button" variant="outline" size="sm" icon={Plus} disabled={disabled} onClick={addCharge}>
+                Add Other Charges
+              </Button>
+            ) : null
           }
         >
           {ledgers.status === 'failed' ? (
@@ -333,53 +352,68 @@ export default function ProductsStep({
           ) : null}
 
           {/* ---- Other Charges: one compact row each ---- */}
-          {form.charges.map((charge, index) => {
+          {(has('charges') ? form.charges : []).map((charge, index) => {
             const tax = figures.charges[charge.id]
             const taxPaise = tax.cgstPaise + tax.sgstPaise + tax.igstPaise
+            // Sales Invoice: the chosen ledger must have a SAC number (saved as ledger_sac).
+            const chargeLedger = chargeSac && charge.ledgerId ? ledgers.byId.get(String(charge.ledgerId)) : null
             return (
               <div key={charge.id} className="mb-2 flex items-start gap-2 border-b border-border pb-2">
-                <div className="flex min-w-0 flex-1 flex-wrap items-start gap-x-2 gap-y-2 [&>*]:min-w-0">
-                  <SelectField
-                    id={`charge-${charge.id}-ledger`}
-                    label={`Other Charges ${index + 1}`}
-                    required
-                    searchable
-                    searchPlaceholder="Search ledger"
-                    className="[flex:2_1_11rem]"
-                    placeholder={ledgerPlaceholder}
-                    options={ledgers.options}
-                    value={charge.ledgerId}
-                    error={errors[`charges.${charge.id}.ledgerId`]}
-                    disabled={disabled || ledgers.options.length === 0}
-                    onValueChange={(value) => updateCharge(charge.id, { ledgerId: value })}
-                  />
-                  <Field
-                    id={`charge-${charge.id}-amount`}
-                    label="Amount"
-                    required
-                    inputMode="decimal"
-                    placeholder="0.00"
-                    className="[flex:1_1_6rem]"
-                    value={charge.amount}
-                    error={errors[`charges.${charge.id}.amount`]}
-                    disabled={disabled}
-                    onChange={(event) => updateCharge(charge.id, { amount: toDecimalInput(event.target.value) })}
-                  />
-                  <SelectField
-                    id={`charge-${charge.id}-gst`}
-                    label="GST Slab"
-                    placeholder="None"
-                    className="[flex:1_1_6rem]"
-                    options={GST_RATE_OPTIONS}
-                    value={charge.gstRate}
-                    disabled={disabled}
-                    onValueChange={(value) => updateCharge(charge.id, { gstRate: value })}
-                  />
-                  <div className="[flex:1_1_6rem] pt-6 text-xs text-muted-foreground">
-                    {taxPaise > 0
-                      ? `${interState ? `IGST ${tax.igst}%` : `CGST ${tax.cgst}% + SGST ${tax.sgst}%`}: ${formatINR(taxPaise)}`
-                      : null}
+                <div className="min-w-0 flex-1">
+                  <div className="flex min-w-0 flex-wrap items-start gap-x-2 gap-y-2 [&>*]:min-w-0">
+                    <SelectField
+                      id={`charge-${charge.id}-ledger`}
+                      label={`Other Charges ${index + 1}`}
+                      required
+                      searchable
+                      searchPlaceholder="Search ledger"
+                      className="[flex:2_1_11rem]"
+                      placeholder={ledgerPlaceholder}
+                      options={ledgers.options}
+                      value={charge.ledgerId}
+                      error={errors[`charges.${charge.id}.ledgerId`]}
+                      disabled={disabled || ledgers.options.length === 0}
+                      onValueChange={(value) => updateCharge(charge.id, { ledgerId: value })}
+                    />
+                    <Field
+                      id={`charge-${charge.id}-amount`}
+                      label="Amount"
+                      required
+                      inputMode="decimal"
+                      placeholder="0.00"
+                      className="[flex:1_1_6rem]"
+                      value={charge.amount}
+                      error={errors[`charges.${charge.id}.amount`]}
+                      disabled={disabled}
+                      onChange={(event) => updateCharge(charge.id, { amount: toDecimalInput(event.target.value) })}
+                    />
+                    <SelectField
+                      id={`charge-${charge.id}-gst`}
+                      label="GST Slab"
+                      placeholder="None"
+                      className="[flex:1_1_6rem]"
+                      options={GST_RATE_OPTIONS}
+                      value={charge.gstRate}
+                      disabled={disabled}
+                      onValueChange={(value) => updateCharge(charge.id, { gstRate: value })}
+                    />
+                    <div className="[flex:1_1_6rem] pt-6 text-xs text-muted-foreground">
+                      {taxPaise > 0
+                        ? `${interState ? `IGST ${tax.igst}%` : `CGST ${tax.cgst}% + SGST ${tax.sgst}%`}: ${formatINR(taxPaise)}`
+                        : null}
+                    </div>
                   </div>
+                  {chargeLedger && !getLedgerSac(chargeLedger) ? (
+                    <ChargeLedgerSac
+                      key={charge.ledgerId}
+                      id={charge.id}
+                      ledger={chargeLedger}
+                      erp={chargeSac.erp}
+                      companyId={chargeSac.companyId}
+                      disabled={disabled}
+                      onSaved={() => chargeSac.onSaved(charge.id)}
+                    />
+                  ) : null}
                 </div>
                 <Button
                   type="button"
@@ -398,36 +432,63 @@ export default function ProductsStep({
 
           <InvoiceGrid>
             {/* The Other Charges discount: one overall amount off the products'
-                taxable value. Always here - the With Discount box above is the
-                products' own Disc. % and has no say over it. */}
-            <LedgerSection
-              name="discount"
-              ledgerLabel="Discount Ledger"
-              required={figures.discountPaise > 0}
-              invoice={invoice}
-              ledgerOptions={ledgers.options}
-              ledgerPlaceholder={ledgerPlaceholder}
-              disabled={disabled}
-            >
-              <Field
-                id="discount-amount"
-                label="Discount Amount"
-                inputMode="decimal"
-                placeholder="0.00"
-                value={form.discount.amount}
-                error={errors['discount.amount']}
+                taxable value. Here wherever the type has it - the With Discount
+                box above is the products' own Disc. % and has no say over it. */}
+            {has('discount') ? (
+              <LedgerSection
+                name="discount"
+                ledgerLabel="Discount Ledger"
+                required={figures.discountPaise > 0}
+                invoice={invoice}
+                ledgerOptions={ledgers.options}
+                ledgerPlaceholder={ledgerPlaceholder}
                 disabled={disabled}
-                onChange={(event) => setField('discount.amount', toDecimalInput(event.target.value))}
-              />
-            </LedgerSection>
+              >
+                <Field
+                  id="discount-amount"
+                  label="Discount Amount"
+                  inputMode="decimal"
+                  placeholder="0.00"
+                  value={form.discount.amount}
+                  error={errors['discount.amount']}
+                  disabled={disabled}
+                  onChange={(event) => setField('discount.amount', toDecimalInput(event.target.value))}
+                />
+              </LedgerSection>
+            ) : null}
 
-            {/* Round off is worked out, not typed - and a ledger is asked for
-                only when there is one. */}
-            {figures.roundOffPaise !== 0 ? (
+            {has('tcs') ? (
+              <LedgerSection
+                name="tcs"
+                ledgerLabel="TCS Ledger"
+                invoice={invoice}
+                ledgerOptions={ledgers.options}
+                ledgerPlaceholder={ledgerPlaceholder}
+                disabled={disabled}
+              >
+                <Field
+                  id="tcs-amount"
+                  label="TCS Amount"
+                  inputMode="decimal"
+                  placeholder="0.00"
+                  value={form.tcs.amount}
+                  error={errors['tcs.amount']}
+                  disabled={disabled}
+                  onChange={(event) => setField('tcs.amount', toDecimalInput(event.target.value))}
+                />
+              </LedgerSection>
+            ) : null}
+            {/* Round off is worked out, not typed. Its ledger is here, just before
+                the Note, whenever the document rounds (settingsOf: Show Round Off
+                on a Sales Invoice, always on a Sales Order, the company's setting
+                elsewhere) - 0.00 when there is none, and then not required. With
+                Show Round Off unticked there is no round off, so no section (a
+                challan has no Other Details at all). */}
+            {has('roundOff') && settings.roundOff ? (
               <LedgerSection
                 name="roundOff"
                 ledgerLabel="Round Off Ledger"
-                required
+                required={figures.roundOffPaise !== 0}
                 invoice={invoice}
                 ledgerOptions={ledgers.options}
                 ledgerPlaceholder={ledgerPlaceholder}
@@ -436,35 +497,17 @@ export default function ProductsStep({
                 <Field id="roundOff-amount" label="Round Off" readOnly disabled value={plainAmount(figures.roundOffPaise)} />
               </LedgerSection>
             ) : null}
-
-            <LedgerSection
-              name="tcs"
-              ledgerLabel="TCS Ledger"
-              invoice={invoice}
-              ledgerOptions={ledgers.options}
-              ledgerPlaceholder={ledgerPlaceholder}
-              disabled={disabled}
-            >
-              <Field
-                id="tcs-amount"
-                label="TCS Amount"
-                inputMode="decimal"
-                placeholder="0.00"
-                value={form.tcs.amount}
-                error={errors['tcs.amount']}
+            {has('note') ? (
+              <TextareaField
+                id="invoice-note"
+                label="Note"
+                rows={2}
+                className={WIDE_FIELD}
+                value={form.note}
                 disabled={disabled}
-                onChange={(event) => setField('tcs.amount', toDecimalInput(event.target.value))}
+                onChange={(event) => setField('note', event.target.value)}
               />
-            </LedgerSection>
-            <TextareaField
-              id="invoice-note"
-              label="Note"
-              rows={2}
-              className={WIDE_FIELD}
-              value={form.note}
-              disabled={disabled}
-              onChange={(event) => setField('note', event.target.value)}
-            />
+            ) : null}
           </InvoiceGrid>
 
           {gstLedgers.length > 0 ? (

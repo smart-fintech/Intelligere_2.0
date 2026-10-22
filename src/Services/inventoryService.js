@@ -43,7 +43,7 @@ import {
   perSkuFieldRank,
 } from '@/Constants/inventory'
 import { api } from '@/Services/authService'
-import { changesProducts } from '@/Services/productCache'
+import { changesProducts, markProductsChanged } from '@/Services/productCache'
 
 const MASTER_DETAILS_URL = 'inventory/company_master_details/'
 const SAMPLE_INVOICE_URL = 'invoice/SampleInvoice/'
@@ -465,15 +465,24 @@ export const getOpeningStockTemplate = async (companyName) => {
   return typeof response?.data === 'string' ? response.data.trim() : ''
 }
 
-/** Sends the filled-in template. Multipart is named for this one call, as for every upload. */
-export const uploadOpeningStock = (companyName, file) => {
+/**
+ * Sends the filled-in template. Multipart is named for this one call, as for every upload.
+ *
+ * An import confirmed by the backend's `msg` adds products and changes
+ * their stock, so the shared product list is read again AT ONCE for every
+ * screen showing it (markProductsChanged's `refetchActive`) - the ones not
+ * on screen read it when next shown. Any other success only marks it
+ * stale, as before; a failure is thrown, unchanged, and refreshes nothing.
+ */
+export const uploadOpeningStock = async (companyName, file) => {
   const body = new FormData()
 
   body.append('company_name', companyName)
   body.append('filed', file)
 
-  // Stock changes the product list's quantities.
-  return changesProducts(api.post(OPENING_STOCK_URL, body, { headers: { 'Content-Type': 'multipart/form-data' } }))
+  const reply = await api.post(OPENING_STOCK_URL, body, { headers: { 'Content-Type': 'multipart/form-data' } })
+  markProductsChanged({ refetchActive: Boolean(reply?.msg) })
+  return reply
 }
 
 /* ------------------------------------------------------------------ */

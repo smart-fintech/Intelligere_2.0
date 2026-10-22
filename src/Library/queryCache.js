@@ -140,7 +140,10 @@ export const fetchQuery = (key, fetch, { force = false, staleTime = 0 } = {}) =>
  * fetched again at once.
  */
 export const invalidateQueries = (resource, { whose, refetchActive = false } = {}) => {
-  entries.forEach((entry) => {
+  // Over a copy: fetchQuery moves the entry it fetches to the back of
+  // `entries` (the use order), and a forEach over the Map itself would
+  // reach it again there - and again, for ever.
+  ;[...entries.values()].forEach((entry) => {
     if (entry.resource !== resource) return
     if (whose !== undefined && keyText(entry.key.slice(1)) !== keyText([].concat(whose))) return
     entry.stale = true

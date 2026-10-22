@@ -187,8 +187,8 @@ export const PRODUCT_MODULES = [
     key: 'Purchase Invoice',
     name: 'Purchase Invoice',
     icon: FileInput,
-    status: MODULE_STATUS.COMING_SOON,
-    description: 'Purchase invoices from Excel or CSV files',
+    status: MODULE_STATUS.AVAILABLE,
+    description: 'Create purchase invoices, inbound challans and purchase orders',
   },
   {
     key: 'Sales Invoice',

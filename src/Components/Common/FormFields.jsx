@@ -254,8 +254,8 @@ export function TextareaField({ id, label, required, error, className, rows = 3,
 /* Choices                                                            */
 /* ------------------------------------------------------------------ */
 
-/** How many options a dropdown draws at a time - see SelectField. */
-const OPTIONS_PAGE = 100
+/** How many options a dropdown draws at a time - see SelectField (and FilterSelect in TableTools). */
+export const OPTIONS_PAGE = 100
 
 /**
  * A labelled dropdown.

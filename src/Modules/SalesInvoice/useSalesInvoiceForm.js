@@ -4,6 +4,8 @@
  * a copy of its own:
  *
  *   const invoice = useSalesInvoiceForm(company)
+ *   const invoice = useSalesInvoiceForm(company, createPurchaseForm)   another
+ *                               module's form (its own starting values)
  *
  *   invoice.form                the values (see createInvoiceForm)
  *   invoice.errors              { 'seller.email': 'Enter a valid email', ... }
@@ -27,6 +29,10 @@
  *   invoice.applyDocumentDefaults(reply)   invoice/last-document-number/'s answer -
  *                               only into fields the user has not touched yet
  *   invoice.reset()             a new, empty invoice for the same company
+ *   invoice.load(form)          a whole form in place of this one (History's
+ *                               Edit) - every field counts as the user's, so no
+ *                               server default (document number, With
+ *                               Discount) is laid over it
  *
  * The form starts from the company it is given, once. The page mounts it
  * afresh (a `key`) when the company changes, so no effect copies a company in.
@@ -38,11 +44,11 @@ import {
   LINE_KIND,
   commitEntryToLines,
   createInvoiceForm,
+  documentProfile,
   emptyAddress,
   entryModeOf,
   newChargeRow,
   newInvoiceLine,
-  isChallan,
   isEntryDirty,
   isServiceLine,
   withDocumentDefaults,
@@ -52,8 +58,8 @@ import {
 const withoutErrorsOf = (errors, prefix) =>
   Object.fromEntries(Object.entries(errors).filter(([key]) => !key.startsWith(prefix)))
 
-export default function useSalesInvoiceForm(company) {
-  const [form, setForm] = useState(() => createInvoiceForm(company))
+export default function useSalesInvoiceForm(company, createForm = createInvoiceForm) {
+  const [form, setForm] = useState(() => createForm(company))
   const [errors, setErrors] = useState({})
 
   // The fields the user has changed by hand - an answer from the server that
@@ -83,9 +89,17 @@ export default function useSalesInvoiceForm(company) {
         // Product / Service choice is back as it was - Product unless Service
         // was picked - except that a service half typed in is kept, with the
         // choice on Service. A line being edited is left alone either way.
-        // A Challan takes products only: a service in the entry form gives way to a product.
-        if (path === 'documentType' && isChallan(next) && !next.editingLineId && isServiceLine(next.entry)) {
-          return { ...next, entry: newInvoiceLine(LINE_KIND.PRODUCT) }
+        // Another document type: the entry form follows what that type enters
+        // a line as (entryModeOf) - a type with no services (Challan) or no
+        // Reverse Charge box takes the entry back to the choice. A service
+        // half typed in is kept, with the choice on Service, where services
+        // are taken.
+        if (path === 'documentType' && !next.editingLineId) {
+          const mode = entryModeOf(next)
+          if (next.entry.kind !== mode) {
+            const keepService = documentProfile(next).services && isServiceLine(next.entry) && isEntryDirty(next.entry)
+            return keepService ? { ...next, entryMode: LINE_KIND.SERVICE } : { ...next, entry: newInvoiceLine(mode) }
+          }
         }
         if (path === 'settings.reverseCharge' && !next.editingLineId) {
           if (value) {
@@ -210,11 +224,17 @@ export default function useSalesInvoiceForm(company) {
     setForm((previous) => withDocumentDefaults(previous, reply, touched.current))
   }, [])
 
+  const load = useCallback((next) => {
+    touched.current = new Set(['document.autoIncrement', 'document.invoiceNoParts', 'withDiscount'])
+    setForm({ ...next, entry: newInvoiceLine(entryModeOf(next)), editingLineId: null })
+    setErrors({})
+  }, [])
+
   const reset = useCallback(() => {
     touched.current = new Set()
-    setForm(createInvoiceForm(company))
+    setForm(createForm(company))
     setErrors({})
-  }, [company])
+  }, [company, createForm])
 
   return {
     form,
@@ -233,6 +253,7 @@ export default function useSalesInvoiceForm(company) {
     updateCharge,
     removeCharge,
     applyDocumentDefaults,
+    load,
     reset,
   }
 }

@@ -150,7 +150,7 @@ export const sellerLines = (seller) =>
     has(seller.website) ? [segment(seller.website)] : null,
   ])
 
-/** The buyer and consignee boxes. */
+/** The buyer and consignee boxes - PAN beside the GSTIN where the party has one (a purchase document's buyer). */
 export const partyLines = (party) =>
   present([
     has(party.address) ? [segment(party.address)] : null,
@@ -196,8 +196,12 @@ const twoUpRows = (cells) => {
 /** The document details beside the parties, two to a row, blanks removed (twoUpRows). */
 export const headerMetaRows = (invoice) =>
   twoUpRows([
-    { label: 'Invoice No', value: invoice.invoiceNo },
-    { label: 'Invoice Date', value: formatSheetDate(invoice.invoiceDate) },
+    // The type's own labels ("Sales Order No") - an invoice's when not given.
+    { label: invoice.numberLabel || 'Invoice No', value: invoice.invoiceNo },
+    { label: invoice.dateLabel || 'Invoice Date', value: formatSheetDate(invoice.invoiceDate) },
+    // The invoice a Credit / Debit Note adjusts.
+    { label: 'Invoice No', value: invoice.linkedInvoiceNo },
+    { label: 'Invoice Date', value: formatSheetDate(invoice.linkedInvoiceDate) },
     { label: 'Reference No', value: invoice.referenceNo },
     { label: 'Reference Date', value: formatSheetDate(invoice.referenceDate) },
     { label: 'PO No', value: invoice.poNo },
@@ -254,8 +258,8 @@ export const challanMetaRows = (model) => {
   const distanceAndMode = !has(distance.value) ? mode : has(mode.value) ? { ...distance, pair: mode } : distance
 
   return twoUpRows([
-    { label: 'Challan No./Delivery No.', value: invoice.invoiceNo },
-    { label: 'Challan Date/Delivery Date.', value: formatSheetDate(invoice.invoiceDate) },
+    { label: challan.numberLabel || 'Challan No./Delivery No.', value: invoice.invoiceNo },
+    { label: challan.dateLabel || 'Challan Date/Delivery Date.', value: formatSheetDate(invoice.invoiceDate) },
     { label: 'Invoice No.', value: challan.invoiceNo },
     { label: 'Invoice Date', value: formatSheetDate(challan.invoiceDate) },
     { label: 'Reference No./PO No.', value: invoice.referenceNo },
@@ -265,6 +269,8 @@ export const challanMetaRows = (model) => {
     { label: 'Dispatched Through', value: invoice.dispatchThrough },
     distanceAndMode,
     { label: 'Bill of Lading/LR-RR No.', value: invoice.lrNo },
+    // Only where the type has the field (Inbound Challan) - never on a sales challan.
+    { label: 'LR-RR Date', value: formatSheetDate(invoice.lrDate) },
     { label: 'Motor Vehicle No.', value: invoice.vehicleNo },
     { label: 'Challan Type', value: challan.type },
   ])

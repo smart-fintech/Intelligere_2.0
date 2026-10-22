@@ -1,6 +1,7 @@
 /**
  * The Inventory tab of Product (Inventory Management only): three views of
- * the company's stock, chosen with the radio buttons centred above them.
+ * the company's stock, chosen with the radio buttons centred above them -
+ * the app's one view switch (ViewSwitch), as Sales Invoice's.
  *
  *   ( ) Product   ( ) Custom Report   ( ) Expired Products
  *
@@ -18,8 +19,7 @@
 
 import { useState } from 'react'
 
-import { Label } from '@/Components/ui/label'
-import { RadioGroup, RadioGroupItem } from '@/Components/ui/radio-group'
+import { ViewSwitch } from '@/Components/Common/ViewSwitch'
 import useSectionAccess from '@/Hooks/useSectionAccess'
 import { ACCESS_SECTIONS } from '@/Services/accessService'
 import CustomReport from './CustomReport'
@@ -51,21 +51,14 @@ export default function InventoryOverview() {
     <div className="space-y-3">
       {/* One view is no choice at all. */}
       {views.length > 1 ? (
-        <RadioGroup
+        <ViewSwitch
+          options={views.map(({ key, label }) => ({ value: key, label }))}
           value={current}
           onValueChange={setCurrent}
-          aria-label="Inventory view"
-          className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2"
-        >
-          {views.map(({ key, label }) => (
-            <div key={key} className="flex items-center gap-2">
-              <RadioGroupItem id={`inventory-view-${key}`} value={key} />
-              <Label htmlFor={`inventory-view-${key}`} className="cursor-pointer font-normal">
-                {label}
-              </Label>
-            </div>
-          ))}
-        </RadioGroup>
+          label="Inventory view"
+          idPrefix="inventory-view"
+          className="mx-auto w-fit max-w-full"
+        />
       ) : null}
 
       {views.filter(({ key }) => opened.includes(key)).map(({ key, Page }) => (

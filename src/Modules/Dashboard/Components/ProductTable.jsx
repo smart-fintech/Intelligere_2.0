@@ -57,6 +57,14 @@
  * already loaded - no request - and the reply itself is never changed. A
  * change of filter goes back to the first page.
  *
+ * A LONG PAGE IS WINDOWED. Up to WINDOWED_FROM rows a page is drawn whole,
+ * as ever; a longer one ("All" rows of a big list) draws only the rows in
+ * sight and a margin around them, with empty rows of the right height
+ * above and below (useWindowedRows) - so scrolling, filtering and opening
+ * a row cost the same with 25,000 products as with 25. An opened row's
+ * details are measured as they open and close, so the rows under them
+ * stay where they are drawn.
+ *
  * Props:
  *   rows             the products as the backend sent them (useProducts)
  *   warehouseNames   optional { "<warehouse id>": "name" }, to put a name
@@ -77,7 +85,7 @@
  *                    well (the Expired Products view)
  */
 
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import { ChevronRight, Package, Pencil } from 'lucide-react'
 
 import { StateMessage } from '@/Components/Common/DataList'
@@ -95,6 +103,7 @@ import { TableCell, TableRow } from '@/Components/ui/table'
 import { useActiveCompany } from '@/Hooks/useActiveCompany'
 import useInventoryAccess from '@/Hooks/useInventoryAccess'
 import { useListView } from '@/Hooks/useListView'
+import { useWindowedRows } from '@/Hooks/useWindowedRows'
 import { cn } from '@/Library/utils'
 import { hasSingleWarehouseLimit } from '@/Services/inventoryService'
 import { orDash } from '@/Utils/display'
@@ -116,6 +125,9 @@ const ACTIONS_WIDTH = { base: 36, expand: 30, edit: 36 }
 /** How long an opened row takes to open or close - the `duration-200` below. */
 const OPEN_MS = 200
 
+/** A page longer than this is windowed - see the note at the top. */
+const WINDOWED_FROM = 100
+
 /**
  * What an opened row holds, opening and closing smoothly: its height runs
  * from nothing to all of it (a grid row going from 0fr to 1fr, so nothing
@@ -123,9 +135,12 @@ const OPEN_MS = 200
  * opened a frame later, so opening animates too; once a close has run its
  * course `onClosed(rowKey)` lets the table take the row away. With reduced
  * motion it simply appears and goes.
+ *
+ * `settled`: it has been drawn open before - a windowed row scrolled back
+ * into sight - so it is drawn open straight away, not opened again.
  */
-function RowDetails({ rowKey, open, onClosed, children }) {
-  const [entered, setEntered] = useState(false)
+function RowDetails({ rowKey, open, settled = false, onClosed, children }) {
+  const [entered, setEntered] = useState(settled)
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => setEntered(true))
@@ -152,6 +167,215 @@ function RowDetails({ rowKey, open, onClosed, children }) {
     </div>
   )
 }
+
+/** The rows a windowed page leaves out, as one empty row of their height (see useWindowedRows). */
+function Spacer({ rowRef, height, columns }) {
+  return (
+    <TableRow ref={rowRef} aria-hidden className="hover:bg-transparent">
+      {/* `p-0!` and `border-0!`: the table pads and rules every cell. */}
+      <TableCell colSpan={columns} className="border-0! p-0!" style={{ height }} />
+    </TableRow>
+  )
+}
+
+/** The SKUs of a product Edit can open - those with a `product_id` to save under. */
+const editableSkus = (product) => product.variants.filter((variant) => variant.productId !== null)
+
+/**
+ * The table's rows: every product of the page - or, on a page longer than
+ * WINDOWED_FROM, the ones in sight, between two spacers (useWindowedRows).
+ * Its own component, so scrolling a windowed page draws the rows again and
+ * not the filters above them; and each row a ProductRow, drawn again only
+ * when something of its own has changed.
+ *
+ * It keeps the height of each opened row's details, as drawn: what a
+ * windowed page puts under that row, and - being there at all - that the
+ * row has been drawn open before (RowDetails' `settled`). Forgotten once
+ * the row has closed.
+ */
+function ProductRows({ products, expanded, closing, selectedKey, onClosed, detailed, columnCount, ...rowProps }) {
+  const [detailHeights, setDetailHeights] = useState(() => new Map())
+
+  const detailsResized = useCallback(
+    (key, height) => setDetailHeights((previous) => (previous.get(key) === height ? previous : new Map(previous).set(key, height))),
+    [],
+  )
+
+  const closed = useCallback(
+    (key) => {
+      onClosed(key)
+      setDetailHeights((previous) => {
+        if (!previous.has(key)) return previous
+        const next = new Map(previous)
+        next.delete(key)
+        return next
+      })
+    },
+    [onClosed],
+  )
+
+  const windowed = products.length > WINDOWED_FROM
+  // Under which rows (by their place on the page) opened details sit, and how tall.
+  const extra = useMemo(() => {
+    if (!windowed || detailHeights.size === 0) return null
+
+    const heights = new Map()
+    products.forEach((product, index) => {
+      if (detailHeights.has(product.key)) heights.set(index, detailHeights.get(product.key))
+    })
+    return heights
+  }, [windowed, products, detailHeights])
+  const drawn = useWindowedRows({ count: products.length, enabled: windowed, extra })
+
+  return (
+    <>
+      {windowed ? <Spacer rowRef={drawn.topRef} height={drawn.padTop} columns={columnCount} /> : null}
+
+      {products.slice(drawn.start, drawn.end).map((product, place) => {
+        const open = detailed && expanded.includes(product.key)
+
+        return (
+          <ProductRow
+            key={product.key}
+            {...rowProps}
+            product={product}
+            open={open}
+            withDetails={open || (detailed && closing.includes(product.key))}
+            selected={product.key === selectedKey}
+            settled={detailHeights.has(product.key)}
+            detailed={detailed}
+            columnCount={columnCount}
+            rowRef={place === 0 ? drawn.measureRow : undefined}
+            onDetailsResized={detailsResized}
+            onClosed={closed}
+          />
+        )
+      })}
+
+      {windowed ? <Spacer height={drawn.padBottom} columns={columnCount} /> : null}
+    </>
+  )
+}
+
+/**
+ * One product's row, and what it opens out into. Memoised: the handlers it
+ * is given are made once, so it is drawn again only when its product, or
+ * whether it is open, selected or being measured, has changed - not on
+ * every keystroke, scroll or opened row elsewhere in the table.
+ */
+const ProductRow = memo(function ProductRow({
+  product,
+  open,
+  withDetails,
+  selected,
+  settled,
+  detailed,
+  rowEdit,
+  pageEdit,
+  editDisabled,
+  hasActions,
+  withCategoryAndAmount,
+  columnCount,
+  rowRef,
+  onToggle,
+  onEditRow,
+  onViewSku,
+  onEditSku,
+  onDetailsResized,
+  onClosed,
+}) {
+  const label = product.name || 'product'
+  const skuCount = rowEdit && !pageEdit ? editableSkus(product).length : 0
+
+  /** On the opened details: their height, kept up to date as they open and close. */
+  const measureDetails = useCallback(
+    (node) => {
+      if (!node) return undefined
+      const observer = new ResizeObserver(() => onDetailsResized(product.key, node.getBoundingClientRect().height))
+      observer.observe(node)
+      return () => observer.disconnect()
+    },
+    [product.key, onDetailsResized],
+  )
+
+  return (
+    <>
+      <TableRow
+        ref={rowRef}
+        className="text-brand"
+        data-state={selected ? 'selected' : undefined}
+      >
+        <TableCell className="font-medium" title={product.name || undefined}>
+          {orDash(product.name)}
+        </TableCell>
+        <TableCell>{orDash(product.hsn)}</TableCell>
+        <TableCell title={product.group || undefined}>{orDash(product.group)}</TableCell>
+        <TableCell>{orDash(product.unit)}</TableCell>
+        {withCategoryAndAmount ? <TableCell>{orDash(product.category)}</TableCell> : null}
+        <TableCell>{orDash(product.quantity)}</TableCell>
+        {withCategoryAndAmount ? <TableCell>{orDash(product.totalAmount)}</TableCell> : null}
+        <TableCell>{orDash(product.gstRate)}</TableCell>
+        <TableCell>{orDash(product.rate)}</TableCell>
+        {hasActions ? (
+          <TableCell className="text-right">
+            <div className="flex justify-end gap-1.5">
+              {detailed ? (
+                // One arrow, turning as the row opens and closes.
+                <Button
+                  type="button"
+                  variant="iconEdit"
+                  size="icon-sm"
+                  icon={ChevronRight}
+                  className={cn('[&_svg]:transition-transform [&_svg]:duration-200', open && '[&_svg]:rotate-90')}
+                  tooltip={open ? 'Hide SKU and warehouse details' : 'Show SKU and warehouse details'}
+                  aria-label={`${open ? 'Hide' : 'Show'} SKU and warehouse details of ${label}`}
+                  aria-expanded={open}
+                  onClick={() => onToggle(product.key, open)}
+                />
+              ) : null}
+              {rowEdit ? (
+                <Button
+                  type="button"
+                  variant="iconEdit"
+                  size="icon-sm"
+                  icon={Pencil}
+                  tooltip={skuCount > 1 ? 'Edit - choose a SKU below' : 'Edit'}
+                  aria-label={`Edit ${label}`}
+                  disabled={editDisabled || (!pageEdit && skuCount === 0)}
+                  onClick={() => onEditRow(product)}
+                />
+              ) : null}
+            </div>
+          </TableCell>
+        ) : null}
+      </TableRow>
+
+      {/* What the row opens out into: one cell across every
+          column (see "A ROW THAT OPENS" in DataTable). */}
+      {withDetails ? (
+        <TableRow ref={measureDetails} className="hover:bg-transparent">
+          {/* `py-0!`: the table pads every cell; this one's padding
+              is inside what opens, so closed it is no height at all. */}
+          <TableCell colSpan={columnCount} wrap className="bg-muted/40 p-0 py-0!">
+            <RowDetails
+              rowKey={product.key}
+              open={open}
+              settled={settled}
+              onClosed={onClosed}
+            >
+              <ProductVariantRows
+                product={product}
+                onViewSku={(variant) => onViewSku(product, variant)}
+                onEditSku={onEditSku ? (variant) => onEditSku(product, variant) : undefined}
+                editDisabled={editDisabled}
+              />
+            </RowDetails>
+          </TableCell>
+        </TableRow>
+      ) : null}
+    </>
+  )
+})
 
 export default function ProductTable({
   rows,
@@ -263,7 +487,10 @@ export default function ProductTable({
     />
   ) : null
 
-  /* ---------------- Opened rows, and the details dialog ---------------- */
+  /* ---------------- Opened rows, and the details dialog ----------------
+     The handlers a row is given are made once (useCallback), so a row
+     whose product and state are unchanged is not drawn again - see
+     ProductRow. */
   const [expanded, setExpanded] = useState([])
   // Rows closing: still drawn until their close has run (RowDetails).
   const [closing, setClosing] = useState([])
@@ -272,28 +499,34 @@ export default function ProductTable({
   // are after a reload, not as they were.
   const [viewing, setViewing] = useState({ open: false, key: null, sku: null })
 
-  const toggle = (key) => {
-    if (expanded.includes(key)) {
+  /** The arrow: `open` is whether the row is open now. */
+  const toggle = useCallback((key, open) => {
+    if (open) {
       setExpanded((previous) => previous.filter((entry) => entry !== key))
       setClosing((previous) => (previous.includes(key) ? previous : [...previous, key]))
     } else {
-      setExpanded((previous) => [...previous, key])
+      setExpanded((previous) => (previous.includes(key) ? previous : [...previous, key]))
     }
-  }
+  }, [])
 
   const closed = useCallback((key) => setClosing((previous) => previous.filter((entry) => entry !== key)), [])
 
-  /** The SKUs of a product Edit can open - those with a `product_id` to save under. */
-  const editableSkus = (product) => product.variants.filter((variant) => variant.productId !== null)
-
   /** The row's Edit: the page's own, or its one SKU, or its row opened onto its SKUs' own Edits. */
-  const editRow = (product) => {
-    if (onEdit) return onEdit(product)
+  const editRow = useCallback(
+    (product) => {
+      if (onEdit) return onEdit(product)
 
-    const skus = editableSkus(product)
-    if (skus.length === 1) return onEditSku(product, skus[0])
-    setExpanded((previous) => (previous.includes(product.key) ? previous : [...previous, product.key]))
-  }
+      const skus = editableSkus(product)
+      if (skus.length === 1) return onEditSku(product, skus[0])
+      setExpanded((previous) => (previous.includes(product.key) ? previous : [...previous, product.key]))
+    },
+    [onEdit, onEditSku],
+  )
+
+  const viewSku = useCallback(
+    (product, variant) => setViewing({ open: true, key: product.key, sku: product.variants.indexOf(variant) }),
+    [],
+  )
 
   // The product with ONLY the SKU whose View was pressed - so the dialog
   // shows that SKU's details, never another SKU's of the same product.
@@ -363,82 +596,24 @@ export default function ProductTable({
             </>
           }
         >
-          {view.rows.map((product) => {
-            const open = detailed && expanded.includes(product.key)
-            const drawn = open || (detailed && closing.includes(product.key))
-            const label = product.name || 'product'
-
-            return (
-              <Fragment key={product.key}>
-                <TableRow className="text-brand" data-state={product.key === selectedKey ? 'selected' : undefined}>
-                  <TableCell className="font-medium" title={product.name || undefined}>
-                    {orDash(product.name)}
-                  </TableCell>
-                  <TableCell>{orDash(product.hsn)}</TableCell>
-                  <TableCell title={product.group || undefined}>{orDash(product.group)}</TableCell>
-                  <TableCell>{orDash(product.unit)}</TableCell>
-                  {withCategoryAndAmount ? <TableCell>{orDash(product.category)}</TableCell> : null}
-                  <TableCell>{orDash(product.quantity)}</TableCell>
-                  {withCategoryAndAmount ? <TableCell>{orDash(product.totalAmount)}</TableCell> : null}
-                  <TableCell>{orDash(product.gstRate)}</TableCell>
-                  <TableCell>{orDash(product.rate)}</TableCell>
-                  {hasActions ? (
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-1.5">
-                        {detailed ? (
-                          // One arrow, turning as the row opens and closes.
-                          <Button
-                            type="button"
-                            variant="iconEdit"
-                            size="icon-sm"
-                            icon={ChevronRight}
-                            className={cn('[&_svg]:transition-transform [&_svg]:duration-200', open && '[&_svg]:rotate-90')}
-                            tooltip={open ? 'Hide SKU and warehouse details' : 'Show SKU and warehouse details'}
-                            aria-label={`${open ? 'Hide' : 'Show'} SKU and warehouse details of ${label}`}
-                            aria-expanded={open}
-                            onClick={() => toggle(product.key)}
-                          />
-                        ) : null}
-                        {rowEdit ? (
-                          <Button
-                            type="button"
-                            variant="iconEdit"
-                            size="icon-sm"
-                            icon={Pencil}
-                            tooltip={!onEdit && editableSkus(product).length > 1 ? 'Edit - choose a SKU below' : 'Edit'}
-                            aria-label={`Edit ${label}`}
-                            disabled={editDisabled || (!onEdit && editableSkus(product).length === 0)}
-                            onClick={() => editRow(product)}
-                          />
-                        ) : null}
-                      </div>
-                    </TableCell>
-                  ) : null}
-                </TableRow>
-
-                {/* What the row opens out into: one cell across every
-                    column (see "A ROW THAT OPENS" in DataTable). */}
-                {drawn ? (
-                  <TableRow className="hover:bg-transparent">
-                    {/* `py-0!`: the table pads every cell; this one's padding
-                        is inside what opens, so closed it is no height at all. */}
-                    <TableCell colSpan={columnCount} wrap className="bg-muted/40 p-0 py-0!">
-                      <RowDetails rowKey={product.key} open={open} onClosed={closed}>
-                        <ProductVariantRows
-                          product={product}
-                          onViewSku={(variant) =>
-                            setViewing({ open: true, key: product.key, sku: product.variants.indexOf(variant) })
-                          }
-                          onEditSku={onEditSku ? (variant) => onEditSku(product, variant) : undefined}
-                          editDisabled={editDisabled}
-                        />
-                      </RowDetails>
-                    </TableCell>
-                  </TableRow>
-                ) : null}
-              </Fragment>
-            )
-          })}
+          <ProductRows
+            products={view.rows}
+            expanded={expanded}
+            closing={closing}
+            selectedKey={selectedKey}
+            onClosed={closed}
+            detailed={detailed}
+            rowEdit={rowEdit}
+            pageEdit={Boolean(onEdit)}
+            editDisabled={editDisabled}
+            hasActions={hasActions}
+            withCategoryAndAmount={withCategoryAndAmount}
+            columnCount={columnCount}
+            onToggle={toggle}
+            onEditRow={editRow}
+            onViewSku={viewSku}
+            onEditSku={onEditSku}
+          />
         </DataTable>
       )}
 

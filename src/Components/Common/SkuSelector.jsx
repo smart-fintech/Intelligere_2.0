@@ -40,6 +40,8 @@ const SEARCHABLE_FROM = 8
  *   id, label, required, error, placeholder, disabled, className
  *   loading       the SKUs are still on their way: "Loading..." and off
  *   emptyText     what the box says when there are no SKUs ("No SKUs")
+ *   size          the box's size - 'sm' in a table row ('default' otherwise)
+ *   ariaLabel     its name when it has no `label` (a table cell)
  */
 const defaultValueOf = (variant, index) => String(variant?.product_id ?? index)
 
@@ -56,6 +58,8 @@ export function SkuSelector({
   disabled = false,
   loading = false,
   emptyText = 'No SKUs',
+  size,
+  ariaLabel,
   className,
 }) {
   const options = useMemo(
@@ -95,6 +99,8 @@ export function SkuSelector({
         >
           <SelectTrigger
             id={id}
+            size={size}
+            aria-label={label ? undefined : ariaLabel}
             className="w-full"
             aria-invalid={Boolean(error) || undefined}
             aria-required={required || undefined}

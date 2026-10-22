@@ -17,8 +17,10 @@
  *   failure   the backend's own message - and the file STAYS chosen, to send
  *             again or to swap for another
  *
- * The warehouses and products a file adds are read by their own tabs the next
- * time those load their lists (Refresh on each).
+ * The products a file adds, and their stock, reach every screen at once: a
+ * confirmed upload reads the shared product list again (uploadOpeningStock).
+ * The warehouses it adds are read by their own tab the next time it loads
+ * its list (Refresh).
  */
 
 import { useEffect, useRef, useState } from 'react'

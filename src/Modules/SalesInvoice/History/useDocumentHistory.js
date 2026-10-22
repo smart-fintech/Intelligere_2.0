@@ -16,16 +16,17 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { readHistoryRow } from '@/Modules/SalesInvoice/History/historyHelpers'
+import { readHistoryRow, uniqueHistoryRows } from '@/Modules/SalesInvoice/History/historyHelpers'
 import { getDocumentHistory } from '@/Services/salesInvoiceService'
 
 const NONE = []
 
-export default function useDocumentHistory({ companyId, documentType, financialYear }) {
+export default function useDocumentHistory({ companyId, documentType, financialYear, refresh = 0 }) {
   const [state, setState] = useState({ status: 'ready', rows: NONE, error: null, forKey: null })
   const [attempt, setAttempt] = useState(0)
   const latest = useRef(null)
-  const key = companyId && documentType && financialYear ? `${companyId}|${documentType}|${financialYear}#${attempt}` : null
+  // `refresh` - a document saved or updated elsewhere - reads the list again, like a reload.
+  const key = companyId && documentType && financialYear ? `${companyId}|${documentType}|${financialYear}#${attempt}.${refresh}` : null
 
   useEffect(() => {
     if (!key) return
@@ -33,7 +34,8 @@ export default function useDocumentHistory({ companyId, documentType, financialY
 
     getDocumentHistory({ companyId, financialYear, documentType })
       .then((list) => {
-        if (latest.current === key) setState({ status: 'ready', rows: list.map(readHistoryRow), error: null, forKey: key })
+        // Each document once, by its document_id - a reply that lists one twice never shows it twice.
+        if (latest.current === key) setState({ status: 'ready', rows: uniqueHistoryRows(list.map(readHistoryRow)), error: null, forKey: key })
       })
       .catch((failure) => {
         if (latest.current !== key) return

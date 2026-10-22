@@ -15,11 +15,12 @@
  *                   `pdfBytes` (the upload failed) the same PDF is sent again
  *                   rather than made again.
  *   createDocument()          -> the create reply
- *   makePdf()                 -> the PDF bytes
+ *   makePdf()                 -> the PDF bytes - or the file the user chose; null
+ *                             (no file chosen) skips step 4: the upload is never called
  *   uploadPdf(id, bytes)      -> the upload reply
  *   onStage(stage)            'creating' | 'pdf' | 'uploading', as each starts
  *
- * -> { outcome, saved?, error? } - `outcome` is one of SAVE_OUTCOME, and
+ * -> { outcome, saved?, error?, uploaded? } - `outcome` is one of SAVE_OUTCOME, and
  *    `saved` is what to keep for a retry (the document exists from step 2 on).
  */
 
@@ -62,6 +63,9 @@ export async function runSaveWorkflow({ saved, invoiceNo, createDocument, makePd
     }
   }
 
+  // Nothing to upload (a document whose own file was not chosen) - done, with no upload at all.
+  if (!pdfBytes) return { outcome: SAVE_OUTCOME.DONE, saved: document, uploaded: false }
+
   // 4 - the very bytes just made.
   onStage('uploading')
   try {
@@ -70,5 +74,5 @@ export async function runSaveWorkflow({ saved, invoiceNo, createDocument, makePd
     return { outcome: SAVE_OUTCOME.UPLOAD_FAILED, saved: { ...document, pdfBytes }, error }
   }
 
-  return { outcome: SAVE_OUTCOME.DONE, saved: document }
+  return { outcome: SAVE_OUTCOME.DONE, saved: document, uploaded: true }
 }

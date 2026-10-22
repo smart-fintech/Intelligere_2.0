@@ -8,10 +8,15 @@
  *   MONTH_OPTIONS                  January..December, valued 1..12
  *   checkTallyRange(range)         what is wrong with a From / To range
  *   readHistoryRow(row)            a saved document as the table shows it
+ *   uniqueHistoryRows(rows)        each document once, by its document_id
+ *   historyPartyOptions(rows)      the buyers (or sellers) the rows name, once each
+ *   filterHistoryRows(rows, filters)   the rows every set filter lets through
+ *   amountRangeError(filters)      what is wrong with a From / To amount
  *   historyTotal(rows)             their totals added up, in paise
  */
 
 import { toPaise } from '@/Modules/Payment/pricing'
+import { fileUrlOf } from '@/Services/salesInvoiceService'
 
 /* ------------------------------------------------------------------ */
 /* Financial years - April to March                                   */
@@ -106,27 +111,165 @@ const objectOf = (value) => {
   return {}
 }
 
+/** "15/10/2026" (the history's document_date) or an ISO date, as YYYY-MM-DD - '' for none. */
+export const isoDateOf = (value) => {
+  const raw = text(value)
+  const dmy = /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/.exec(raw)
+  if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`
+  const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(raw)
+  return iso ? `${iso[1]}-${iso[2]}-${iso[3]}` : ''
+}
+
 /**
  * The few fields the table shows, from the many the history sends:
  *
- *   id          document_id (what a delete names)
+ *   id          document_id (what a delete names, and each row's key)
+ *   partyId     buyer_id - the ledger the document names: the buyer on a
+ *               sale, the supplier on a purchase (what the Buyer / Seller
+ *               filter matches on)
  *   buyerName   buyer_name
  *   buyerGstin  buyer_details.ledeger_gstin
  *   documentNo  document_no, else invoice_master_details.document_no
  *   documentDate  document_date, else invoice_master_details.document_date
+ *   documentDay   the same as YYYY-MM-DD - what the date filter compares
  *   totalPaise  total_amount, in paise (null when it is not a number)
+ *   fromTally   past_tally_invoice is true - a document fetched from Tally;
+ *               anything else was made in Intelligere (the rule the earlier
+ *               history screens filtered by). Such a document is not edited.
+ *   pdfUrl      doc_pdf - the document's saved PDF - as a URL the browser
+ *               opens; null when it has none
+ *   source      the row as the server sent it - what Edit fills the form from
  */
 export const readHistoryRow = (row) => {
   const master = objectOf(row.invoice_master_details)
   const buyer = objectOf(row.buyer_details)
+  const documentDate = text(row.document_date ?? master.document_date)
   return {
     id: row.document_id ?? row.id ?? null,
+    partyId: text(row.buyer_id ?? buyer.ledger_obj_id),
     buyerName: text(row.buyer_name ?? buyer.ledeger_name),
     buyerGstin: text(buyer.ledeger_gstin ?? row.buyer_gstin),
     documentNo: text(row.document_no ?? master.document_no),
-    documentDate: text(row.document_date ?? master.document_date),
+    documentDate,
+    documentDay: isoDateOf(documentDate),
     totalPaise: toPaise(row.total_amount),
+    fromTally: row.past_tally_invoice === true || text(row.past_tally_invoice).toLowerCase() === 'true',
+    pdfUrl: fileUrlOf(row.doc_pdf ?? row.doc_PDF),
+    source: row,
   }
+}
+
+/** Each document once - by its document_id; a row without one is kept as it is. */
+export const uniqueHistoryRows = (rows) => {
+  const seen = new Set()
+  return rows.filter((row) => {
+    if (row.id === null || row.id === undefined) return true
+    const key = String(row.id)
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+/* ------------------------------------------------------------------ */
+/* Filters                                                            */
+/* ------------------------------------------------------------------ */
+
+/** The Source filter's choices - Tally or Intelligere by past_tally_invoice (readHistoryRow). */
+export const HISTORY_SOURCE = Object.freeze({ TALLY: 'tally', INTELLIGERE: 'intelligere' })
+
+/** No filter set. */
+export const EMPTY_HISTORY_FILTERS = Object.freeze({ from: '', to: '', party: '', source: '', minAmount: '', maxAmount: '' })
+
+/** The buyers (or sellers) the rows name - by their ledger id, once each, A-Z; a party without an id by its name. */
+export const historyPartyOptions = (rows) => {
+  const byValue = new Map()
+  rows.forEach((row) => {
+    const value = row.partyId || (row.buyerName ? `name:${row.buyerName}` : '')
+    if (value && !byValue.has(value)) byValue.set(value, row.buyerName || `Ledger ${row.partyId}`)
+  })
+  return [...byValue.entries()].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label))
+}
+
+/** A typed amount in paise - null for nothing typed (never 0). */
+const amountOf = (value) => (text(value) === '' ? null : toPaise(value))
+
+/** What is wrong with the amount range - '' when it is fine. */
+export const amountRangeError = ({ minAmount, maxAmount }) => {
+  const min = amountOf(minAmount)
+  const max = amountOf(maxAmount)
+  return min !== null && max !== null && min > max ? 'From Amount is more than To Amount' : ''
+}
+
+/**
+ * The rows every set filter lets through - an empty one lets everything:
+ *
+ *   from, to          document_date on or after / on or before (YYYY-MM-DD)
+ *   party             the buyer / seller (historyPartyOptions' value)
+ *   source            HISTORY_SOURCE.TALLY or .INTELLIGERE
+ *   minAmount, maxAmount   total_amount at or above / at or below - not
+ *                     applied while the range is the wrong way round
+ */
+export const filterHistoryRows = (rows, filters) => {
+  const { from, to, party, source } = filters
+  const rangeOk = !amountRangeError(filters)
+  const min = rangeOk ? amountOf(filters.minAmount) : null
+  const max = rangeOk ? amountOf(filters.maxAmount) : null
+  return rows.filter((row) => {
+    if ((from || to) && !row.documentDay) return false
+    if (from && row.documentDay < from) return false
+    if (to && row.documentDay > to) return false
+    if (party && party !== (row.partyId || `name:${row.buyerName}`)) return false
+    if (source === HISTORY_SOURCE.TALLY && !row.fromTally) return false
+    if (source === HISTORY_SOURCE.INTELLIGERE && row.fromTally) return false
+    if ((min !== null || max !== null) && row.totalPaise === null) return false
+    if (min !== null && row.totalPaise < min) return false
+    if (max !== null && row.totalPaise > max) return false
+    return true
+  })
+}
+
+/** Whether any filter is set. */
+export const hasHistoryFilters = (filters) => Object.values(filters).some((value) => text(value) !== '')
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+/** A YYYY-MM-DD as the export takes it - "08-Jun-2025"; '' for none. */
+export const exportDateOf = (value) => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text(value))
+  return match ? `${match[3]}-${MONTHS[Number(match[2]) - 1]}-${match[1]}` : ''
+}
+
+/**
+ * THE EXCEL EXPORT'S BODY (invoice/export-documents-excel/) - exactly the
+ * filters the table is showing, nothing else:
+ *
+ *   date           the financial year chosen ("2025-2026") - always
+ *   document_type  the document type chosen - always
+ *   from_date, to_date     Document Date from / to, as "08-Jun-2025"
+ *   ledger         the Buyer (or Seller) filter, by the ledger's name
+ *   from_value, to_value   From / To Amount (total_amount) - not when the
+ *                  range is the wrong way round, as the table does not apply it
+ *   source         "Tally" | "Intelligere"
+ *
+ * A filter that is not set is left out - never sent empty, "null" or
+ * "undefined".
+ *   partyName   the name of the party the Buyer / Seller filter chose
+ */
+export const buildDocumentExportBody = ({ financialYear, documentType, filters, partyName }) => {
+  const body = { date: text(financialYear), document_type: text(documentType) }
+  const fromDate = exportDateOf(filters.from)
+  const toDate = exportDateOf(filters.to)
+  if (fromDate) body.from_date = fromDate
+  if (toDate) body.to_date = toDate
+  if (filters.party && text(partyName)) body.ledger = text(partyName)
+  if (!amountRangeError(filters)) {
+    if (amountOf(filters.minAmount) !== null) body.from_value = text(filters.minAmount)
+    if (amountOf(filters.maxAmount) !== null) body.to_value = text(filters.maxAmount)
+  }
+  if (filters.source === HISTORY_SOURCE.TALLY) body.source = 'Tally'
+  else if (filters.source === HISTORY_SOURCE.INTELLIGERE) body.source = 'Intelligere'
+  return body
 }
 
 /** The documents' totals added up, in paise - each document once, by its id. */

@@ -159,12 +159,18 @@ export const skuDetailPairs = (variant) =>
  * property not in `known`. This is what keeps a field nobody listed from
  * being lost - a screen shows the properties it knows, then these.
  */
-export const otherFields = (object, known = []) =>
-  isPlainObject(object)
-    ? Object.entries(object)
-        .filter(([key]) => !known.includes(key))
-        .map(([key, value]) => ({ key, label: fieldLabel(key), value }))
-    : []
+export const otherFields = (object, known = []) => {
+  if (!isPlainObject(object)) return []
+
+  // By its keys, not Object.entries: every product, SKU, entry and warehouse
+  // of the list comes through here, nearly always for nothing - and a pair
+  // made for each of their properties is most of the reading time.
+  const others = []
+  for (const key of Object.keys(object)) {
+    if (!known.includes(key)) others.push({ key, label: fieldLabel(key), value: object[key] })
+  }
+  return others
+}
 
 /* ------------------------------------------------------------------ */
 /* Reading a product                                                  */
@@ -373,8 +379,32 @@ const distinct = (values) => [...new Set(values.map(textOf).filter(Boolean))]
  *   source        the product exactly as the backend sent it
  *
  * `warehouseNames` is optional: { "<warehouse id>": "name" }.
+ *
+ * ONE READ PER REPLY. The shared cache (useProducts) hands every screen
+ * the same rows array until the list changes, so what is read from it is
+ * kept against that array: the table, Add Existing Product and each
+ * material reference picker of the form share one read, rather than each
+ * going through every product again and keeping a copy of its own. A new
+ * reply is a new array, so nothing outdated is reused, and the read goes
+ * when the reply does (a WeakMap on it) - one with the last
+ * `warehouseNames` given, and one without. Neither the reply nor what is
+ * read from it is ever changed, by this or by any screen.
  */
+const reads = new WeakMap()
+
 export const readProducts = (rows, warehouseNames = null) => {
+  if (!Array.isArray(rows)) return readRows(rows, warehouseNames)
+
+  const kept = reads.get(rows) ?? {}
+  const slot = warehouseNames ? 'named' : 'plain'
+  if (kept[slot]?.names === warehouseNames) return kept[slot].products
+
+  const products = readRows(rows, warehouseNames)
+  reads.set(rows, { ...kept, [slot]: { names: warehouseNames, products } })
+  return products
+}
+
+const readRows = (rows, warehouseNames) => {
   // A row's key is its first SKU's id - and a list can name the same SKU
   // twice (the expired products: one record per expiry), so a key already
   // taken is made unique with the row's place.
@@ -628,6 +658,14 @@ export const filterProducts = (products, filters) => {
 }
 
 /**
+ * "2" before "10", as localeCompare(other, undefined, { numeric: true }) orders
+ * them - the same order, from one collator made once: localeCompare with
+ * options sets up a collator on EVERY comparison, which over tens of
+ * thousands of SKU codes is most of a second.
+ */
+const naturalOrder = new Intl.Collator(undefined, { numeric: true }).compare
+
+/**
  * WHAT EACH FILTER CAN OFFER, worked out from the products themselves - so
  * a filter only ever offers a value that is really there, and a company
  * with different SKU fields gets different filters.
@@ -646,7 +684,7 @@ export const filterProducts = (products, filters) => {
  */
 export const productFilterOptions = (products) => {
   const variants = products.flatMap((product) => product.variants)
-  const sorted = (values) => distinct(values).sort((left, right) => left.localeCompare(right, undefined, { numeric: true }))
+  const sorted = (values) => distinct(values).sort(naturalOrder)
 
   const fields = {}
   const options = {}
@@ -675,12 +713,20 @@ export const productFilterOptions = (products) => {
   // that keeps none has no use for it.
   const hasExpiry = variants.some((variant) => variant.details.some((detail) => detail.expiryDate))
 
-  // The SKU attributes, in the order the SKUs carry them.
+  // The SKU attributes, in the order the SKUs carry them - every SKU's
+  // values gathered under their attribute in ONE pass, not one pass over
+  // every SKU per attribute.
+  const valuesOf = new Map()
+  variants.forEach((variant) =>
+    variant.skuDetails.forEach(([name, value]) => {
+      if (!valuesOf.has(name)) valuesOf.set(name, [])
+      valuesOf.get(name).push(value)
+    }),
+  )
+
   const attributeFields = []
-  distinct(variants.flatMap((variant) => variant.skuDetails.map(([name]) => name))).forEach((name) => {
-    const values = sorted(
-      variants.flatMap((variant) => variant.skuDetails.filter(([key]) => key === name).map(([, value]) => value)),
-    )
+  distinct([...valuesOf.keys()]).forEach((name) => {
+    const values = sorted(valuesOf.get(name) ?? [])
     if (values.length === 0) return
 
     const field = skuAttributeFilter(name)

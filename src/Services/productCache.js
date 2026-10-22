@@ -18,9 +18,15 @@
 import { QUERY } from '@/Constants/queryKeys'
 import { invalidateQueries } from '@/Library/queryCache'
 
-export const markProductsChanged = () => {
-  invalidateQueries(QUERY.PRODUCTS)
-  invalidateQueries(QUERY.PRODUCT_UNITS)
+/**
+ * `refetchActive`: also read again, at once, the lists a screen is showing
+ * right now (one request per company's list, however many screens show it -
+ * see invalidateQueries) - for a change that adds products wholesale, which
+ * the screens already open must show without a reload.
+ */
+export const markProductsChanged = ({ refetchActive = false } = {}) => {
+  invalidateQueries(QUERY.PRODUCTS, { refetchActive })
+  invalidateQueries(QUERY.PRODUCT_UNITS, { refetchActive })
 }
 
 /** Passes `request`'s answer on unchanged, marking the products stale once it succeeded. */

@@ -203,6 +203,42 @@ export const gstChargesByLedger = (resolved) => {
   return charges
 }
 
+/** The GST slab a tax and rate belong to - the whole rate, as text: CGST / SGST 2.5% -> "5", IGST 18% -> "18". */
+export const gstSlabOf = (entry) => rateLabel(String(entry.tax).toUpperCase() === 'IGST' ? Number(entry.rate) : Number(entry.rate) * 2)
+
+/**
+ * THE GST CHARGES BY SLAB - what the saved `gst_charges` holds: one charge
+ * per slab and ledger, so slabs never mix even when they share a ledger
+ * (CGST 2.5% and CGST 9% both on the basic "CGST" stay under "5" and "18"),
+ * in the order the taxes first appear. An entry with no ledger stays a charge
+ * of its own with `ledger` null - never saved.
+ *
+ *   gstChargesBySlab(resolveGstLedgers(...))
+ *   -> [{ slab: '5', ledger: 'CGST', paise: 1250, entries: [...] }, { slab: '18', ledger: 'CGST', paise: 900, entries: [...] }]
+ */
+export const gstChargesBySlab = (resolved) => {
+  const charges = []
+  const byKey = new Map()
+  resolved.forEach((entry) => {
+    const slab = gstSlabOf(entry)
+    const name = String(entry.ledger ?? '').trim()
+    if (!name) {
+      charges.push({ slab, ledger: null, paise: entry.paise, entries: [entry] })
+      return
+    }
+    const key = `${slab}|${name}`
+    let charge = byKey.get(key)
+    if (!charge) {
+      charge = { slab, ledger: name, paise: 0, entries: [] }
+      byKey.set(key, charge)
+      charges.push(charge)
+    }
+    charge.paise += entry.paise
+    charge.entries.push(entry)
+  })
+  return charges
+}
+
 /** The entries still without a ledger - only the taxes and rates the document actually charges. */
 export const missingGstLedgers = (resolved) => resolved.filter((entry) => !entry.ledger)
 

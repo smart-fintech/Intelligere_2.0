@@ -491,8 +491,8 @@ function PayDeclarationView({ model }) {
         <View style={[s.bold, { flex: 1, padding: 4, borderRightWidth: 1, borderColor: B, fontSize: 7.5 }]}>
           <Text>Declaration :</Text>
           <Text style={{ paddingTop: 5 }}>
-            We declare that this invoice shows the actual price of the goods described and that all particulars are true
-            and correct.
+            We declare that this {(model.invoice.word || 'Invoice').toLowerCase()} shows the actual price of the goods
+            described and that all particulars are true and correct.
           </Text>
         </View>
         <View style={{ width: 180, padding: 4 }}>
@@ -571,7 +571,7 @@ export default function InvoicePdfDocument({ model, pages, rowsByKey, rowPx = {}
           {page.isLast ? <WordsView model={model} /> : null}
           {page.hsn ? <HsnView model={model} part={page.hsn} grow={!page.goods} /> : null}
           {page.pay ? <PayDeclarationView model={model} /> : null}
-          <Text style={s.genfoot}>This is a Computer Generated Invoice</Text>
+          <Text style={s.genfoot}>This is a Computer Generated {model.invoice.word || 'Invoice'}</Text>
           {sheets.length > 1 ? (
             <Text style={s.pageno}>
               Page {index + 1} of {sheets.length}

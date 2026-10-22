@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useDeferredValue, useMemo, useState } from 'react'
 
 /**
  * Filtering, sorting and paging for a list that is already in memory.
@@ -34,6 +34,14 @@ import { useMemo, useState } from 'react'
 /** Everything compares as lower-case text, so sorting works on any column. */
 const asText = (value) => String(value ?? '').toLowerCase()
 
+/**
+ * `numeric` keeps "Account 10" after "Account 9" instead of before it. One
+ * collator, made once: localeCompare(b, undefined, { numeric: true }) gives
+ * the same order but sets one up on every comparison - most of a second on
+ * a list of tens of thousands.
+ */
+const naturalOrder = new Intl.Collator(undefined, { numeric: true }).compare
+
 export function useListView(
   rows,
   { searchFields = [], filterFields = {}, initialSort = null, initialPageSize = 10 } = {},
@@ -42,6 +50,10 @@ export function useListView(
   // One entry per column dropdown that is actually set to something.
   const [filters, setFilters] = useState({})
   const [sort, setSort] = useState(initialSort)
+  // The order the rows are drawn in follows the chosen sort a moment
+  // later: the header shows the click at once, and a long list is sorted
+  // in a render of its own rather than inside the click (useDeferredValue).
+  const sortedBy = useDeferredValue(sort)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(initialPageSize)
 
@@ -77,11 +89,31 @@ export function useListView(
     // filterKeys is derived from filterKey - see the note where it is built.
   }, [rows, filterKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  /** The rows left after the search box and the column dropdowns. */
-  const filtered = useMemo(() => {
+  /**
+   * The rows in the order the chosen column puts them - sorted BEFORE the
+   * search box and the dropdowns narrow them, so typing a search only
+   * filters, and a long list is not sorted again on every keystroke. The
+   * rows left are in exactly the order sorting them afterwards would give:
+   * sort is stable, so rows that compare equal keep their order.
+   */
+  const ordered = useMemo(() => {
+    if (!sortedBy?.field) return rows
+
+    // Each row's text is worked out once, not twice per comparison, and the
+    // rows are sorted as a copy - Array.sort rearranges in place, and `rows`
+    // is the store's array, which must never be touched.
+    const direction = sortedBy.direction === 'desc' ? -1 : 1
+    return rows
+      .map((row) => ({ row, text: asText(row[sortedBy.field]) }))
+      .sort((a, b) => direction * naturalOrder(a.text, b.text))
+      .map(({ row }) => row)
+  }, [rows, sortedBy])
+
+  /** The rows left after the search box and the column dropdowns, in that order. */
+  const sorted = useMemo(() => {
     const query = search.trim().toLowerCase()
 
-    return rows.filter((row) => {
+    return ordered.filter((row) => {
       if (query && !searchFields.some((field) => asText(row[field]).includes(query))) {
         return false
       }
@@ -92,22 +124,7 @@ export function useListView(
       )
     })
     // searchFields is derived from searchKey - see the note where it is built.
-  }, [rows, search, filters, searchKey]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  /** The same rows in the order the chosen column puts them. */
-  const sorted = useMemo(() => {
-    if (!sort?.field) return filtered
-
-    // Sorted on a copy - Array.sort rearranges in place, and `filtered` is
-    // derived from the store's array, which must never be touched.
-    return [...filtered].sort((a, b) => {
-      const left = asText(a[sort.field])
-      const right = asText(b[sort.field])
-      // `numeric` keeps "Account 10" after "Account 9" instead of before it.
-      const order = left.localeCompare(right, undefined, { numeric: true })
-      return sort.direction === 'desc' ? -order : order
-    })
-  }, [filtered, sort])
+  }, [ordered, search, filters, searchKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize))
   // Deleting the last row of the last page would otherwise leave the user on

@@ -73,6 +73,15 @@ const toList = (response) => {
  */
 export const getLedgerId = (ledger) => ledger?.ledger_obj_id ?? null
 
+/**
+ * A ledger's SAC number (`ledger_sac`), trimmed - '' when it has none
+ * (missing, null, or the "null" / "None" text an empty column can come as).
+ */
+export const getLedgerSac = (ledger) => {
+  const sac = String(ledger?.ledger_sac ?? '').trim()
+  return ['null', 'none', 'undefined'].includes(sac.toLowerCase()) ? '' : sac
+}
+
 /* ------------------------------------------------------------------ */
 /* Reading                                                            */
 /* ------------------------------------------------------------------ */
@@ -165,6 +174,17 @@ export const createLedger = (payload) => api.post(LEDGER_URL, { ...payload, ...s
  * actually edited.
  */
 export const updateLedger = (payload) => api.put(LEDGER_URL, { ...payload, ...systemFields() })
+
+/**
+ * Gives a ledger its SAC number - the same update as the Ledger Form's edit,
+ * with the one field changed:
+ *
+ *   PUT tally/create-ledger/  { ledger_obj_id, company_id, ledger_sac }
+ *
+ * Intelligere only: a Tally ledger is changed in Tally, never from here.
+ */
+export const updateLedgerSac = ({ ledger, companyId, sac }) =>
+  updateLedger({ ledger_obj_id: getLedgerId(ledger), company_id: companyId, ledger_sac: String(sac ?? '').trim() })
 
 /**
  * Removes a ledger.
