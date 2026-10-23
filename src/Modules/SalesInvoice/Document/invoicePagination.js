@@ -8,6 +8,8 @@
  * captured into the PDF, sheet for sheet.
  *
  *   every sheet     title, header (parties + document details), goods table head
+ *   page 1          with an IRN, the e-Invoice band (metrics.irn) in place of the
+ *                   title - the title is inside it
  *   non-final       goods rows to the foot of the sheet, then "Continue Page No. N"
  *   closing sheet   the remaining rows, Total, amount in words, HSN/SAC summary,
  *                   tax in words, bank, note, declaration
@@ -34,9 +36,13 @@ const USABLE = A4.height - PAGE_PADDING * 2 - SAFETY_RESERVE
 /** A goods row that is a product (its key is "prod-<id>") - every other row is a charge or a tax/total line. */
 const isProductRow = (row) => row.key.startsWith('prod-')
 
-/** Title, header and footer - on every sheet. A one-sheet invoice prints no "Page 1 of 1". */
-const furniture = (metrics, pageCount) =>
-  metrics.title + metrics.header + (pageCount === 1 ? metrics.footSingle : metrics.foot)
+/**
+ * Title, header and footer - on every sheet; on page 1 (`index` 0) of an
+ * invoice with an IRN, the e-Invoice band in place of the title. A one-sheet
+ * invoice prints no "Page 1 of 1".
+ */
+const furniture = (metrics, pageCount, index = 1) =>
+  (index === 0 && metrics.irn > 0 ? metrics.irn : metrics.title) + metrics.header + (pageCount === 1 ? metrics.footSingle : metrics.foot)
 
 /** The closing stack: Total row through the declaration. */
 const closingHeight = (metrics) => metrics.totalRow + metrics.words + metrics.hsn + metrics.pay + metrics.decl
@@ -52,7 +58,7 @@ const sum = (list, from = 0, to = list.length) => {
  * does not fit. `closing` is what the closing sheet must also hold.
  */
 const capacity = (index, pageCount, metrics, closing) =>
-  USABLE - furniture(metrics, pageCount) - metrics.thead - (index === pageCount - 1 ? closing : metrics.continued)
+  USABLE - furniture(metrics, pageCount, index) - metrics.thead - (index === pageCount - 1 ? closing : metrics.continued)
 
 /**
  * Packs the rows onto exactly `pageCount` sheets, each filled as far as it

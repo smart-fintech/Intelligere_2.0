@@ -3,7 +3,7 @@ import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { paginate } from '@/Modules/SalesInvoice/Document/invoicePagination'
 
 /** The blocks measured as a whole. */
-const SLOTS = ['title', 'header', 'thead', 'totalRow', 'continued', 'words', 'hsn', 'pay', 'decl', 'foot', 'footSingle']
+const SLOTS = ['irn', 'title', 'header', 'thead', 'totalRow', 'continued', 'words', 'hsn', 'pay', 'decl', 'foot', 'footSingle']
 
 /**
  * Measures every block of the invoice off screen (MeasureHost) and works out

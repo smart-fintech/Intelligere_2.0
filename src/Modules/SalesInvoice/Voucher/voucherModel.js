@@ -835,7 +835,7 @@ export const tallyGstCharges = (gst) => {
  * envelope of every Tally message):
  *
  *   {
- *     module_name: "tally_voucher_create",       TALLY_VOUCHER_MODULE
+ *     module_name: "invoice_voucher_create",       TALLY_VOUCHER_MODULE
  *     company_name: "<the active company>",
  *     document_id: 124837,                       the voucher's own document_id
  *     data: [{

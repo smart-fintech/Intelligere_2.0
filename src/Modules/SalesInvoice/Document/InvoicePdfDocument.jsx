@@ -87,6 +87,18 @@ const s = StyleSheet.create({
   hsnCell: { borderRightWidth: 1, borderColor: B, paddingVertical: 1, paddingHorizontal: 3, fontSize: 8.25 },
   genfoot: { textAlign: 'center', fontSize: 6.4, paddingTop: 4 },
   pageno: { textAlign: 'right', fontSize: 6.2, paddingTop: 2 },
+  cancelled: {
+    position: 'absolute',
+    top: 330,
+    left: 0,
+    right: 0,
+    textAlign: 'center',
+    fontSize: 96,
+    fontFamily: 'Helvetica-Bold',
+    color: '#dc2626',
+    opacity: 0.28,
+    transform: 'rotate(-35deg)',
+  },
 })
 
 const Cell = ({ style, children, bold }) => <Text style={[s.cell, style, bold ? s.bold : null]}>{children}</Text>
@@ -519,6 +531,43 @@ function PayDeclarationView({ model }) {
 /** A measured px height as a minimum in points, as the vector layout is pinned to the sheet's. */
 const pt = (px) => (px ? (px * 72) / 288 : null)
 
+const IrnLine = ({ label, value }) => (
+  <View style={[s.bold, { flexDirection: 'row', marginBottom: 0.5, fontSize: 7.5 }]}>
+    <Text style={{ width: 43.5 }}>{label}</Text>
+    <Text style={{ width: 7.5 }}>:</Text>
+    <Text style={{ flex: 1 }}>{value}</Text>
+  </View>
+)
+
+/**
+ * The e-Invoice band - page 1 only, and only with an IRN (InvoiceTemplate's
+ * IrnBlock): the strip, IRN / Ack No. / Ack Date at the bottom-left, the QR
+ * (4cm = 114pt) on the right, and page 1's title in the middle of the band.
+ */
+function IrnView({ model, title, minHeight }) {
+  const e = model.einvoice
+  if (!e) return null
+  return (
+    <View style={[{ paddingBottom: 3 }, minHeight ? { minHeight } : null]}>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 1.5 }}>
+        <Text style={{ fontSize: 6.75, fontStyle: 'italic' }}>{model.printedOn}</Text>
+        <Text style={[s.bold, { fontSize: 7.9 }]}>e-Invoice</Text>
+      </View>
+      <View style={{ flexDirection: 'row', alignItems: 'flex-start', position: 'relative' }}>
+        <View style={{ flex: 1, paddingRight: 7.5, alignSelf: 'flex-end' }}>
+          <IrnLine label="IRN" value={e.irn} />
+          <IrnLine label="Ack No." value={e.ackNo} />
+          <IrnLine label="Ack Date" value={e.ackDate} />
+        </View>
+        {e.qr ? <Image style={{ width: 114, height: 114 }} src={e.qr} /> : <View style={{ width: 114, height: 114 }} />}
+        <View style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, justifyContent: 'center' }}>
+          <Text style={[s.title, { paddingBottom: 0 }]}>{title}</Text>
+        </View>
+      </View>
+    </View>
+  )
+}
+
 export default function InvoicePdfDocument({ model, pages, rowsByKey, rowPx = {}, metrics = null }) {
   const sheets = pages.map((page) => ({ ...page, ...sheetParts(page) }))
   const title = model.invoice.type || 'Tax Invoice'
@@ -528,7 +577,9 @@ export default function InvoicePdfDocument({ model, pages, rowsByKey, rowPx = {}
     <Document title={model.invoice.invoiceNo || 'Invoice'}>
       {sheets.map((page, index) => (
         <Page key={index} size="A4" style={s.page}>
-          <Text style={s.title}>{index > 0 ? `${title} (Page ${index + 1})` : title}</Text>
+          {/* With an IRN, page 1's title is inside the e-Invoice band. */}
+          {index === 0 && model.einvoice ? null : <Text style={s.title}>{index > 0 ? `${title} (Page ${index + 1})` : title}</Text>}
+          {index === 0 ? <IrnView model={model} title={title} minHeight={pt(metrics?.irn)} /> : null}
           <HeaderView model={model} minHeight={pt(metrics?.header)} />
           {page.goods ? (
             <>
@@ -577,6 +628,7 @@ export default function InvoicePdfDocument({ model, pages, rowsByKey, rowPx = {}
               Page {index + 1} of {sheets.length}
             </Text>
           ) : null}
+          {model.cancelled ? <Text style={s.cancelled}>CANCELLED</Text> : null}
         </Page>
       ))}
     </Document>

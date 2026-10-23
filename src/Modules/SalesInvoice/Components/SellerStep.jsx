@@ -51,7 +51,12 @@ const copyText = async (value, what) => {
   }
 }
 
-export default function SellerStep({ invoice, disabled }) {
+/**
+ *   onSettingChange(key, checked)   a settings box changed - the workspace's (E-Invoice /
+ *                                   E-Way Bill are authenticated before they tick); without
+ *                                   it the box is simply set
+ */
+export default function SellerStep({ invoice, disabled, onSettingChange }) {
   const { form, errors, setField, setSameAs } = invoice
   const seller = form.seller
   const shownSettings = documentProfile(form).settings
@@ -222,7 +227,7 @@ export default function SellerStep({ invoice, disabled }) {
                 label={setting.label}
                 checked={form.settings[setting.key]}
                 disabled={disabled}
-                onCheckedChange={(checked) => setField(`settings.${setting.key}`, checked)}
+                onCheckedChange={(checked) => (onSettingChange ? onSettingChange(setting.key, checked) : setField(`settings.${setting.key}`, checked))}
               />
             ))}
           </div>

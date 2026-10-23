@@ -23,6 +23,25 @@ const readAsDataUrl = (blob) =>
     reader.readAsDataURL(blob)
   })
 
+/**
+ * The same, once and without a component: a File, { url } or a plain URL as a
+ * data URL - the link itself when the server allows no read (CORS), null for
+ * nothing.
+ */
+export const readFileDataUrl = async (file) => {
+  if (!file) return null
+  if (file instanceof Blob) return readAsDataUrl(file).catch(() => null)
+  const url = typeof file === 'string' ? file : file.url
+  if (!url) return null
+  try {
+    const response = await fetch(url)
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    return await readAsDataUrl(await response.blob())
+  } catch {
+    return url
+  }
+}
+
 export default function useFileDataUrl(file) {
   const [read, setRead] = useState({ file: null, url: null })
 

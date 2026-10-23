@@ -55,7 +55,7 @@ import {
   buildTallyProductImportMessage,
   importProductCsv,
 } from '@/Services/productService'
-import { selectProfileStatus } from '@/Store/Slices/profileSlice'
+import { selectIsErpKnown } from '@/Store/Slices/profileSlice'
 import { downloadTextFile } from '@/Utils/fileDownload'
 
 /** Tally safety net: the longest the card waits for stop_loader - as for a ledger import. */
@@ -73,7 +73,7 @@ export default function ProductCsvUpload({ companyId, companyName, isTally = fal
   // Until the profile is in, `isTally` is not known - and a Tally user's
   // file sent up as `intelligere` would create the products in the wrong
   // place. So the upload waits for it, as the ledger card does.
-  const erpKnown = useSelector(selectProfileStatus) === 'succeeded'
+  const erpKnown = useSelector(selectIsErpKnown)
 
   const setPhaseBoth = (next) => {
     phaseRef.current = next

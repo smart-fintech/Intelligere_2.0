@@ -32,7 +32,7 @@
  *   GET     tally/intelligere_group_list/
  */
 
-import { getEmail, getERP } from '@/Library/secureStorage'
+import { ERP, getEmail, getERP } from '@/Library/secureStorage'
 import { api } from '@/Services/authService'
 
 const LEDGER_URL = 'tally/create-ledger/'
@@ -147,12 +147,14 @@ export const getLedgerGroups = async (source = LEDGER_GROUP_SOURCE.INTELLIGERE, 
  * where they were saved at sign-in.
  *
  * `erp` is lower-cased because registration saves it as "Intelligere" while
- * this endpoint expects "intelligere". `platform` is sent empty, as the API's
- * own example does.
+ * this endpoint expects "intelligere". It is Intelligere only when nothing -
+ * neither the sign-in nor the profile - has said otherwise; fetchProfile
+ * keeps it current, so a Tally user's ledger goes up as "tally".
+ * `platform` is sent empty, as the API's own example does.
  */
 const systemFields = () => ({
   created_by: getEmail() || '',
-  erp: (getERP() || 'intelligere').toLowerCase(),
+  erp: (getERP() ?? ERP.INTELLIGERE).toLowerCase(),
   platform: '',
 })
 
@@ -322,14 +324,14 @@ export const LEDGER_GROUP_CREATE_MODULE = 'ledger_group_create'
  *
  * The reply comes back under `return_module_name: "ledger_group_create"`.
  */
-export const buildLedgerGroupCreateMessage = ({  companyName, name, under }) => ({
+export const buildLedgerGroupCreateMessage = ({ companyName, name, under }) => ({
   payload: {
     module_name: LEDGER_GROUP_CREATE_MODULE,
     company_name: companyName,
     data: {
       Name: String(name ?? '').trim(),
       Under: String(under ?? '').trim(),
-      erp: getERP() || 'Tally',
+      erp: getERP() ?? ERP.TALLY,
       created_by: getEmail() || '',
     }
   }

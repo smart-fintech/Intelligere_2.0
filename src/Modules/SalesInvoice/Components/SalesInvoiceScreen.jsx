@@ -6,6 +6,7 @@ import { ViewSwitch } from '@/Components/Common/ViewSwitch'
 import SalesInvoiceWorkspace from '@/Modules/SalesInvoice/Components/SalesInvoiceWorkspace'
 import DocumentHistory from '@/Modules/SalesInvoice/History/DocumentHistory'
 import TallyVouchers from '@/Modules/SalesInvoice/Voucher/TallyVouchers'
+import VoucherModes from '@/Modules/SalesInvoice/Voucher/VoucherModes'
 import { selectIsTallyErp } from '@/Store/Slices/profileSlice'
 
 /**
@@ -29,7 +30,8 @@ import { selectIsTallyErp } from '@/Store/Slices/profileSlice'
  *   history   DocumentHistory's own options (documentTypesOf, defaultType,
  *             partyLabel, tally: false to leave out Fetch from Tally)
  *   vouchers  TallyVouchers' own options (types, labels) - Sales Invoice,
- *             Credit Note and Debit Note when not given
+ *             Credit Note and Debit Note when not given; `sharedInvoices: true`
+ *             adds View Voucher / Add Voucher (VoucherModes - Purchase Invoice)
  */
 const VIEWS = [
   { value: 'create', label: 'Create Document' },
@@ -47,6 +49,7 @@ export default function SalesInvoiceScreen({ company, title = 'Sales Invoice', f
   const [editRequest, setEditRequest] = useState(null)
   const [historyRefresh, setHistoryRefresh] = useState(0)
   const { tally = true, ...historyOptions } = history
+  const { sharedInvoices = false, ...voucherOptions } = vouchers
   // The screen usually appears the moment the company list arrives - inside
   // that request's handler, where a store update renders synchronously. The
   // heading shows then; the form and its preview (hundreds of elements) are
@@ -95,7 +98,11 @@ export default function SalesInvoiceScreen({ company, title = 'Sales Invoice', f
 
       {voucherOpened ? (
         <div hidden={view !== 'voucher'}>
-          <TallyVouchers company={company} parties={flow?.parties} {...vouchers} />
+          {sharedInvoices ? (
+            <VoucherModes company={company} parties={flow?.parties} options={voucherOptions} />
+          ) : (
+            <TallyVouchers company={company} parties={flow?.parties} {...voucherOptions} />
+          )}
         </div>
       ) : null}
 

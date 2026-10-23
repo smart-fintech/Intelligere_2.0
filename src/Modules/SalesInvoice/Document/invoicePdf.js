@@ -55,11 +55,14 @@ const embeddable = (src) =>
 
 /** The model with its three images in a form the PDF can embed. */
 async function withEmbeddableImages(model) {
-  const [logo, signature, paymentQr] = await Promise.all([
+  const [logo, signature, paymentQr, irnQr] = await Promise.all([
     embeddable(model.seller.logo),
     embeddable(model.seller.signature),
     embeddable(model.invoice.paymentQr),
+    embeddable(model.einvoice?.qr),
   ])
+  // An e-invoice without its QR is not printed: the IRN QR is what makes it valid.
+  if (model.einvoice?.qr && !irnQr) throw new Error('The IRN QR code image could not be loaded.')
   ;[
     [model.seller.logo, logo, 'logo'],
     [model.seller.signature, signature, 'signature'],
@@ -71,6 +74,7 @@ async function withEmbeddableImages(model) {
     ...model,
     seller: { ...model.seller, logo, signature },
     invoice: { ...model.invoice, paymentQr },
+    ...(model.einvoice ? { einvoice: { ...model.einvoice, qr: irnQr } } : null),
   }
 }
 
@@ -102,12 +106,29 @@ export async function createInvoicePdf({ model, layout, copies }) {
     metrics: layout.metrics,
     ...(model.challan ? { copies } : null),
   })
-  const bytes = new Uint8Array(await (await pdf(pdfDocument).toBlob()).arrayBuffer())
+  return toPdfBytes(pdf, pdfDocument)
+}
 
+/** A react-pdf document as PDF bytes - refused when it comes out empty. */
+async function toPdfBytes(pdf, pdfDocument) {
+  const bytes = new Uint8Array(await (await pdf(pdfDocument).toBlob()).arrayBuffer())
   if (bytes.length < 500 || String.fromCharCode(...bytes.subarray(0, 5)) !== '%PDF-') {
     throw new Error('The PDF came out empty.')
   }
   return bytes
+}
+
+/**
+ * The E-Way Bill PDF, as bytes - one A4 page drawn from toEwayBillModel(...)
+ * (ewayBillModel.js); it needs no measured layout. Uploaded as the
+ * `e_way_bill_pdf` of invoice/save-document-pdf/.
+ */
+export async function createEwayBillPdf(ewayBill) {
+  const [{ pdf }, { default: EwayBillPdfDocument }] = await Promise.all([
+    import('@react-pdf/renderer'),
+    import('@/Modules/SalesInvoice/Document/EwayBillPdfDocument'),
+  ])
+  return toPdfBytes(pdf, createElement(EwayBillPdfDocument, { model: ewayBill }))
 }
 
 /** PDF bytes as a Blob - what a download or an upload carries. */

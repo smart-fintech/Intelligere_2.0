@@ -66,7 +66,7 @@ import {
   buildBulkLedgerMessage,
   importLedgerCsv,
 } from '@/Services/ledgerService'
-import { selectProfileStatus } from '@/Store/Slices/profileSlice'
+import { selectIsErpKnown } from '@/Store/Slices/profileSlice'
 import { downloadTextFile } from '@/Utils/fileDownload'
 
 /**
@@ -94,10 +94,11 @@ export default function LedgerCsvUpload({ companyId, companyName, isTally = fals
    * then would send a Tally user's file up as `intelligere` and create the
    * ledgers in the wrong place. The box therefore stays shut until the
    * profile that `isTally` is worked out from (selectIsTallyErp, read by
-   * LedgerDetails) has actually loaded. AppLayout loads it as the shell
-   * mounts, so in practice it is open by the time the page is read.
+   * LedgerDetails) has loaded and named Tally or Intelligere. AppLayout loads
+   * it as the shell mounts, so in practice it is open by the time the page
+   * is read.
    */
-  const erpKnown = useSelector(selectProfileStatus) === 'succeeded'
+  const erpKnown = useSelector(selectIsErpKnown)
 
   const setPhaseBoth = (next) => {
     phaseRef.current = next

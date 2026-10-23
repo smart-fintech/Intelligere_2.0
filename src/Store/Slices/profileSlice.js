@@ -16,7 +16,7 @@
 
 import { createAsyncThunk, createSlice } from '@reduxjs/toolkit'
 
-import { getUuid } from '@/Library/secureStorage'
+import { ERP, getUuid, normaliseErp, setERP } from '@/Library/secureStorage'
 import { api } from '@/Services/authService'
 
 /* ------------------------------------------------------------------ */
@@ -62,14 +62,21 @@ const readFetchArgs = (arg) => (typeof arg === 'string' ? { identifier: arg } : 
 export const fetchProfile = createAsyncThunk(
   'profile/fetch',
   async (arg, { rejectWithValue }) => {
-    const uuid = readFetchArgs(arg).identifier || getUuid()
+    const { identifier } = readFetchArgs(arg)
+    const uuid = identifier || getUuid()
 
     // Without a uuid the call would fail on the server anyway, so stop here
     // with a message that says what is actually wrong.
     if (!uuid) return rejectWithValue('No user id was saved at login.')
 
     try {
-      return await api.post('useraccount/profile/', { identifier: uuid })
+      const profile = await api.post('useraccount/profile/', { identifier: uuid })
+      // The signed-in user's ERP, into storage too: the services read it there
+      // (getERP), and the sign-in reply alone does not always carry it. Done
+      // before the store hears of the profile, so nothing can act on the ERP
+      // in the store while storage still has the old answer.
+      if (!identifier) setERP(profile?.profile_details?.erp)
+      return profile
     } catch (error) {
       // `error.message` is already the backend's own text (see authService).
       // rejectWithValue is how a thunk reports a handled failure, so the
@@ -262,8 +269,12 @@ export const selectOthersDetails = (state) => state.profile.data?.others_details
 export const selectIsMsme = (state) =>
   state.profile.data?.profile_details?.user_type === 'MSME'
 
-/** Which ERP this user runs - "Tally" or "Intelligere". */
-export const selectErp = (state) => state.profile.data?.profile_details?.erp
+/**
+ * Which ERP this user runs - ERP.TALLY ("Tally") or ERP.INTELLIGERE
+ * ("Intelligere"), whatever case the API sent it in - or null until the
+ * profile has loaded (or when it names no ERP this app has).
+ */
+export const selectErp = (state) => normaliseErp(state.profile.data?.profile_details?.erp)
 
 /**
  * True when the signed-in user is on Intelligere rather than Tally.
@@ -275,13 +286,15 @@ export const selectErp = (state) => state.profile.data?.profile_details?.erp
  * It is false until the profile has loaded. That is deliberate: showing a
  * company picker to a Tally user for a moment is worse than showing it a
  * moment late. AppLayout loads the profile as soon as the shell mounts.
- *
- * The comparison ignores case because registration sends "Intelligere"
- * while other parts of the backend use lower case.
  */
-export const selectIsIntelligereErp = (state) =>
-  String(state.profile.data?.profile_details?.erp ?? '').trim().toLowerCase() ===
-  'intelligere'
+export const selectIsIntelligereErp = (state) => selectErp(state) === ERP.INTELLIGERE
+
+/**
+ * True once the ERP is known to be Tally or Intelligere. Both selectors above
+ * and below are false until then, so an action that does one thing for Tally
+ * and another for Intelligere waits for this rather than taking either.
+ */
+export const selectIsErpKnown = (state) => selectErp(state) !== null
 
 /* ------------------------------------------------------------------ */
 /* Tally plan - which active-company rule applies                      */
@@ -295,8 +308,7 @@ export const selectTallyCategory = (state) =>
   state.profile.data?.profile_details?.tally_category
 
 /** True when the signed-in user is on Tally. */
-export const selectIsTallyErp = (state) =>
-  normalise(state.profile.data?.profile_details?.erp) === 'tally'
+export const selectIsTallyErp = (state) => selectErp(state) === ERP.TALLY
 
 /**
  * Tally + Gold: the user picks the company in the header, and that choice

@@ -323,7 +323,7 @@ export const buildBusinessDocumentPayload = (request) => {
     const taxes = [...new Set(unposted.map((entry) => entry.tax))]
     throw new Error(
       `${taxes.join(', ')} ledger is missing (needed for ${unposted.map((entry) => `${entry.tax} ${entry.rateText}%`).join(', ')}). ` +
-        `Please create the required ${taxes.join(' / ')} ledger before creating this document.`,
+      `Please create the required ${taxes.join(' / ')} ledger before creating this document.`,
     )
   }
   const gstCharges = {}
@@ -404,16 +404,39 @@ export const updateBusinessDocument = (documentId, request) => {
 export const documentIdOf = (response) => response?.document_id ?? response?.data?.document_id ?? null
 
 /** The PDF upload body - exported so it can be checked without sending. */
-export const buildDocumentPdfFormData = (documentId, pdfBytes, fileName) => {
+export const buildDocumentPdfFormData = (documentId, pdfBytes, fileName, ewayBill = null) => {
   const body = new FormData()
   body.append('id', String(documentId))
   body.append('file', new Blob([pdfBytes], { type: 'application/pdf' }), fileName)
+  // With E-Way Bill: its PDF in the SAME request, under `e_way_bill_pdf` - never a second call.
+  if (ewayBill) body.append('e_way_bill_pdf', new Blob([ewayBill.bytes], { type: 'application/pdf' }), ewayBill.fileName)
   return body
 }
 
-/** 2. Uploads the document's PDF, naming the document by the id step 1 returned. */
-export const saveDocumentPdf = (documentId, pdfBytes, fileName) =>
-  api.post(DOCUMENT_PDF_URL, buildDocumentPdfFormData(documentId, pdfBytes, fileName), MULTIPART)
+/**
+ * 2. Uploads the document's PDF, naming the document by the id step 1 returned -
+ * and, when given (`ewayBill`: { bytes, fileName }), its E-Way Bill PDF with it:
+ * { id, file, e_way_bill_pdf } in one request.
+ */
+export const saveDocumentPdf = (documentId, pdfBytes, fileName, ewayBill = null) =>
+  api.post(DOCUMENT_PDF_URL, buildDocumentPdfFormData(documentId, pdfBytes, fileName, ewayBill), MULTIPART)
+
+/**
+ * The E-Way Bill PDF's upload body ON ITS OWN - the same endpoint and `id`, the
+ * PDF under `e_way_bill_pdf` - for History's E-Way Bill actions, which change
+ * only that PDF (a save of the document sends it with the invoice's PDF:
+ * saveDocumentPdf's `ewayBill`).
+ */
+export const buildEwayBillPdfFormData = (documentId, pdfBytes, fileName) => {
+  const body = new FormData()
+  body.append('id', String(documentId))
+  body.append('e_way_bill_pdf', new Blob([pdfBytes], { type: 'application/pdf' }), fileName)
+  return body
+}
+
+/** Uploads a document's E-Way Bill PDF - POST invoice/save-document-pdf/ { id, e_way_bill_pdf }. */
+export const saveEwayBillPdf = (documentId, pdfBytes, fileName) =>
+  api.post(DOCUMENT_PDF_URL, buildEwayBillPdfFormData(documentId, pdfBytes, fileName), MULTIPART)
 
 /**
  * The upload body for a file the user chose (Purchase Invoice, Inbound
@@ -787,7 +810,7 @@ export const buildVoucherDeleteBody = ({ companyId, documentNo, documentType }) 
   document_type: text(documentType),
 })
 
-export const deleteTallyVoucher = (voucher) => api.delete(TALLY_VOUCHERS_URL, buildVoucherDeleteBody(voucher))
+export const deleteTallyVoucher = (voucher) => api.delete(TALLY_VOUCHERS_URL, { data: buildVoucherDeleteBody(voucher) })
 
 /**
  * THE VOUCHER UPDATE - the same URL as the list, but PUT (the list is read
@@ -824,7 +847,7 @@ const EDIT_INVOICE_URL = 'invoice/edit_invoice/'
 export const editVoucherDocument = (payload) => api.post(EDIT_INVOICE_URL, payload)
 
 /** The module a voucher goes to Tally under - sent as `module_name`, answered as `return_module_name`. */
-export const TALLY_VOUCHER_MODULE = 'tally_voucher_create'
+export const TALLY_VOUCHER_MODULE = 'invoice_voucher_create'
 
 /** The WebSocket message for a voucher, in the envelope every Tally message is sent in. */
 export const buildVoucherSocketMessage = (payload) => ({ payload })

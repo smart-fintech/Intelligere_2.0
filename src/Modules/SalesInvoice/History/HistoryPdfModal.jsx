@@ -23,7 +23,7 @@ import { formatDate } from '@/Utils/date'
  *   row        readHistoryRow(...) of the document - null when closed
  *   onClose()
  */
-function PdfFrame({ url, title }) {
+export function PdfFrame({ url, title, heightClass = 'h-[70vh]' }) {
   // { status: 'loading' | 'ready' | 'direct' | 'failed', src, reason }
   const [state, setState] = useState({ status: 'loading', src: null, reason: '' })
 
@@ -53,7 +53,7 @@ function PdfFrame({ url, title }) {
 
   if (state.status === 'loading') {
     return (
-      <div className="flex h-[70vh] items-center justify-center gap-2 text-sm text-muted-foreground" role="status">
+      <div className={`flex ${heightClass} items-center justify-center gap-2 text-sm text-muted-foreground`} role="status">
         <Loader2 className="size-4 animate-spin" aria-hidden="true" />
         Loading the PDF...
       </div>
@@ -61,14 +61,14 @@ function PdfFrame({ url, title }) {
   }
   if (state.status === 'failed') {
     return (
-      <div className="flex h-[70vh] flex-col items-center justify-center gap-2 px-6 text-center text-sm" role="alert" data-testid="history-pdf-error">
+      <div className={`flex ${heightClass} flex-col items-center justify-center gap-2 px-6 text-center text-sm`} role="alert" data-testid="history-pdf-error">
         <FileWarning className="size-8 text-destructive/70" aria-hidden="true" />
         <p className="font-semibold text-destructive">The PDF could not be loaded.</p>
         <p className="text-muted-foreground">{state.reason}</p>
       </div>
     )
   }
-  return <iframe title={title} src={state.src} className="h-[70vh] w-full rounded-md border border-border bg-muted/30" />
+  return <iframe title={title} src={state.src} className={`${heightClass} w-full rounded-md border border-border bg-muted/30`} />
 }
 
 export default function HistoryPdfModal({ row, onClose }) {

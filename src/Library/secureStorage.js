@@ -30,8 +30,10 @@ import { ENV } from '@/Config/env'
  *
  *   ACCESS_TOKEN / REFRESH_TOKEN  the session (authService, logout)
  *   EMAIL                         who to ask for companies; ledger created_by
- *   TALLY_CATEGORY / ERP          decide whether requests carry the
+ *   TALLY_CATEGORY                decides whether requests carry the
  *                                 activecompanyid header (authService)
+ *   ERP                           "Tally" or "Intelligere", for the services
+ *                                 (ledger payloads) - see getERP
  *   UUID                          profile, referrals, socket identity
  *   ROLE                          the signed-in user's role ("MainUser", ...),
  *                                 sent when asking for companies
@@ -175,11 +177,32 @@ export const removeObsoleteKeys = () => OBSOLETE_KEYS.forEach(removeItem)
 
 export const getEmail = () => getItem(STORAGE_KEYS.EMAIL)
 export const getTC = () => getItem(STORAGE_KEYS.TALLY_CATEGORY)
-// Used by authService to decide whether a call carries an active company id.
-// Anything in the UI that needs to know which ERP the user is on reads it
-// from the profile in the store instead - see selectIsIntelligereErp in
-// Store/Slices/profileSlice.
-export const getERP = () => getItem(STORAGE_KEYS.ERP)
+
+/** The only two ERPs there are, spelt the way registration saves them. */
+export const ERP = Object.freeze({ TALLY: 'Tally', INTELLIGERE: 'Intelligere' })
+
+/**
+ * Any spelling of an ERP ("tally", " TALLY ", "Intelligere") as one of ERP
+ * above, or null for anything else - missing, empty, or an ERP this app does
+ * not have. Every ERP check in the app goes through this, so "tally" from one
+ * API and "Tally" from another can never take different paths.
+ */
+export const normaliseErp = (value) => {
+  const key = String(value ?? '').trim().toLowerCase()
+  return Object.values(ERP).find((erp) => erp.toLowerCase() === key) ?? null
+}
+
+// Read by the services, which have no access to the store: ERP.TALLY,
+// ERP.INTELLIGERE, or null while it is not known. The UI reads the profile in
+// the store instead - see selectIsTallyErp in Store/Slices/profileSlice -
+// and fetchProfile writes that same answer back here (setERP), so the two
+// never disagree.
+export const getERP = () => normaliseErp(getItem(STORAGE_KEYS.ERP))
+/** Saves the ERP, normalised. A value that is not an ERP is left out. */
+export const setERP = (value) => {
+  const erp = normaliseErp(value)
+  if (erp) setItem(STORAGE_KEYS.ERP, erp)
+}
 export const isAdmin = () => getItem(STORAGE_KEYS.IS_ADMIN) === 'true'
 export const getUuid = () => getItem(STORAGE_KEYS.UUID)
 // The role the user signed in with - "MainUser", or a sub user's. Null for a

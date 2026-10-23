@@ -36,6 +36,56 @@ function TitleBlock({ model, pageNo = 1 }) {
   return <div className="inv-title">{pageNo > 1 ? `${title} (Page ${pageNo})` : title}</div>
 }
 
+/**
+ * The e-Invoice band - page 1 only, and only once the invoice has an IRN
+ * (`model.einvoice`, set when it is registered): the "Printed on ..." /
+ * "e-Invoice" strip, then IRN, Ack No. and Ack Date grouped at the bottom-left
+ * with the IRN QR (at least 4cm square) on the right, and page 1's title in
+ * the middle of the band. Nothing at all without an IRN.
+ */
+function IrnBlock({ model }) {
+  const e = model.einvoice
+  if (!e) return null
+  return (
+    <div className="inv-irn">
+      <div className="inv-irn-strip">
+        <span className="inv-printed">{model.printedOn}</span>
+        <span className="inv-einv-tag">e-Invoice</span>
+      </div>
+      <div className="inv-irn-body">
+        <TitleBlock model={model} />
+        <div className="inv-irn-fields">
+          <div className="inv-irn-line">
+            <span className="k">IRN</span>
+            <span className="c">:</span>
+            <span className="v mono">{e.irn}</span>
+          </div>
+          <div className="inv-irn-line">
+            <span className="k">Ack No.</span>
+            <span className="c">:</span>
+            <span className="v">{e.ackNo}</span>
+          </div>
+          <div className="inv-irn-line">
+            <span className="k">Ack Date</span>
+            <span className="c">:</span>
+            <span className="v">{e.ackDate}</span>
+          </div>
+        </div>
+        {e.qr ? <img className="inv-irn-qr" src={e.qr} alt="" /> : <div className="inv-irn-qr" />}
+      </div>
+    </div>
+  )
+}
+
+/** A cancelled e-invoice: a large red CANCELLED across the sheet. */
+function CancelledStamp({ model }) {
+  return model.cancelled ? (
+    <div className="inv-cancelled" aria-label="Cancelled">
+      CANCELLED
+    </div>
+  ) : null
+}
+
 /** A party line's segments - bold where the value is. */
 export function Segments({ line }) {
   return line.map((part, index) => (part.b ? <b key={index}>{part.t}</b> : <span key={index}>{part.t}</span>))
@@ -438,7 +488,9 @@ export function InvoiceSheet({ model, page, pageNo, pageCount, rowsByKey }) {
   const parts = sheetParts(page)
   return (
     <div className="inv-sheet" data-page={pageNo}>
-      <TitleBlock model={model} pageNo={pageNo} />
+      {pageNo === 1 ? <IrnBlock model={model} /> : null}
+      {/* With an IRN, page 1's title is inside the e-Invoice band. */}
+      {pageNo === 1 && model.einvoice ? null : <TitleBlock model={model} pageNo={pageNo} />}
       <HeaderBlock model={model} />
       {parts.goods ? (
         <table className="inv-goods">
@@ -463,6 +515,7 @@ export function InvoiceSheet({ model, page, pageNo, pageCount, rowsByKey }) {
         </>
       ) : null}
       <SheetFoot page={pageNo} total={pageCount} word={model.invoice.word} />
+      <CancelledStamp model={model} />
     </div>
   )
 }
@@ -487,6 +540,9 @@ export function MeasureHost({ model, register }) {
   return (
     <div className="measure-host" aria-hidden="true">
       <div className="inv-sheet" style={{ minHeight: 0 }}>
+        <div ref={register('irn')}>
+          <IrnBlock model={model} />
+        </div>
         <div ref={register('title')}>
           <TitleBlock model={model} />
         </div>

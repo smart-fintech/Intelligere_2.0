@@ -1101,13 +1101,13 @@ export const checkContact = (found, prefix, party) => {
   if (textOf(party.phone) && !isValidPhone(party.phone)) found[`${prefix}.phone`] = 'Enter a valid 10-digit phone number'
   if (textOf(party.email) && !isValidEmail(party.email)) found[`${prefix}.email`] = 'Enter a valid email address'
   if (textOf(party.website) && !isValidWebsite(party.website)) found[`${prefix}.website`] = 'Enter a valid website, e.g. example.com'
-  if (textOf(party.gstin) && !isValidGstNumber(party.gstin)) found[`${prefix}.gstin`] = 'Enter a valid 15-character GSTIN'
+  // if (textOf(party.gstin) && !isValidGstNumber(party.gstin)) found[`${prefix}.gstin`] = 'Enter a valid 15-character GSTIN'
   checkAddressLength(found, `${prefix}.address`, party.address)
 }
 
 /** A dispatch / shipping card's own fields - only checked while it is not "Same as". */
 export const checkAddressCard = (found, prefix, party, { indian = true } = {}) => {
-  if (textOf(party.gstin) && !isValidGstNumber(party.gstin)) found[`${prefix}.gstin`] = 'Enter a valid 15-character GSTIN'
+  // if (textOf(party.gstin) && !isValidGstNumber(party.gstin)) found[`${prefix}.gstin`] = 'Enter a valid 15-character GSTIN'
   if (indian && textOf(party.pincode) && !isValidPincode(party.pincode)) found[`${prefix}.pincode`] = 'Enter a valid 6-digit pincode'
   checkAddressLength(found, `${prefix}.address`, party.address)
 }

@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
-import { useSelector } from 'react-redux'
+import { useDispatch, useSelector } from 'react-redux'
 import { ArrowLeft, ArrowRight, FilePlus, RefreshCw, Save, X } from 'lucide-react'
 
 import { InlineAlert } from '@/Components/Common/DataList'
@@ -20,10 +20,13 @@ import BuyerStep from '@/Modules/SalesInvoice/Components/BuyerStep'
 import DocumentStep from '@/Modules/SalesInvoice/Components/DocumentStep'
 import DocumentTypeCard from '@/Modules/SalesInvoice/Components/DocumentTypeCard'
 import GstLedgerCheck from '@/Modules/SalesInvoice/Components/GstLedgerCheck'
+import PortalAuthModal from '@/Modules/SalesInvoice/Components/PortalAuthModal'
+import ShareInvoiceModal from '@/Modules/SalesInvoice/Components/ShareInvoiceModal'
 import ProductsStep from '@/Modules/SalesInvoice/Components/ProductsStep'
 import SellerStep from '@/Modules/SalesInvoice/Components/SellerStep'
 import DocumentFileUpload from '@/Modules/SalesInvoice/Document/DocumentFileUpload'
 import InvoicePreview from '@/Modules/SalesInvoice/Document/InvoicePreview'
+import { toEwayBillModel } from '@/Modules/SalesInvoice/Document/ewayBillModel'
 import { toInvoiceModel } from '@/Modules/SalesInvoice/Document/invoiceModel'
 import useFileDataUrl from '@/Modules/SalesInvoice/Document/useFileDataUrl'
 import useBuyerProducts from '@/Modules/SalesInvoice/useBuyerProducts'
@@ -65,8 +68,11 @@ import {
   saveSellerCompany,
   updateBusinessDocument,
 } from '@/Services/salesInvoiceService'
+import { PORTAL_AUTH, hasPortalCredentials, needsPortalAuth } from '@/Services/gstPortalService'
+import { findBuyerCompany, getAllCompanies } from '@/Services/invoiceSharingService'
 import { getLedgerId } from '@/Services/ledgerService'
 import { getCountries, getStates } from '@/Services/locationService'
+import { fetchCompanies } from '@/Store/Slices/companySlice'
 import { selectIsIntelligereErp, selectIsTallyErp } from '@/Store/Slices/profileSlice'
 import { missingGstLedgers, missingGstTypes, resolveGstLedgers } from '@/Utils/gstLedgers'
 
@@ -86,6 +92,18 @@ const makeInvoicePdf = async (model, layoutRef, copies) => {
   await nextPaint()
   return createInvoicePdf({ model, layout: layoutRef.current, copies })
 }
+
+/**
+ * The E-Way Bill PDF of the invoice on screen (toEwayBillModel) - before the
+ * e-way bill is generated, so its number and date are not on it yet.
+ */
+const makeEwayBillPdf = async (model, documentType) => {
+  const { createEwayBillPdf } = await import('@/Modules/SalesInvoice/Document/invoicePdf')
+  return createEwayBillPdf(toEwayBillModel(model, { documentType, enteredDate: new Date() }))
+}
+
+/** The types offered for sharing with the buyer's company once saved (invoice/xy-invoice/). */
+const SHARED_DOCUMENT_TYPES = Object.freeze(['Sales Invoice', 'Credit Note', 'Debit Note'])
 
 /** Every challan copy, in order - what Download PDF prints, and what Save Challan starts with ticked. */
 const ALL_COPIES = CHALLAN_COPIES.map((copy) => copy.value)
@@ -223,6 +241,10 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
   const isChallanDoc = Boolean(profile.challan)
   // Purchase Invoice / Inbound Challan: no PDF made - the user's own file, uploaded when there is one.
   const uploadsFile = Boolean(profile.uploadsFile)
+  // A sale (Sales Invoice, Credit Note, Debit Note) can be shared with its buyer's own company once saved.
+  const sharesWithBuyer = parties.company === 'seller' && SHARED_DOCUMENT_TYPES.includes(form.documentType)
+  // E-Way Bill ticked, on a type that has the setting - its own PDF goes up with the invoice's (makeDocumentPdfs).
+  const makesEwayBill = profile.settings.includes('eWayBill') && Boolean(form.settings.eWayBill)
   const [documentFile, setDocumentFile] = useState(null)
   // Every type but a challan charges GST - listed, mapped and posted to ledgers.
   const chargesGst = profile.gst
@@ -254,6 +276,45 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
     seller: sellerFromCompany(company),
     settings: settingsFromCompany(company),
   }))
+
+  /* ---- E-Invoice / E-Way Bill: authenticated before they tick ----
+     Ticking one whose portal credentials the company record does not hold
+     (both username and password) opens PortalAuthModal for THAT feature; the
+     box ticks only once its own endpoint says so. Then tally/user-companies-list/
+     is read again, and the box (and the baseline the Seller step's save
+     compares against) follows the feature's flag as the company now has it.
+     Each feature on its own - one never stands in for the other. The record
+     read is always the latest `company` (the store's); a company switch
+     remounts the workspace, so nothing of another company's carries over. */
+  const dispatch = useDispatch()
+  const { setField } = invoice
+  const [portalAuth, setPortalAuth] = useState(null)
+  const changeSetting = (key, checked) => {
+    if (checked && needsPortalAuth(key) && !hasPortalCredentials(company, key)) {
+      setPortalAuth(key)
+      return
+    }
+    setField(`settings.${key}`, checked)
+  }
+  const portalAuthenticated = async (key, reply) => {
+    const { label } = PORTAL_AUTH[key]
+    setPortalAuth(null)
+    setField(`settings.${key}`, true)
+    toast.success(reply?.msg || `${label} authenticated.`)
+    let companies
+    try {
+      companies = await dispatch(fetchCompanies({ force: true })).unwrap()
+    } catch {
+      // The reload's own failure is shown by AppLayout; the authentication stands, so the box stays ticked.
+      return
+    }
+    const latest = companies.find((entry) => String(entry.company_id) === String(companyId))
+    if (!latest) return
+    const on = settingsFromCompany(latest)[key]
+    setField(`settings.${key}`, on)
+    setSellerBaseline((previous) => ({ ...previous, settings: { ...previous.settings, [key]: on } }))
+    if (!on) toast.info(`${label} is authenticated, but it is still off for this company. Tick it again to turn it on.`)
+  }
   // A challan charges no GST - none is printed, checked or saved.
   const gst = useMemo(() => (chargesGst ? gstByRate(figures) : []), [chargesGst, figures])
   // The same entries, each with its ledger: the one for that rate (mapped,
@@ -472,6 +533,31 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
   const locked = (busy && phase !== 'download') || Boolean(saved) || Boolean(pendingEdit)
   const fileNameFor = (invoiceNo) => documentPdfFileName(documentType?.label, invoiceNo)
 
+  /* ---- the E-Way Bill PDF ----
+     With E-Way Bill ticked (Sales Invoice, Credit Note, Debit Note - the types
+     that have the setting), the save's PDF step makes the E-Way Bill PDF right
+     after the invoice's, and nothing is sent unless BOTH are made. The two then
+     go up together in ONE save-document-pdf/ request - { id, file,
+     e_way_bill_pdf }. A failed upload's retry sends the same two again, once;
+     a failed PDF step makes both again. Without E-Way Bill: the invoice's PDF
+     alone, as always. */
+  const makeDocumentPdfs = (copies) => async () => {
+    const invoice = await makeInvoicePdf(model, layoutRef, isChallanDoc ? copies : undefined)
+    if (!makesEwayBill) return invoice
+    try {
+      return { invoice, ewayBill: await makeEwayBillPdf(model, form.documentType) }
+    } catch (failure) {
+      throw new Error(`The E-Way Bill PDF could not be generated: ${failure.message}`, { cause: failure })
+    }
+  }
+  const uploadDocumentPdfs = (invoiceNo) => (documentId, pdfs) =>
+    pdfs instanceof Uint8Array
+      ? saveDocumentPdf(documentId, pdfs, fileNameFor(invoiceNo))
+      : saveDocumentPdf(documentId, pdfs.invoice, fileNameFor(invoiceNo), {
+          bytes: pdfs.ewayBill,
+          fileName: documentPdfFileName('E-Way Bill', invoiceNo),
+        })
+
   /**
    * Download PDF (the preview's button): the same PDF the save uploads, from
    * the same sheets, to the user's disk. Shares the save's guard, so a
@@ -497,12 +583,14 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
   /** The outcome of a save attempt, in words - and what is kept for a retry. */
   const report = ({ outcome, saved: keep, error, uploaded }, invoiceNo) => {
     const what = `${documentType?.label ?? 'Document'} ${invoiceNo}`
-    // What goes with the document: its PDF, or (a type that uploads its own) the file chosen.
-    const attachment = uploadsFile ? 'file' : 'PDF'
+    // What goes with the document: its PDF (and its E-Way Bill PDF), or (a type that uploads its own) the file chosen.
+    const attachment = uploadsFile ? 'file' : makesEwayBill ? 'PDFs' : 'PDF'
     const retry = uploadsFile ? 'Retry Upload' : 'Retry PDF'
     switch (outcome) {
       case SAVE_OUTCOME.DONE:
-        toast.success(`${what} ${editing ? 'updated' : 'saved'}${uploadsFile && !uploaded ? '.' : `, with its ${attachment}.`}`)
+        toast.success(
+          `${what} ${editing ? 'updated' : 'saved'}${uploadsFile && !uploaded ? '.' : makesEwayBill ? ', with its PDF and E-Way Bill PDF.' : `, with its ${attachment}.`}`,
+        )
         setSaved(null)
         setEditing(null)
         setDocumentFile(null)
@@ -632,17 +720,48 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
         // Editing: the saved document is updated (PUT, its document_id) - never a new one made.
         createDocument: () => (editing ? updateBusinessDocument(editing.documentId, request) : createBusinessDocument(request)),
         // Purchase Invoice / Inbound Challan: the chosen file, or none - never a PDF made from the form.
-        makePdf: uploadsFile ? () => documentFile : () => makeInvoicePdf(model, layoutRef, isChallanDoc ? copies : undefined),
+        makePdf: uploadsFile ? () => documentFile : makeDocumentPdfs(copies),
         uploadPdf: uploadsFile
           ? (documentId, file) => saveDocumentFile(documentId, file)
-          : (documentId, bytes) => saveDocumentPdf(documentId, bytes, fileNameFor(invoiceNo)),
+          : uploadDocumentPdfs(invoiceNo),
         onStage: setPhase,
       })
+      // A new sale, saved with its PDF: offered for sharing with its buyer's company (after the form is cleared).
+      const shareCheck =
+        result.outcome === SAVE_OUTCOME.DONE && !editing && sharesWithBuyer
+          ? {
+              documentId: result.saved.documentId,
+              documentNo: invoiceNo,
+              documentType: form.documentType,
+              buyerName: applicable.buyer.name,
+              buyerGstin: applicable.buyer.gstin,
+            }
+          : null
       report(result, invoiceNo)
+      if (shareCheck) offerSharing(shareCheck)
     } finally {
       busyRef.current = false
       setPhase('idle')
     }
+  }
+
+  /* ---- sharing with the buyer's company ----
+     Once a NEW sale is saved (PDF and all), its buyer's name is looked for
+     among the companies on Intelligere (tally/AllCompanyList/ - findBuyerCompany:
+     case and spacing aside, never this company). Found, ShareInvoiceModal asks
+     whether to share it; only its OK sends anything. One offer at a time. */
+  const [shareOffer, setShareOffer] = useState(null)
+  const offerSharing = async (saved) => {
+    let list
+    try {
+      list = await getAllCompanies()
+    } catch (failure) {
+      // No list, no offer - the document itself is saved.
+      console.warn('[Sales Invoice] The company list for sharing could not be read:', failure)
+      return
+    }
+    const match = findBuyerCompany(list, { buyerName: saved.buyerName, buyerGstin: saved.buyerGstin, ownCompanyId: companyId })
+    if (match) setShareOffer((current) => current ?? { ...saved, companyId, company: match })
   }
 
   /** Leaves a saved document whose PDF did not go up, and starts a fresh one. */
@@ -698,7 +817,7 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
           {step.key === INVOICE_STEP.SELLER ? (
             <>
               <DocumentTypeCard {...stepProps} documentTypes={documentTypes} locked={Boolean(saved) || Boolean(editing)} />
-              <SellerDetails {...stepProps} ledgers={ledgers} countries={countries} />
+              <SellerDetails {...stepProps} ledgers={ledgers} countries={countries} onSettingChange={changeSetting} />
             </>
           ) : null}
           {step.key === INVOICE_STEP.BUYER ? <BuyerDetails {...stepProps} ledgers={ledgers} countries={countries} /> : null}
@@ -837,6 +956,13 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
           {copyDialog.copies.length === 0 ? <p className="text-xs text-destructive">Choose at least one copy.</p> : null}
         </div>
       </Modal>
+
+      {shareOffer ? <ShareInvoiceModal offer={shareOffer} onClose={() => setShareOffer(null)} /> : null}
+
+      {/* Mounted only while a feature is being authenticated - its username and password go with it. */}
+      {portalAuth ? (
+        <PortalAuthModal key={portalAuth} setting={portalAuth} companyId={companyId} onAuthenticated={portalAuthenticated} onClose={() => setPortalAuth(null)} />
+      ) : null}
     </div>
   )
 }

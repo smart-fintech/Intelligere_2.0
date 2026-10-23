@@ -15,7 +15,8 @@
  *                   `pdfBytes` (the upload failed) the same PDF is sent again
  *                   rather than made again.
  *   createDocument()          -> the create reply
- *   makePdf()                 -> the PDF bytes - or the file the user chose; null
+ *   makePdf()                 -> the PDF bytes (with E-Way Bill: { invoice, ewayBill }, both
+ *                             made before anything is sent) - or the file the user chose; null
  *                             (no file chosen) skips step 4: the upload is never called
  *   uploadPdf(id, bytes)      -> the upload reply
  *   onStage(stage)            'creating' | 'pdf' | 'uploading', as each starts

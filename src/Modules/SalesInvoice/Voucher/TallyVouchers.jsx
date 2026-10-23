@@ -34,7 +34,7 @@ import {
   voucherTypesOfGroup,
   vouchersOfType,
 } from '@/Services/salesInvoiceService'
-import { selectIsTallyErp, selectProfileStatus } from '@/Store/Slices/profileSlice'
+import { selectIsErpKnown, selectIsTallyErp } from '@/Store/Slices/profileSlice'
 
 /**
  * VOUCHER - the company's Tally vouchers (invoice/tally-vouchers/), read
@@ -133,7 +133,7 @@ export default function TallyVouchers({ company, types = SALES_VOUCHER_TYPES, pa
   const tally = useVoucherTallySend(companyId)
   // The ERP decides Send to Tally or Verified - not pressable until it is known.
   const isTally = useSelector(selectIsTallyErp)
-  const erp = { known: useSelector(selectProfileStatus) === 'succeeded', isTally }
+  const erp = { known: useSelector(selectIsErpKnown), isTally }
 
   const [type, setType] = useState(types[0])
   const rows = useMemo(() => uniqueVouchers(vouchersOfType(vouchers.groups, type).map(readVoucher)), [vouchers.groups, type])

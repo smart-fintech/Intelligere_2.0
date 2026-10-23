@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { AlertCircle, Download, Eye, FileSpreadsheet, FileText, Info, Pencil, RefreshCcw, Trash2, X } from 'lucide-react'
+import { AlertCircle, Download, Eye, FileSpreadsheet, FileText, FileX, Info, Pencil, RefreshCcw, Trash2, Truck, X } from 'lucide-react'
 
 import { ConfirmPopover } from '@/Components/Common/ConfirmPopover'
 import { InlineAlert, ListSkeleton, RetryButton, StateMessage } from '@/Components/Common/DataList'
@@ -7,6 +7,7 @@ import { Field, FieldError, SelectField } from '@/Components/Common/FormFields'
 import { DataTable, DateRangeFilter, PlainHead, TablePager } from '@/Components/Common/TableTools'
 import { Button } from '@/Components/ui/button'
 import { Card, CardContent } from '@/Components/ui/card'
+import { Checkbox } from '@/Components/ui/checkbox'
 import { Switch } from '@/Components/ui/switch'
 import { TableCell, TableRow } from '@/Components/ui/table'
 import { Tooltip } from '@/Components/ui/tooltip'
@@ -16,6 +17,7 @@ import { invalidateQueries } from '@/Library/queryCache'
 import { cn } from '@/Library/utils'
 import { toast } from '@/Library/toast'
 import { useListView } from '@/Hooks/useListView'
+import { GstProgressPanel, GstToolbarActions } from '@/Modules/SalesInvoice/History/GstDocumentPanel'
 import HistoryPdfModal from '@/Modules/SalesInvoice/History/HistoryPdfModal'
 import TallyFetchModal from '@/Modules/SalesInvoice/History/TallyFetchModal'
 import {
@@ -32,6 +34,8 @@ import {
 } from '@/Modules/SalesInvoice/History/historyHelpers'
 import { toDecimalInput } from '@/Modules/SalesInvoice/salesInvoiceForm'
 import useDocumentHistory from '@/Modules/SalesInvoice/History/useDocumentHistory'
+import useGstDocumentActions, { GST_DOCUMENT_TYPES } from '@/Modules/SalesInvoice/History/useGstDocumentActions'
+import useHistoryDocumentPdf from '@/Modules/SalesInvoice/History/useHistoryDocumentPdf'
 import useTallyInvoiceFetch from '@/Modules/SalesInvoice/History/useTallyInvoiceFetch'
 import {
   REGENERATE_VOUCHER_TYPES,
@@ -41,6 +45,7 @@ import {
   getDocumentTypeAccess,
   regenerateVoucher,
 } from '@/Services/salesInvoiceService'
+import { readEinvoiceDetails } from '@/Services/gstPortalService'
 import { downloadFileFromUrl } from '@/Utils/fileDownload'
 import { formatIndianCurrency } from '@/Utils/currency'
 import { formatDate } from '@/Utils/date'
@@ -81,6 +86,15 @@ import { formatDate } from '@/Utils/date'
  * Edit is offered only for a document made in Intelligere: one fetched from
  * Tally (past_tally_invoice - readHistoryRow's `fromTally`) shows it disabled,
  * with TALLY_EDIT_BLOCKED on hover - it is Tally's to change.
+ *
+ * E-Invoice and E-Way Bill (Sales Invoice, Credit Note, Debit Note -
+ * useGstDocumentActions): pressing one puts a box beside the S.No. of each
+ * row it can still be generated for; Generate takes the rows ticked one at a
+ * time - the portal API, then the document's PDF made again with what it
+ * returned and saved - with the progress shown, and reads the list again when
+ * all are through (the page and filters stay). A row whose e_invoice_details
+ * says one is generated offers Cancel E-Invoice / Cancel E-Way Bill instead
+ * (asked first): the cancel API, then that PDF stamped CANCELLED and saved.
  *
  * Delete asks first (the app's confirm popover), and a row leaves the table
  * only when the server says it is gone - the list is then read again, and
@@ -145,10 +159,48 @@ const TALLY_EDIT_BLOCKED = 'Tally invoice will not edit'
 
 /** A row's Regenerate Voucher (the types that have vouchers), PDF, Edit (the document opens in Create Document, filled in) and Delete. */
 function RowActions({ row, rowKey, actions }) {
-  const { confirming, setConfirming, deleting, remove, onEdit, regenerating, regenerate, listedType, previewPdf } = actions
+  const { confirming, setConfirming, deleting, remove, onEdit, regenerating, regenerate, listedType, previewPdf, gst } = actions
   const canRegenerate = REGENERATE_VOUCHER_TYPES.includes(typeOfRow(row, listedType))
+  // Cancel E-Invoice / Cancel E-Way Bill - each only while that one is generated and not cancelled.
+  const details = gst ? readEinvoiceDetails(row.source) : null
+  const cancels = !details
+    ? []
+    : [
+        ['einvoice', 'E-Invoice', FileX, details.einvoice],
+        ['ewaybill', 'E-Way Bill', Truck, details.ewaybill],
+      ].filter(([, , , state]) => state.generated && !state.cancelled && hasDocumentId(row))
   return (
     <span className="inline-flex items-center justify-end gap-1">
+      {cancels.map(([kind, label, Icon]) => {
+        const key = `cancel-${kind}:${rowKey}`
+        const busy = gst.cancelling === `${kind}:${row.id}`
+        return (
+          <ConfirmPopover
+            key={kind}
+            open={confirming === key}
+            onOpenChange={(next) => !busy && setConfirming(next ? key : null)}
+            title={`Cancel ${label} of ${row.documentNo || 'this document'}?`}
+            description={`The ${label} is cancelled on the GST portal, and its PDF is stamped CANCELLED. This cannot be undone.`}
+            confirmLabel={`Cancel ${label}`}
+            busy={busy}
+            onConfirm={async () => {
+              await gst.cancel(row, kind)
+              setConfirming(null)
+            }}
+          >
+            <Button
+              type="button"
+              variant="iconDelete"
+              size="icon-sm"
+              icon={Icon}
+              loading={busy}
+              disabled={gst.busy || deleting}
+              tooltip={`Cancel ${label}`}
+              aria-label={`Cancel ${label} of ${row.documentNo}`}
+            />
+          </ConfirmPopover>
+        )
+      })}
       {canRegenerate ? (
         <Button
           type="button"
@@ -235,9 +287,40 @@ function RowActions({ row, rowKey, actions }) {
 const HISTORY_COLUMNS = [
   {
     key: 'serial',
-    width: 64,
-    head: () => 'S.No.',
-    cell: (row, ctx) => ctx.serial,
+    width: 80,
+    head: (ctx) =>
+      ctx.selection ? (
+        <span className="flex items-center gap-2">
+          <Checkbox
+            aria-label="Select every listed document on this page"
+            checked={ctx.selection.pageAll}
+            disabled={ctx.selection.locked || ctx.selection.pageEligible.length === 0}
+            onCheckedChange={(on) => ctx.selection.gst.toggleMany(ctx.selection.pageEligible, on === true)}
+          />
+          S.No.
+        </span>
+      ) : (
+        'S.No.'
+      ),
+    // While E-Invoice / E-Way Bill is selecting: a box beside each row it can be generated for.
+    cell: (row, ctx) =>
+      ctx.selection ? (
+        <span className="flex items-center gap-2">
+          {ctx.selection.gst.eligible(row) ? (
+            <Checkbox
+              aria-label={`Select ${row.documentNo}`}
+              checked={ctx.selection.gst.selected.has(String(row.id))}
+              disabled={ctx.selection.locked}
+              onCheckedChange={(on) => ctx.selection.gst.toggle(row, on === true)}
+            />
+          ) : (
+            <span className="inline-block size-4" aria-hidden="true" />
+          )}
+          {ctx.serial}
+        </span>
+      ) : (
+        ctx.serial
+      ),
     cellClass: 'tabular-nums text-brand-muted',
   },
   {
@@ -284,7 +367,7 @@ const HISTORY_COLUMNS = [
   },
   {
     key: 'actions',
-    width: 160,
+    width: 220,
     align: 'right',
     head: () => 'Actions',
     cell: (row, ctx) => <RowActions row={row} rowKey={ctx.rowKey} actions={ctx.actions} />,
@@ -310,6 +393,11 @@ export default function DocumentHistory({
 
   const history = useDocumentHistory({ companyId: company.company_id, documentType, financialYear, refresh })
 
+  /* ---- E-Invoice / E-Way Bill - Sales Invoice, Credit Note, Debit Note ---- */
+  const gstApplies = GST_DOCUMENT_TYPES.includes(documentTypeOfRecord(documentType))
+  const historyPdfs = useHistoryDocumentPdf(company)
+  const gst = useGstDocumentActions({ pdfs: historyPdfs, reload: history.reload, documentType: documentTypeOfRecord(documentType) })
+
   /* ---- filters and pages - on the rows already loaded ---- */
   const [filters, setFilters] = useState(EMPTY_HISTORY_FILTERS)
   const partyOptions = useMemo(() => historyPartyOptions(history.rows), [history.rows])
@@ -331,6 +419,8 @@ export default function DocumentHistory({
     if (!value) return
     apply(value)
     setPage(1)
+    // Another list: nothing ticked in this one carries over.
+    gst.stop()
   }
 
   /* ---- Fetch from Tally ---- */
@@ -417,7 +507,28 @@ export default function DocumentHistory({
     showGstin,
     onShowGstinChange: setShowGstin,
     partyLabel,
-    actions: { confirming, setConfirming, deleting, remove, onEdit, regenerating, regenerate, listedType: documentType, previewPdf: setPdfRow },
+    actions: {
+      confirming,
+      setConfirming,
+      deleting,
+      remove,
+      onEdit,
+      regenerating,
+      regenerate,
+      listedType: documentType,
+      previewPdf: setPdfRow,
+      gst: gstApplies ? gst : null,
+    },
+    selection: null,
+  }
+  if (gstApplies && gst.mode) {
+    const pageEligible = view.rows.filter((row) => gst.eligible(row))
+    context.selection = {
+      gst,
+      locked: gst.busy,
+      pageEligible,
+      pageAll: pageEligible.length > 0 && pageEligible.every((row) => gst.selected.has(String(row.id))),
+    }
   }
   const columns = HISTORY_COLUMNS.filter((column) => !column.when || column.when(context))
 
@@ -442,6 +553,7 @@ export default function DocumentHistory({
             value={financialYear}
             onValueChange={changeList(setFinancialYear)}
           />
+          {gstApplies ? <GstToolbarActions gst={gst} rows={filtered} disabled={history.rows.length === 0} /> : null}
           {isTally ? (
             // The right-hand end of the row, where the total used to be.
             <Button
@@ -513,7 +625,7 @@ export default function DocumentHistory({
           ) : null}
           <Button
             type="button"
-            variant="outline"
+            variant="default"
             size="sm"
             icon={FileSpreadsheet}
             loading={exporting}
@@ -525,6 +637,8 @@ export default function DocumentHistory({
           </Button>
         </CardContent>
       </Card>
+
+      {gstApplies ? <GstProgressPanel gst={gst} /> : null}
 
       {/* ---------------- The documents ---------------- */}
       <Card className="border-border/70 py-3 shadow-sm">
@@ -589,6 +703,8 @@ export default function DocumentHistory({
       </Card>
 
       <HistoryPdfModal row={pdfRow} onClose={() => setPdfRow(null)} />
+      {/* Out of view: where an E-Invoice / cancelled invoice PDF is measured before it is drawn. */}
+      {historyPdfs.host}
 
       {isTally ? (
         <TallyFetchModal open={fetchOpen} onOpenChange={setFetchOpen} companyName={company.comp_name} tallyFetch={tallyFetch} />

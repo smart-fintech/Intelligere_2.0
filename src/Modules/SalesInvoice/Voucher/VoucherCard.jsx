@@ -44,8 +44,9 @@ import { skuAttributes } from '@/Utils/skuAttributes'
  *                 voucher's own ledger name(s), with "n slabs on one ledger")
  * Only their display is hidden: the values are still read, mapped and sent.
  *
- * LOCKED BY DEFAULT - only Narration, the Sales / Purchase ledger, the Charges
- * and GST (tax) ledgers and the Voucher Type can be changed; every other box is
+ * LOCKED BY DEFAULT - only the Item / Accounting Invoice choice, Narration, the
+ * Sales / Purchase ledger, the Charges and GST (tax) ledgers and the Voucher
+ * Type can be changed; every other box is
  * read-only (its value still shown and sent). A Product / SKU or party ledger
  * that is not matched yet stays choosable, so any voucher can be completed.
  * In EDIT mode (`editing` - a PDF-uploaded voucher's Edit) everything opens,
@@ -237,8 +238,6 @@ const productMissingText = (slot) => {
 function ProductChoice({ id, slot, products, onChoose, disabled = false }) {
   const source = slot.sourceLine
   const loading = products.status === 'loading' || products.status === 'idle'
-  console.info(source);
-  console.info("slot: ", slot.product?.name);
   return (
     <div className="min-w-0" title={slot.product?.name || source.name || undefined}>
       <SelectField
@@ -349,8 +348,8 @@ export default function VoucherCard({ voucher, mapping, edits, ledgers, products
       {/* ---- Item Invoice / Accounting Invoice ---- */}
       <RadioGroup
         value={mapping.mode}
+        // Always open (not only in edit mode): it chooses how the voucher goes to Tally, it changes no saved value.
         onValueChange={(value) => value && onChoose({ mode: value })}
-        disabled={!editing}
         aria-label="Invoice mode"
         className="flex w-fit flex-wrap items-center gap-1 rounded-lg border border-border bg-card p-1 shadow-xs"
       >
@@ -360,7 +359,7 @@ export default function VoucherCard({ voucher, mapping, edits, ledgers, products
             <Label
               key={option.value}
               htmlFor={id}
-              className={`flex items-center gap-2 rounded-md px-3 py-1 text-xs transition-colors ${editing ? 'cursor-pointer' : 'cursor-default'} ${mapping.mode === option.value ? 'bg-brand-soft font-semibold text-brand' : `text-muted-foreground ${editing ? 'hover:text-brand' : ''}`}`}
+              className={`flex cursor-pointer items-center gap-2 rounded-md px-3 py-1 text-xs transition-colors ${mapping.mode === option.value ? 'bg-brand-soft font-semibold text-brand' : 'text-muted-foreground hover:text-brand'}`}
             >
               <RadioGroupItem id={id} value={option.value} />
               {option.label}

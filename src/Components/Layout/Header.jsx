@@ -27,7 +27,6 @@ import {
   selectIsGoldTally,
   selectIsSilverTally,
   selectIsTallyErp,
-  selectProfileDetails,
 } from '@/Store/Slices/profileSlice'
 import { fetchCompanies } from '@/Store/Slices/companySlice'
 import { useActiveCompany } from '@/Hooks/useActiveCompany'
@@ -82,7 +81,6 @@ export default function Header({ onToggleSidebar }) {
   const [refreshing, setRefreshing] = useState(false)
 
   const dispatch = useDispatch()
-  const profile = useSelector(selectProfileDetails)
   // The shared company data - the header never works it out itself.
   const { activeCompanyName } = useActiveCompany()
 
@@ -405,7 +403,7 @@ export default function Header({ onToggleSidebar }) {
             Intelligere user, the one who can actually pick a company, needs
             it most. */}
         {/* Only when there is a name to show - no empty placeholder. */}
-        {profile?.erp === "Tally" && companyLabel && (
+        {isTally && companyLabel && (
           <span
             title={companyLabel}
             className="max-w-24 truncate text-md font-medium text-brand sm:max-w-48"
@@ -414,7 +412,7 @@ export default function Header({ onToggleSidebar }) {
           </span>
         )}
 
-        {profile?.erp === "Tally" && 
+        {isTally &&
         <IconAction
           label="Refresh Company"
           icon={RefreshCw}
@@ -439,7 +437,8 @@ export default function Header({ onToggleSidebar }) {
         )}
 
 
-        {profile?.erp !== "Intelligere" && (
+        {/* Tally only - and so not shown until the ERP is known. */}
+        {isTally && (
           <IconAction
             label="Notifications"
             icon={Bell}

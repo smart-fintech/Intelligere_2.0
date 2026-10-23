@@ -49,7 +49,7 @@
 import axios from 'axios'
 
 import { ENV } from '@/Config/env'
-import { getActiveCompanyId, getERP, getTC } from '@/Library/secureStorage'
+import { getActiveCompanyId, getTC } from '@/Library/secureStorage'
 import {
   forceLogout,
   getAccessToken,
@@ -87,9 +87,9 @@ apiSetup.interceptors.request.use((config) => {
     }
   }
 
-  // Gold Tally and repository users work inside one company at a time,
-  // and the backend needs to know which one.
-  if (getTC() === 'g' || getERP() === 'repository') {
+  // Gold Tally users work inside one company at a time, and the backend
+  // needs to know which one.
+  if (getTC() === 'g') {
     config.headers.activecompanyid = getActiveCompanyId() || 0
   }
 

@@ -38,11 +38,28 @@ import { compareToToday, formatLongDate } from '@/Utils/date'
  * kept in the Redux store can be read by anyone with the page open (Redux
  * DevTools, a console, an error-reporting tool that snapshots state). They
  * are dropped here, as the reply is read, so they never reach the store.
+ *
+ * Only WHETHER each one was filled is kept - `filled_credentials`
+ * ({ e_invoice_portal_password: true, ... }), never a value - so a screen can
+ * tell that a portal is already authenticated (hasPortalCredentials,
+ * gstPortalService) without the password itself.
  */
 const CREDENTIAL_FIELD = /password/i
 
-const withoutCredentials = (company) =>
-  Object.fromEntries(Object.entries(company).filter(([field]) => !CREDENTIAL_FIELD.test(field)))
+const isFilled = (value) => {
+  const text = value === null || value === undefined ? '' : String(value).trim()
+  return text !== '' && !['null', 'none', 'undefined'].includes(text.toLowerCase())
+}
+
+const withoutCredentials = (company) => {
+  const kept = {}
+  const filled = {}
+  Object.entries(company).forEach(([field, value]) => {
+    if (CREDENTIAL_FIELD.test(field)) filled[field] = isFilled(value)
+    else kept[field] = value
+  })
+  return { ...kept, filled_credentials: filled }
+}
 
 /**
  * Pulls the list out of whatever shape came back. Shared by BOTH company
