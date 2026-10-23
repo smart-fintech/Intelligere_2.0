@@ -824,7 +824,7 @@ const EDIT_INVOICE_URL = 'invoice/edit_invoice/'
 export const editVoucherDocument = (payload) => api.post(EDIT_INVOICE_URL, payload)
 
 /** The module a voucher goes to Tally under - sent as `module_name`, answered as `return_module_name`. */
-export const TALLY_VOUCHER_MODULE = 'demo module'
+export const TALLY_VOUCHER_MODULE = 'tally_voucher_create'
 
 /** The WebSocket message for a voucher, in the envelope every Tally message is sent in. */
 export const buildVoucherSocketMessage = (payload) => ({ payload })

@@ -18,7 +18,8 @@
  *                                   "Product Name" is its ledger's name), anything else a product
  *   other_details                   Other Charges (each under its ledger's name), discount,
  *                                   tcs, "round off" ({ <ledger name>: amount }), note
- *   gst_charges                     { <GST ledger name>: amount }
+ *   gst_charges                     { <slab>: { <GST ledger name>: amount } } (earlier documents:
+ *                                   { <GST ledger name>: amount })
  *
  * JSON sent as text is read too, and anything missing is simply empty - a
  * value is never made up. The voucher's own values (names, amounts, taxes)
@@ -34,7 +35,8 @@
  */
 
 import { isSkuManaged, skuValueOf } from '@/Modules/SalesInvoice/salesInvoiceForm'
-import { OTHER_CHARGES_SOURCE, SERVICE_PRODUCT_TYPE, TALLY_VOUCHER_MODULE, fileUrlOf } from '@/Services/salesInvoiceService'
+import { getLedgerSac } from '@/Services/ledgerService'
+import { OTHER_CHARGES_SOURCE, SERVICE_PRODUCT_TYPE, TALLY_VOUCHER_MODULE, fileUrlOf, toDocumentDate } from '@/Services/salesInvoiceService'
 
 /* ------------------------------------------------------------------ */
 /* Reading what the server sent                                       */
@@ -183,7 +185,8 @@ const readCharges = (other) => {
     if (key === 'note' || LEDGER_SECTIONS.some(([section]) => section === key)) return
     if (value && typeof value === 'object' && !Array.isArray(value) && (value.source === OTHER_CHARGES_SOURCE || 'amount' in value)) {
       const taxes = taxesOf(value)
-      charges.push({ key: `charge:${key}`, kind: CHARGE_KIND.CHARGE, label: textOf(key), ledgerName: textOf(key), amount: numberOrNull(value.amount), gstRate: gstRateOf(value), ...taxes })
+      // ledgerSac: the SAC saved with the charge (Sales Invoice saves its ledger's) - '' when none.
+      charges.push({ key: `charge:${key}`, kind: CHARGE_KIND.CHARGE, label: textOf(key), ledgerName: textOf(key), amount: numberOrNull(value.amount), gstRate: gstRateOf(value), ledgerSac: getLedgerSac(value), ...taxes })
     }
   })
   LEDGER_SECTIONS.forEach(([section, kind, label]) => {
@@ -761,116 +764,179 @@ const taxPayload = (row) => ({
   igst_amount: row.igstAmount,
 })
 
-const sum = (values) => {
-  const present = values.filter((value) => value !== null)
-  return present.length === 0 ? null : Math.round(present.reduce((total, value) => total + value, 0) * 100) / 100
+/** The first of `keys` any of `records` carries (in that order), as text - null when none does. */
+const firstText = (records, keys) => {
+  for (const record of records) {
+    for (const key of keys) {
+      const value = textOf(record?.[key])
+      if (value) return value
+    }
+  }
+  return null
 }
 
-const sideOf = (company, details, id) => ({
-  id: numberOrNull(id) ?? (textOf(id) || null),
-  name: textOf(details.name ?? details.ledeger_name ?? details.comp_name) || textOf(company?.comp_name) || null,
-  details,
+/** A party's fields, under each name the company record (comp_*), a ledger record (ledeger_*) or a saved address may use. */
+const PARTY_FIELDS = {
+  name: ['comp_name', 'ledeger_name', 'name'],
+  gstin: ['comp_gstin', 'ledeger_gstin', 'ledger_gstin', 'gstin', 'gst_no'],
+  state: ['comp_state', 'ledeger_state', 'ledger_state', 'state', 'statename'],
+  pincode: ['pincode', 'ledger_pincode', 'ledeger_pincode', 'comp_pincode'],
+  address: ['comp_address', 'ledeger_address', 'ledger_address', 'address'],
+}
+
+const partyOf = (records, name) => ({
+  name: name || firstText(records, PARTY_FIELDS.name),
+  gstin: firstText(records, PARTY_FIELDS.gstin),
+  state: firstText(records, PARTY_FIELDS.state),
+  pincode: firstText(records, PARTY_FIELDS.pincode),
+  address: firstText(records, PARTY_FIELDS.address),
 })
 
+/** The document types that CREDIT the party with the total (a purchase, a sales return) - every other type debits it. */
+const PARTY_CREDITED_TYPES = Object.freeze(['Purchase Invoice', 'Credit Note'])
+
 /**
- * THE SEND TO TALLY PAYLOAD - a new, documented structure (not the earlier
- * flat voucher body, whose fields it covers):
+ * Voucher_amount_dr / Voucher_amount_cr - the total on the party's side, the
+ * taxable value on the account's: a Sales Invoice or Debit Note debits the
+ * party (dr = total_amount, cr = total_taxable_amount); a Purchase Invoice or
+ * Credit Note credits it (cr = total_amount, dr = total_taxable_amount).
+ */
+export const voucherAmountsOf = (voucher) =>
+  PARTY_CREDITED_TYPES.some((type) => sameText(type, voucher.documentType))
+    ? { Voucher_amount_cr: voucher.totalAmount, Voucher_amount_dr: voucher.taxableAmount }
+    : { Voucher_amount_cr: voucher.taxableAmount, Voucher_amount_dr: voucher.totalAmount }
+
+/**
+ * gst_charges as Tally takes it - by GST slab, then by the ledger each tax is
+ * mapped to (found or chosen), its amount as it is now:
+ *   { "5": { "Output CGST 2.5%": 13.5, "Output SGST 2.5%": 13.5 }, "18": { "Output IGST 18%": 90 } }
+ * Slabs never merge; one ledger twice in a slab is added up. An entry with no
+ * amount (or 0) is not sent. An earlier document's flat entry (no slab) stays
+ * flat - { "<ledger>": amount } - as no slab is made up for it.
+ */
+export const tallyGstCharges = (gst) => {
+  const charges = {}
+  gst.forEach(({ entry, ledgerName }) => {
+    if (!entry.amount) return
+    const name = ledgerName || entry.ledgerName
+    if (entry.slab === null) {
+      charges[name] = round2((charges[name] ?? 0) + entry.amount)
+      return
+    }
+    const slab = { ...(charges[entry.slab] ?? {}) }
+    slab[name] = round2((slab[name] ?? 0) + entry.amount)
+    charges[entry.slab] = slab
+  })
+  return charges
+}
+
+/**
+ * THE SEND TO TALLY PAYLOAD - sent over the WebSocket as { payload } (the
+ * envelope of every Tally message):
  *
  *   {
- *     module_name: "demo module",          TALLY_VOUCHER_MODULE
+ *     module_name: "tally_voucher_create",       TALLY_VOUCHER_MODULE
  *     company_name: "<the active company>",
- *     document_id: 16,                      the voucher's own document_id
+ *     document_id: 124837,                       the voucher's own document_id
  *     data: [{
- *       document_type, document_date, document_no,
- *       seller, buyer                       { id, name, details } - the company side from the
- *                                           company record (and seller_details when sent),
- *                                           the ledger side from buyer_id / buyer_details
- *       ship_to, dispatch_from, document_details     as the voucher sent them
- *       ledger_mappings: [{ role: "account" | "party", ledger_id, ledger_name, source_* }],
- *       product_details_type: "product" | "service" | "product_service" | "no_product"
- *                                           - from the lines that go (productDetailsTypeOf)
- *       product_details: [{ product_name, description, product_type, product_id, sku_code,
- *                           sku_details, hsn_sac_code, quantity, unit, rate, discount,
- *                           cgst, sgst, igst, cgst_amount, sgst_amount, igst_amount, amount,
- *                           mapped_product: { product_name, sku_code } }]
- *                                           - product_name, sku_code and sku_details are
- *                                           the mapped product's and SKU's (product list);
- *                                           product_id and every other value the voucher's own
- *                                           - Item Invoice only: an Accounting Invoice sends
- *                                           no product_details at all
- *       service_details: [{ service_name, description, hsn_sac_code, quantity, rate, discount,
- *                           <the taxes>, amount, ledger_id, ledger_name }],
- *       charges: [{ type: "charge" | "discount" | "tcs" | "round_off", name, amount, gst_rate,
- *                   <the taxes - charges only>, ledger_id, ledger_name }],
- *       tax_details: { gst_ledgers: [{ gst_slab, source_ledger_name, ledger_id, ledger_name, amount }]
- *                      - one per company ledger (groupGstByLedger): the slabs and source ledgers
- *                      it covers, comma-joined when merged, and their amounts added,
- *                      cgst_amount, sgst_amount, igst_amount },
- *       totals: { taxable_amount, total_amount },
- *       voucher_type, narration             the voucher type chosen, the Narration box
+ *       Voucher_amount_cr, Voucher_amount_dr     the total and the taxable value (voucherAmountsOf)
+ *       narration, voucher_type                  the Narration box, the voucher type chosen
+ *       account_ledger                           the Sales / Purchase ledger chosen - its name
+ *       document_type, document_date (DD/MM/YYYY), document_no
+ *       seller_name, seller_gstin, seller_state, seller_pincode, seller_address,
+ *       buyer_name, buyer_gstin, buyer_state, buyer_pincode, buyer_address
+ *                                                the company side from seller_details, else
+ *                                                the company record; the ledger side named by
+ *                                                its mapped ledger, its details from
+ *                                                buyer_details and that ledger's record (the
+ *                                                flow's `parties` says which side is which)
+ *       ship_to, dispatch_from, document_details as the voucher sent them
+ *       product_details_type                     "product" | "service" | "product_service" |
+ *                                                "no_product" (productDetailsTypeOf)
+ *       product_details: [                       in the voucher's own line order
+ *         product: { product_name, description, product_type, product_id, sku_code,
+ *                    sku_details, hsn_sac_code, quantity, unit, rate, discount,
+ *                    cgst, sgst, igst, cgst_amount, sgst_amount, igst_amount, amount }
+ *                    - product_name, sku_code and sku_details the mapped product's and
+ *                    SKU's; Item Invoice only (an Accounting Invoice sends no products)
+ *         service: { service_name, description, product_type, hsn_sac_code, quantity,
+ *                    rate, discount, <the taxes>, amount, ledger_id, ledger_name }
+ *       ]
+ *       other_details: [{ type: "charge" | "discount" | "tcs" | "round_off", name, amount,
+ *                         charges only: gst_rate, <the taxes>, ledger_sac }]
+ *                         - name the mapped ledger's; ledger_sac that ledger's SAC, else the
+ *                         one saved with the charge when it is the same ledger, else null
+ *       gst_charges: { "<slab>": { "<mapped ledger>": amount } }   (tallyGstCharges)
  *     }]
  *   }
  *
  * Every value is the voucher's own, or what the user typed over it
  * (editedVoucher - amounts as numbers, null when there is none); the ledger
- * / product ids and names are those of the mapping.
+ * / product names are those of the mapping. Nothing is made up: a value the
+ * voucher and the records do not have is null.
+ *   ledgers   useInvoiceReferenceData's { byId } - the mapped ledgers' records
  *   parties   { company: 'seller' | 'buyer', ledger: 'buyer' | 'seller' } - the flow's
  */
-export const buildTallyVoucherPayload = ({ voucher: sourceVoucher, mapping, company, parties = { company: 'seller', ledger: 'buyer' } }) => {
+export const buildTallyVoucherPayload = ({ voucher: sourceVoucher, mapping, company, ledgers, parties = { company: 'seller', ledger: 'buyer' } }) => {
   const voucher = mapping.voucher ?? sourceVoucher
   const items = mapping.mode !== INVOICE_MODE.ACCOUNTING
-  const companySide = sideOf(company, voucher.sellerDetails, voucher.source.seller_id ?? company?.company_id)
-  const ledgerSide = { ...sideOf(null, voucher.buyerDetails, voucher.party.id), name: voucher.party.name || null }
-  const sides = parties.ledger === 'seller' ? { seller: ledgerSide, buyer: companySide } : { seller: companySide, buyer: ledgerSide }
+  const recordOf = (slot) => (slot?.ledgerId ? (ledgers?.byId?.get(textOf(slot.ledgerId)) ?? null) : null)
 
-  const productDetails = mapping.products.map((slot) => {
-    const { line, product, variant } = slot
+  const companySide = partyOf([voucher.sellerDetails, company], textOf(company?.comp_name))
+  // A ledger found as the voucher names it: the voucher's own details first. One chosen instead: that ledger's.
+  const partyRecord = recordOf(mapping.party)
+  const ledgerSide = partyOf(
+    mapping.party.status === MAPPING_STATUS.MATCHED ? [voucher.buyerDetails, partyRecord] : [partyRecord, voucher.buyerDetails],
+    mapping.party.ledgerName || voucher.party.name,
+  )
+  const { seller, buyer } = parties.ledger === 'seller' ? { seller: ledgerSide, buyer: companySide } : { seller: companySide, buyer: ledgerSide }
+
+  const productEntries = (items ? mapping.products : []).map((slot) => {
+    const { line } = slot
     // Only a line whose product AND SKU are mapped names them (a voucher with one that is not cannot be sent).
     const mapped = isProductMapped(slot)
     return {
-      product_name: mapped ? line.name : null,
-      description: line.description,
-      product_type: line.productType || 'Product',
-      product_id: numberOrNull(line.productId) ?? (line.productId || null),
-      sku_code: mapped ? line.skuCode || null : null,
-      sku_details: mapped ? line.skuDetails : null,
-      hsn_sac_code: line.hsn || null,
-      quantity: line.quantity,
-      unit: line.unit || null,
-      rate: line.rate,
-      discount: line.discount,
-      ...taxPayload(line),
-      amount: line.amount,
-      mapped_product: {
-        product_name: mapped ? product.name : null,
-        sku_code: mapped ? variant?.skuCode || null : null,
+      index: line.index,
+      entry: {
+        product_name: mapped ? line.name : null,
+        description: line.description,
+        product_type: line.productType || 'Product',
+        product_id: numberOrNull(line.productId) ?? (line.productId || null),
+        sku_code: mapped ? line.skuCode || null : null,
+        sku_details: mapped ? (line.skuDetails ?? null) : null,
+        hsn_sac_code: line.hsn || null,
+        quantity: line.quantity,
+        unit: line.unit || null,
+        rate: line.rate,
+        discount: line.discount,
+        ...taxPayload(line),
+        amount: line.amount,
       },
     }
   })
-
-  const serviceDetails = mapping.services.map((slot) => ({
-    service_name: slot.line.name,
-    description: slot.line.description,
-    hsn_sac_code: slot.line.hsn || null,
-    quantity: slot.line.quantity,
-    rate: slot.line.rate,
-    discount: slot.line.discount,
-    ...taxPayload(slot.line),
-    amount: slot.line.amount,
-    ...ledgerRef(slot),
+  const serviceEntries = mapping.services.map((slot) => ({
+    index: slot.line.index,
+    entry: {
+      service_name: slot.line.name,
+      description: slot.line.description,
+      product_type: slot.line.productType || SERVICE_PRODUCT_TYPE,
+      hsn_sac_code: slot.line.hsn || null,
+      quantity: slot.line.quantity,
+      rate: slot.line.rate,
+      discount: slot.line.discount,
+      ...taxPayload(slot.line),
+      amount: slot.line.amount,
+      ...ledgerRef(slot),
+    },
   }))
 
-  const charges = mapping.charges.map((slot) => ({
-    type: slot.charge.kind,
-    name: slot.charge.ledgerName,
-    amount: slot.charge.amount,
-    gst_rate: slot.charge.gstRate,
-    ...(slot.charge.kind === CHARGE_KIND.CHARGE ? taxPayload(slot.charge) : null),
-    ...ledgerRef(slot),
-  }))
-
-  // The taxes, once each: the lines' and the Other Charges' own amounts.
-  const taxed = [...mapping.products.map(({ line }) => line), ...mapping.services.map(({ line }) => line), ...mapping.charges.map(({ charge }) => charge)]
+  const otherDetails = mapping.charges.map((slot) => {
+    const { charge } = slot
+    const name = slot.ledgerName || charge.ledgerName
+    if (charge.kind !== CHARGE_KIND.CHARGE) return { type: charge.kind, name, amount: charge.amount }
+    const sac = getLedgerSac(recordOf(slot)) || (sameText(name, charge.ledgerName) ? charge.ledgerSac : '')
+    return { type: charge.kind, name, amount: charge.amount, gst_rate: charge.gstRate, ...taxPayload(charge), ledger_sac: sac || null }
+  })
 
   return {
     module_name: TALLY_VOUCHER_MODULE,
@@ -878,35 +944,30 @@ export const buildTallyVoucherPayload = ({ voucher: sourceVoucher, mapping, comp
     document_id: voucher.id,
     data: [
       {
+        ...voucherAmountsOf(voucher),
+        narration: mapping.narration ?? voucher.narration,
+        voucher_type: mapping.voucherType || null,
+        account_ledger: mapping.account.ledgerName || null,
         document_type: voucher.documentType,
-        document_date: voucher.documentDate,
+        document_date: toDocumentDate(voucher.documentDate) || voucher.documentDate,
         document_no: voucher.documentNo,
-        ...sides,
+        seller_name: seller.name,
+        seller_gstin: seller.gstin,
+        seller_state: seller.state,
+        seller_pincode: seller.pincode,
+        seller_address: seller.address,
+        buyer_gstin: buyer.gstin,
+        buyer_state: buyer.state,
+        buyer_pincode: buyer.pincode,
+        buyer_address: buyer.address,
+        buyer_name: buyer.name,
         ship_to: voucher.shipTo,
         dispatch_from: voucher.dispatchFrom,
         document_details: voucher.master,
-        ledger_mappings: [
-          { role: 'account', ...ledgerRef(mapping.account) },
-          { role: 'party', ...ledgerRef(mapping.party), source_ledger_id: voucher.party.id || null, source_ledger_name: voucher.party.name || null },
-        ],
-        product_details_type: productDetailsTypeOf({ products: items ? productDetails.length : 0, services: serviceDetails.length }),
-        ...(items ? { product_details: productDetails } : null),
-        service_details: serviceDetails,
-        charges,
-        tax_details: {
-          gst_ledgers: (mapping.gstGroups ?? groupGstByLedger(mapping.gst)).map((group) => ({
-            gst_slab: group.slabs.length === 0 ? null : group.slabs.join(', '),
-            source_ledger_name: group.sourceNames.join(', '),
-            ...ledgerRef(group),
-            amount: group.amount,
-          })),
-          cgst_amount: sum(taxed.map((row) => row.cgstAmount ?? null)),
-          sgst_amount: sum(taxed.map((row) => row.sgstAmount ?? null)),
-          igst_amount: sum(taxed.map((row) => row.igstAmount ?? null)),
-        },
-        totals: { taxable_amount: voucher.taxableAmount, total_amount: voucher.totalAmount },
-        voucher_type: mapping.voucherType || null,
-        narration: mapping.narration ?? voucher.narration,
+        product_details_type: productDetailsTypeOf({ products: productEntries.length, services: serviceEntries.length }),
+        product_details: [...productEntries, ...serviceEntries].sort((a, b) => a.index - b.index).map(({ entry }) => entry),
+        other_details: otherDetails,
+        gst_charges: tallyGstCharges(mapping.gst),
       },
     ],
   }

@@ -289,7 +289,7 @@ export default function TallyVouchers({ company, types = SALES_VOUCHER_TYPES, pa
     })
     const result =
       action === 'send'
-        ? await tally.send(entry.id, buildTallyVoucherPayload({ voucher: entry, mapping, company, parties }), updateBody)
+        ? await tally.send(entry.id, buildTallyVoucherPayload({ voucher: entry, mapping, company, ledgers, parties }), updateBody)
         : await tally.verify(entry.id, updateBody)
     if (result.outcome === 'sent' || result.outcome === 'verified') toast.success(result.message)
     else if (result.outcome === 'busy') toast.info(result.message)
