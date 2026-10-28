@@ -11,6 +11,8 @@
  *                       answer per company, shared by Sales and Purchase Invoice
  *   TALLY_VOUCHER_TYPES POST tally/voucher-list/        [TALLY_VOUCHER_TYPES, companyName] - the
  *                       company's voucher types, for every voucher of both modules
+ *   APP_LEDGER_PRODUCTS POST invoice/app-ledger-product/  [APP_LEDGER_PRODUCTS, companyName, documentType] -
+ *                       the ledgers and products the Voucher view's Mapping lists
  *
  * How long an answer is used before it is asked for again, even with no
  * change seen here: what another user, another tab or Tally may have
@@ -23,6 +25,7 @@ export const QUERY = Object.freeze({
   DOCUMENT_MAPPINGS: 'documentMappings',
   TALLY_VOUCHERS: 'tallyVouchers',
   TALLY_VOUCHER_TYPES: 'tallyVoucherTypes',
+  APP_LEDGER_PRODUCTS: 'appLedgerProducts',
 })
 
 export const MASTER_DATA_STALE_MS = 5 * 60 * 1000

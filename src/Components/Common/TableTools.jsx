@@ -1,7 +1,7 @@
 import { Fragment, useId, useMemo, useState } from 'react'
 import { ChevronDown, ChevronUp, ChevronsUpDown, Search, SlidersHorizontal, X } from 'lucide-react'
 
-import { Field, fieldLabelClass, OPTIONS_PAGE } from '@/Components/Common/FormFields'
+import { Field, FieldLabel, fieldLabelClass, OPTIONS_PAGE } from '@/Components/Common/FormFields'
 import { Button } from '@/Components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/Components/ui/popover'
 import {
@@ -215,8 +215,39 @@ export function TableFilters({
  *
  * `from` and `to` are YYYY-MM-DD, or '' for an open end. Neither box lets
  * the other pass it: `to` cannot be set before `from`.
+ *
+ * `stacked`: the label above the boxes and the boxes at full height - as a
+ * Field's or a SelectField's, for a filter row made of those (History's).
  */
-export function DateRangeFilter({ label, from = '', to = '', onChange }) {
+export function DateRangeFilter({ label, from = '', to = '', onChange, stacked = false }) {
+  const id = useId()
+  if (stacked) {
+    return (
+      <div className="w-full space-y-1.5 sm:w-auto" role="group" aria-label={label}>
+        <FieldLabel htmlFor={`${id}-from`}>{label}</FieldLabel>
+        <div className="flex items-center gap-1.5">
+          <Field
+            id={`${id}-from`}
+            type="date"
+            value={from}
+            max={to || undefined}
+            onChange={(event) => onChange({ from: event.target.value, to })}
+            aria-label={`${label} from`}
+            className="w-36"
+          />
+          <span className="text-xs text-muted-foreground">to</span>
+          <Field
+            type="date"
+            value={to}
+            min={from || undefined}
+            onChange={(event) => onChange({ from, to: event.target.value })}
+            aria-label={`${label} to`}
+            className="w-36"
+          />
+        </div>
+      </div>
+    )
+  }
   return (
     <div className="flex w-full flex-wrap items-center gap-1.5 sm:w-auto">
       <span className="text-xs whitespace-nowrap text-muted-foreground">{label}</span>

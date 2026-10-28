@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react'
-import { AlertCircle, Download, Eye, FileSpreadsheet, FileText, FileX, Info, Pencil, RefreshCcw, Trash2, Truck, X } from 'lucide-react'
+import { Fragment, useCallback, useMemo, useState } from 'react'
+import { AlertCircle, ChevronRight, Download, Eye, FileSpreadsheet, FileText, FileX, Info, Pencil, RefreshCcw, Trash2, Truck, X } from 'lucide-react'
 
 import { ConfirmPopover } from '@/Components/Common/ConfirmPopover'
 import { InlineAlert, ListSkeleton, RetryButton, StateMessage } from '@/Components/Common/DataList'
 import { Field, FieldError, SelectField } from '@/Components/Common/FormFields'
 import { DataTable, DateRangeFilter, PlainHead, TablePager } from '@/Components/Common/TableTools'
+import { ViewSwitch } from '@/Components/Common/ViewSwitch'
 import { Button } from '@/Components/ui/button'
 import { Card, CardContent } from '@/Components/ui/card'
 import { Checkbox } from '@/Components/ui/checkbox'
@@ -16,9 +17,12 @@ import { DOCUMENT_TYPE_INVOICE } from '@/Constants/salesInvoice'
 import { invalidateQueries } from '@/Library/queryCache'
 import { cn } from '@/Library/utils'
 import { toast } from '@/Library/toast'
+import useInventoryAccess from '@/Hooks/useInventoryAccess'
 import { useListView } from '@/Hooks/useListView'
 import { GstProgressPanel, GstToolbarActions } from '@/Modules/SalesInvoice/History/GstDocumentPanel'
 import HistoryPdfModal from '@/Modules/SalesInvoice/History/HistoryPdfModal'
+import HistoryProductRows from '@/Modules/SalesInvoice/History/HistoryProductRows'
+import InventorySalesOrderHistory from '@/Modules/SalesInvoice/History/InventorySalesOrderHistory'
 import TallyFetchModal from '@/Modules/SalesInvoice/History/TallyFetchModal'
 import {
   EMPTY_HISTORY_FILTERS,
@@ -59,7 +63,22 @@ import { formatDate } from '@/Utils/date'
  *   table       the columns in HISTORY_COLUMNS below: S.No., Buyer Name (the
  *               Show Buyer GSTIN switch in its heading), Buyer GSTIN while
  *               that is on, Invoice No. (with the count), Invoice Date,
- *               Total (with every listed document's total added up), Actions
+ *               Taxable Amount (total_taxable_amount), Total (with every listed
+ *               document's total added up), Actions
+ *
+ * THE ARROW, first in a row's Actions, opens the row out into its product
+ * lines (product_data, already in the history - HistoryProductRows) and closes
+ * it again; each row on its own, kept open across pages and filters by its
+ * document_id.
+ *
+ * E-Invoice and E-Way Bill sit with Download Excel, at the end of the filter row.
+ *
+ * SALES ORDER, for a company with Inventory Management (useInventoryAccess -
+ * the rule the Sales Order's booking follows): Sales Order / Inventory Sales
+ * Order beside Document Type. Sales Order is this screen as it is; Inventory
+ * Sales Order puts InventorySalesOrderHistory (inventory/sales_order_history/)
+ * in place of the year, the filters and the table. Another type goes back to
+ * Sales Order.
  *
  * FILTERS AND PAGES - the history answers with every document of the type
  * and year at once, so both are done here, on the rows already loaded, with
@@ -80,8 +99,10 @@ import { formatDate } from '@/Utils/date'
  * every page of it, not just the one on screen - and saves the file the
  * server names (downloadFileFromUrl).
  *
- * PDF opens the row's saved PDF (doc_pdf) in a modal - nothing generated,
- * no API called (HistoryPdfModal).
+ * PDF opens the row's saved PDF (doc_pdf) in a modal, from its own URL -
+ * nothing generated, no API called (HistoryPdfModal). A Sales Invoice, Credit
+ * Note or Debit Note that also has an E-Way Bill PDF (e_way_bill_pdf) offers
+ * Invoice PDF / E-Way Bill PDF in that same modal.
  *
  * Edit is offered only for a document made in Intelligere: one fetched from
  * Tally (past_tally_invoice - readHistoryRow's `fromTally`) shows it disabled,
@@ -115,6 +136,12 @@ import { formatDate } from '@/Utils/date'
 
 /** The "every one" entry of a filter dropdown - Radix forbids "". */
 const ALL = '__all__'
+
+const SALES_ORDER = 'Sales Order'
+const SALES_ORDER_VIEWS = [
+  { value: 'documents', label: 'Sales Order' },
+  { value: 'inventory', label: 'Inventory Sales Order' },
+]
 
 const SOURCE_OPTIONS = [
   { value: ALL, label: 'All Sources' },
@@ -157,9 +184,9 @@ const typeOfRow = (row, listedType) => documentTypeOfRecord(String(row.source?.d
 /** What a Tally document's disabled Edit says on hover. */
 const TALLY_EDIT_BLOCKED = 'Tally invoice will not edit'
 
-/** A row's Regenerate Voucher (the types that have vouchers), PDF, Edit (the document opens in Create Document, filled in) and Delete. */
-function RowActions({ row, rowKey, actions }) {
-  const { confirming, setConfirming, deleting, remove, onEdit, regenerating, regenerate, listedType, previewPdf, gst } = actions
+/** A row's Show products (the arrow), Regenerate Voucher (the types that have vouchers), PDF, Edit (the document opens in Create Document, filled in) and Delete. */
+function RowActions({ row, rowKey, open, actions }) {
+  const { confirming, setConfirming, deleting, remove, onEdit, regenerating, regenerate, listedType, previewPdf, gst, toggleProducts } = actions
   const canRegenerate = REGENERATE_VOUCHER_TYPES.includes(typeOfRow(row, listedType))
   // Cancel E-Invoice / Cancel E-Way Bill - each only while that one is generated and not cancelled.
   const details = gst ? readEinvoiceDetails(row.source) : null
@@ -171,6 +198,18 @@ function RowActions({ row, rowKey, actions }) {
       ].filter(([, , , state]) => state.generated && !state.cancelled && hasDocumentId(row))
   return (
     <span className="inline-flex items-center justify-end gap-1">
+      {/* One arrow, turning as the row opens and closes. */}
+      <Button
+        type="button"
+        variant="iconEdit"
+        size="icon-sm"
+        icon={ChevronRight}
+        className={cn('[&_svg]:transition-transform [&_svg]:duration-200', open && '[&_svg]:rotate-90')}
+        tooltip={open ? 'Hide products' : 'Show products'}
+        aria-label={`${open ? 'Hide' : 'Show'} products of ${row.documentNo || 'this document'}`}
+        aria-expanded={open}
+        onClick={() => toggleProducts(rowKey)}
+      />
       {cancels.map(([kind, label, Icon]) => {
         const key = `cancel-${kind}:${rowKey}`
         const busy = gst.cancelling === `${kind}:${row.id}`
@@ -353,6 +392,14 @@ const HISTORY_COLUMNS = [
     cellClass: 'whitespace-nowrap',
   },
   {
+    key: 'taxable',
+    width: 160,
+    align: 'right',
+    head: () => 'Taxable Amount',
+    cell: (row) => rupees(row.taxablePaise),
+    cellClass: 'truncate tabular-nums',
+  },
+  {
     key: 'total',
     width: 200,
     align: 'right',
@@ -367,10 +414,11 @@ const HISTORY_COLUMNS = [
   },
   {
     key: 'actions',
-    width: 220,
+    // Room for the most a row shows - the arrow, both cancels, Regenerate, PDF, Edit, Delete: 7 x 32 px, the gaps, the padding.
+    width: 272,
     align: 'right',
     head: () => 'Actions',
-    cell: (row, ctx) => <RowActions row={row} rowKey={ctx.rowKey} actions={ctx.actions} />,
+    cell: (row, ctx) => <RowActions row={row} rowKey={ctx.rowKey} open={ctx.open} actions={ctx.actions} />,
     cellClass: 'whitespace-nowrap',
   },
 ]
@@ -390,6 +438,12 @@ export default function DocumentHistory({
   const [documentType, setDocumentType] = useState(defaultType)
   const [financialYear, setFinancialYear] = useState(() => financialYearOf())
   const [showGstin, setShowGstin] = useState(false)
+
+  /* ---- Sales Order / Inventory Sales Order - Sales Orders of a company with Inventory Management ---- */
+  const inventoryAccess = useInventoryAccess()
+  const offersInventoryOrders = documentType === SALES_ORDER && inventoryAccess.full
+  const [salesOrderView, setSalesOrderView] = useState(SALES_ORDER_VIEWS[0].value)
+  const inventoryOrders = offersInventoryOrders && salesOrderView === 'inventory'
 
   const history = useDocumentHistory({ companyId: company.company_id, documentType, financialYear, refresh })
 
@@ -454,8 +508,28 @@ export default function DocumentHistory({
     }
   }
 
-  /* ---- PDF - the row's own doc_pdf, in a modal ---- */
-  const [pdfRow, setPdfRow] = useState(null)
+  /* ---- PDF - the row's own doc_pdf (and E-Way Bill PDF), in a modal ---- */
+  // { row, ewayBill } - the row whose own files are shown; ewayBill: its E-Way Bill PDF is offered too.
+  const [pdfView, setPdfView] = useState(null)
+
+  /* ---- the arrow - each row's products, open or not, by its key ---- */
+  const [openRows, setOpenRows] = useState(() => new Set())
+  // The table's visible width: an opened row's products are kept to it, at its left
+  // edge, and scroll sideways inside themselves - however far the table is scrolled.
+  const [visibleWidth, setVisibleWidth] = useState(null)
+  const measureTable = useCallback((box) => {
+    if (!box) return undefined
+    const observer = new ResizeObserver(([entry]) => setVisibleWidth(Math.floor(entry.contentRect.width)))
+    observer.observe(box)
+    return () => observer.disconnect()
+  }, [])
+  const toggleProducts = (rowKey) =>
+    setOpenRows((current) => {
+      const next = new Set(current)
+      if (next.has(rowKey)) next.delete(rowKey)
+      else next.add(rowKey)
+      return next
+    })
 
   /* ---- Regenerate Voucher - one request per document at a time ---- */
   const [regenerating, setRegenerating] = useState(() => new Set())
@@ -516,8 +590,9 @@ export default function DocumentHistory({
       regenerating,
       regenerate,
       listedType: documentType,
-      previewPdf: setPdfRow,
+      previewPdf: (row) => setPdfView({ row, ewayBill: gstApplies }),
       gst: gstApplies ? gst : null,
+      toggleProducts,
     },
     selection: null,
   }
@@ -543,18 +618,32 @@ export default function DocumentHistory({
             className="w-full sm:w-52"
             options={documentTypes.map((type) => ({ value: type.value, label: type.label }))}
             value={documentType}
-            onValueChange={changeList(setDocumentType)}
+            onValueChange={changeList((value) => {
+              setDocumentType(value)
+              setSalesOrderView(SALES_ORDER_VIEWS[0].value)
+            })}
           />
-          <SelectField
-            id="history-financial-year"
-            label="Financial Year"
-            className="w-full sm:w-44"
-            options={yearOptions}
-            value={financialYear}
-            onValueChange={changeList(setFinancialYear)}
-          />
-          {gstApplies ? <GstToolbarActions gst={gst} rows={filtered} disabled={history.rows.length === 0} /> : null}
-          {isTally ? (
+          {offersInventoryOrders ? (
+            <ViewSwitch
+              options={SALES_ORDER_VIEWS}
+              value={salesOrderView}
+              onValueChange={(value) => value && setSalesOrderView(value)}
+              label="Sales Order history"
+              idPrefix="history-sales-order"
+              className="w-full sm:w-auto"
+            />
+          ) : null}
+          {inventoryOrders ? null : (
+            <SelectField
+              id="history-financial-year"
+              label="Financial Year"
+              className="w-full sm:w-44"
+              options={yearOptions}
+              value={financialYear}
+              onValueChange={changeList(setFinancialYear)}
+            />
+          )}
+          {isTally && !inventoryOrders ? (
             // The right-hand end of the row, where the total used to be.
             <Button
               type="button"
@@ -570,8 +659,9 @@ export default function DocumentHistory({
         </CardContent>
 
         {/* ---- the filters: all apply together, on the rows loaded ---- */}
-        <CardContent className="mt-3 flex flex-wrap items-end gap-3 border-t border-border px-3 pt-3" role="group" aria-label="History filters">
+        <CardContent className={cn('mt-3 flex flex-wrap items-end gap-3 border-t border-border px-3 pt-3', inventoryOrders && 'hidden')} role="group" aria-label="History filters">
           <DateRangeFilter
+            stacked
             label="Document Date"
             from={filters.from}
             to={filters.to}
@@ -623,25 +713,30 @@ export default function DocumentHistory({
               Clear Filters
             </Button>
           ) : null}
-          <Button
-            type="button"
-            variant="default"
-            size="sm"
-            icon={FileSpreadsheet}
-            loading={exporting}
-            disabled={exporting || history.rows.length === 0}
-            className="sm:ml-auto"
-            onClick={downloadExcel}
-          >
-            {exporting ? 'Exporting...' : 'Download Excel'}
-          </Button>
+          {/* The row's actions, together at its end: E-Invoice / E-Way Bill (their types only), then Download Excel. */}
+          <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
+            {gstApplies ? <GstToolbarActions gst={gst} rows={filtered} disabled={history.rows.length === 0} size="sm" /> : null}
+            <Button
+              type="button"
+              variant="default"
+              size="sm"
+              icon={FileSpreadsheet}
+              loading={exporting}
+              disabled={exporting || history.rows.length === 0}
+              onClick={downloadExcel}
+            >
+              {exporting ? 'Exporting...' : 'Download Excel'}
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
       {gstApplies ? <GstProgressPanel gst={gst} /> : null}
 
+      {inventoryOrders ? <InventorySalesOrderHistory company={company} /> : null}
+
       {/* ---------------- The documents ---------------- */}
-      <Card className="border-border/70 py-3 shadow-sm">
+      <Card className={cn('border-border/70 py-3 shadow-sm', inventoryOrders && 'hidden')}>
         <CardContent className="px-3">
           {history.status === 'failed' && history.rows.length === 0 ? (
             <StateMessage icon={AlertCircle} tone="error" title="Could not load the history" action={<RetryButton onClick={history.reload} />}>
@@ -671,7 +766,7 @@ export default function DocumentHistory({
                 <InlineAlert action={<RetryButton onClick={history.reload} />}>{history.error}</InlineAlert>
               ) : null}
               {/* The table in the app's primary colour; the action icons keep their own. */}
-              <div className="text-brand">
+              <div className="text-brand" ref={measureTable}>
                 <DataTable
                   head={columns.map((column) => (
                     <PlainHead key={column.key} width={column.width} className={cn('text-brand', column.align === 'right' && 'text-right')}>
@@ -683,15 +778,30 @@ export default function DocumentHistory({
                     // Each document by its document_id - never its place or number.
                     const rowKey = row.id ?? `no-id-${row.documentNo}-${index}`
                     const pageSize = Number(view.pageSize) || view.rows.length
-                    const cellContext = { ...context, index, rowKey, serial: (view.page - 1) * pageSize + index + 1 }
+                    const open = openRows.has(rowKey)
+                    const cellContext = { ...context, index, rowKey, open, serial: (view.page - 1) * pageSize + index + 1 }
                     return (
-                      <TableRow key={rowKey} className={cn(history.status === 'loading' && 'opacity-60')}>
-                        {columns.map((column) => (
-                          <TableCell key={column.key} className={cn(column.align === 'right' && 'text-right', column.cellClass)}>
-                            {column.cell(row, cellContext)}
-                          </TableCell>
-                        ))}
-                      </TableRow>
+                      <Fragment key={rowKey}>
+                        <TableRow className={cn(history.status === 'loading' && 'opacity-60')}>
+                          {columns.map((column) => (
+                            <TableCell key={column.key} className={cn(column.align === 'right' && 'text-right', column.cellClass)}>
+                              {column.cell(row, cellContext)}
+                            </TableCell>
+                          ))}
+                        </TableRow>
+                        {/* What the row opens out into: one cell across every column (see "A ROW THAT OPENS" in DataTable). */}
+                        {open ? (
+                          <TableRow className="hover:bg-transparent">
+                            {/* `overflow-visible!`: the table clips its cells, which would hold the products in place instead of letting them stay in view. */}
+                            <TableCell colSpan={columns.length} wrap className="overflow-visible! bg-muted/40 p-0 py-0!">
+                              {/* The visible width less the table's 1px border on each side. */}
+                              <div className="sticky left-0" style={visibleWidth ? { width: visibleWidth - 2 } : undefined}>
+                                <HistoryProductRows products={row.products} documentNo={row.documentNo} />
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ) : null}
+                      </Fragment>
                     )
                   })}
                 </DataTable>
@@ -702,7 +812,7 @@ export default function DocumentHistory({
         </CardContent>
       </Card>
 
-      <HistoryPdfModal row={pdfRow} onClose={() => setPdfRow(null)} />
+      <HistoryPdfModal row={pdfView?.row ?? null} ewayBill={Boolean(pdfView?.ewayBill)} onClose={() => setPdfView(null)} />
       {/* Out of view: where an E-Invoice / cancelled invoice PDF is measured before it is drawn. */}
       {historyPdfs.host}
 

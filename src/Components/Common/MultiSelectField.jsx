@@ -35,7 +35,10 @@ function Tick({ checked }) {
  *            unticks; the arrow keys move; Escape or a click outside closes
  *            it - the choices stay.
  *
- * `options` are plain strings (the value is what is shown and sent).
+ * `options` are plain strings (the value is what is shown and sent), or
+ * `{ value, label }` when what is sent is not what is shown - a vendor is
+ * chosen by its id but read by its name, and two may share a name. Search
+ * and the chips use the label; `value` and `onChange` deal in values only.
  * `value` is the chosen ones, as an array; `onChange(next)` gets the new
  * array - in the order the options are listed, whatever order they were
  * ticked in.
@@ -69,13 +72,20 @@ export function MultiSelectField({
   const listId = `${id ?? reactId}-list`
   const errorId = error ? `${id ?? reactId}-error` : undefined
 
+  // Every option as { value, label } - a plain string is both.
+  const items = useMemo(
+    () => options.map((option) => (typeof option === 'string' ? { value: option, label: option } : { value: option.value, label: option.label ?? option.value })),
+    [options],
+  )
+  const labels = useMemo(() => new Map(items.map((item) => [item.value, item.label])), [items])
+
   const chosen = useMemo(() => new Set(value), [value])
   const term = search.trim().toLowerCase()
-  const shown = useMemo(() => (term ? options.filter((option) => option.toLowerCase().includes(term)) : options), [options, term])
-  const allShownChosen = shown.length > 0 && shown.every((option) => chosen.has(option))
+  const shown = useMemo(() => (term ? items.filter((item) => String(item.label).toLowerCase().includes(term)) : items), [items, term])
+  const allShownChosen = shown.length > 0 && shown.every((item) => chosen.has(item.value))
 
   /** Back in the options' own order - what the request is built from. */
-  const commit = (nextSet) => onChange(options.filter((option) => nextSet.has(option)))
+  const commit = (nextSet) => onChange(items.filter((item) => nextSet.has(item.value)).map((item) => item.value))
 
   const toggle = (option) => {
     const next = new Set(chosen)
@@ -86,7 +96,7 @@ export function MultiSelectField({
 
   const toggleAllShown = () => {
     const next = new Set(chosen)
-    shown.forEach((option) => (allShownChosen ? next.delete(option) : next.add(option)))
+    shown.forEach((item) => (allShownChosen ? next.delete(item.value) : next.add(item.value)))
     commit(next)
   }
 
@@ -114,7 +124,7 @@ export function MultiSelectField({
       if (shown.length) moveTo(Math.max(0, active - 1))
     } else if (event.key === 'Enter') {
       event.preventDefault()
-      if (shown[active] !== undefined) toggle(shown[active])
+      if (shown[active] !== undefined) toggle(shown[active].value)
     }
   }
 
@@ -172,11 +182,11 @@ export function MultiSelectField({
                     key={option}
                     className="inline-flex max-w-full items-center gap-1 rounded-md border border-brand/20 bg-brand-soft py-0.5 pr-1 pl-2 text-xs font-medium text-brand"
                   >
-                    <span className="truncate">{option}</span>
+                    <span className="truncate">{labels.get(option) ?? option}</span>
                     {disabled ? null : (
                       <button
                         type="button"
-                        aria-label={`Remove ${option}`}
+                        aria-label={`Remove ${labels.get(option) ?? option}`}
                         className="rounded-sm p-0.5 text-brand/70 outline-none hover:bg-brand/10 hover:text-brand focus-visible:ring-2 focus-visible:ring-ring/50"
                         onClick={(event) => {
                           event.stopPropagation()
@@ -237,7 +247,7 @@ export function MultiSelectField({
             </div>
           </div>
 
-          {options.length > 1 && shown.length > 0 ? (
+          {items.length > 1 && shown.length > 0 ? (
             <button
               type="button"
               data-select-all
@@ -246,7 +256,7 @@ export function MultiSelectField({
               onClick={toggleAllShown}
             >
               <Tick checked={allShownChosen} />
-              {term ? `Select all matches (${shown.length})` : `Select all (${options.length})`}
+              {term ? `Select all matches (${shown.length})` : `Select all (${items.length})`}
             </button>
           ) : null}
 
@@ -258,22 +268,22 @@ export function MultiSelectField({
             aria-labelledby={label ? labelId : undefined}
             className="max-h-60 overflow-y-auto overscroll-contain p-1"
           >
-            {shown.map((option, index) => (
+            {shown.map((item, index) => (
               <div
-                key={option}
+                key={item.value}
                 id={`${listId}-${index}`}
                 data-index={index}
                 role="option"
-                aria-selected={chosen.has(option)}
+                aria-selected={chosen.has(item.value)}
                 className={cn(
                   'flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-sm select-none',
                   index === active && 'bg-accent text-accent-foreground',
                 )}
                 onMouseMove={() => index !== active && setActive(index)}
-                onClick={() => toggle(option)}
+                onClick={() => toggle(item.value)}
               >
-                <Tick checked={chosen.has(option)} />
-                <span className="truncate">{option}</span>
+                <Tick checked={chosen.has(item.value)} />
+                <span className="truncate">{item.label}</span>
               </div>
             ))}
             {shown.length === 0 ? (

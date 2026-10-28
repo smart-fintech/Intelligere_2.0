@@ -24,7 +24,7 @@ export function Panel({ title, meta, actions, className, children }) {
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-border pb-2">
           <h2 className="text-sm font-semibold text-brand">
             {title}
-            {meta ? <span className="font-normal text-muted-foreground"> {meta}</span> : null}
+            {meta ? <span className="font-normal text-muted-foreground">{meta}</span> : null}
           </h2>
 
           {actions}

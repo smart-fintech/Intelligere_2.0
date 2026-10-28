@@ -22,6 +22,7 @@
  * WHILE THE FORM IS FILLED IN
  * ------------------------------------------------------------------
  *   PUT    tally/user-companies-list/       Seller step -> the company     (updateCompany)
+ *   PUT    tally/user-companies-list/       Auto Increment ticked or not -> { company_id, auto_increment }
  *   PUT    tally/create-ledger/             Buyer step -> the buyer ledger (updateLedger, with ledger_obj_id)
  *   POST   invoice/last-document-number/    numbering defaults, per document type
  *   POST   invoice/document-mapping/        { company_id } -> the GST ledger mappings (Sales Invoice only)
@@ -33,7 +34,8 @@
  * HISTORY
  * ------------------------------------------------------------------
  *   POST   invoice/business-document-history/   saved documents, by type and financial year
- *   POST   invoice/document-delete/             remove one
+ *   POST   inventory/sales_order_history/       inventory-managed Sales Orders (the Inventory Sales Order view)
+ *   DELETE invoice/document-delete/             remove one
  *   POST   tally/voucher-list/                  the Tally voucher types a fetch can ask for
  *   WS     tally_invoice_fetch                  fetch documents from Tally (the app's WebSocket)
  *
@@ -170,8 +172,9 @@ const taxFields = (figures, interState, rate) => ({
  *                          GST - discount + TCS + round off (invoiceFigures)
  *   total_taxable_amount   the product lines' taxable value after the overall
  *                          discount - what GST is charged on
- *   prefill_from           {} - a document made here is not prefilled from
- *                          another one
+ *   prefill_from           where it was prefilled from - { document_from,
+ *                          document_id: [...] } (documentPrefillService's
+ *                          buildPrefillFrom), {} when it was not
  */
 export const buildBusinessDocumentPayload = (request) => {
   const { document, figures, interState } = request
@@ -243,6 +246,9 @@ export const buildBusinessDocumentPayload = (request) => {
   // fields under the same names, `product_type: "service"`, its ledger's name
   // as the "Product Name", its SAC as hsn_sac_code - and none of the
   // product-only ones: no sku_code, sku_details or "Per Unit".
+  // A line filled in from an order: its reference, and the order it came from (orderProducts).
+  const orderFields = (line) =>
+    line.order ? { reference_no: text(line.order.referenceNo), ref_doc_no: text(line.order.documentNo), document_id: line.order.documentId ?? null } : null
   const productData = request.lines.map((line) => {
     if (challan) {
       return {
@@ -254,6 +260,7 @@ export const buildBusinessDocumentPayload = (request) => {
         sku_code: line.skuCode,
         sku_details: line.skuDetails,
         'Per Unit': text(line.per),
+        ...orderFields(line),
       }
     }
     const common = {
@@ -267,7 +274,7 @@ export const buildBusinessDocumentPayload = (request) => {
       product_amount: rupees(line.figures.taxablePaise).toFixed(2),
     }
     const taxes = taxFields(line.figures, interState, (rate) => rateString(true, rate))
-    if (line.service) return { ...common, ...taxes, 'Selling Rate': text(line.rate) }
+    if (line.service) return { ...common, ...taxes, 'Selling Rate': text(line.rate), ...orderFields(line) }
     return {
       ...common,
       sku_code: line.skuCode,
@@ -275,6 +282,7 @@ export const buildBusinessDocumentPayload = (request) => {
       ...taxes,
       'Selling Rate': text(line.rate),
       'Per Unit': text(line.per),
+      ...orderFields(line),
     }
   })
 
@@ -339,7 +347,7 @@ export const buildBusinessDocumentPayload = (request) => {
     document_type: request.documentType,
     total_amount: forChallan(rupees(figures.totalPaise), 0),
     total_taxable_amount: forChallan(rupees(figures.netTaxablePaise ?? figures.taxablePaise), 0),
-    prefill_from: JSON.stringify({}),
+    prefill_from: JSON.stringify(request.prefillFrom ?? {}),
     ship_to: JSON.stringify(shipTo),
     dispatch_from: JSON.stringify(dispatchFrom),
     invoice_master_details: JSON.stringify(masterDetails),
@@ -570,6 +578,9 @@ export const buildCompanyUpdatePayload = (companyId, form, baseline) => {
 
 /** Saves the Seller Details to the company (updateCompany - Services/companyService). */
 export const saveSellerCompany = (payload) => updateCompany(payload)
+
+/** Saves the company's Auto Increment - PUT tally/user-companies-list/ { company_id, auto_increment }. */
+export const saveAutoIncrement = (companyId, on) => updateCompany({ company_id: companyId, auto_increment: Boolean(on) })
 
 /**
  * Every field a ledger record carries, as tally/create-ledger/ lists it (the
@@ -834,10 +845,10 @@ export const buildVoucherUpdateBody = ({ companyId, documentNo, documentType, vo
 
 export const updateTallyVoucher = (body) => api.put(TALLY_VOUCHERS_URL, body)
 
-const EDIT_INVOICE_URL = 'invoice/edit_invoice/'
+const EDIT_INVOICE_URL = 'invoice/edit-document/'
 
 /**
- * POST invoice/edit_invoice/ - a voucher's own changes, saved:
+ * POST invoice/edit-document/ - a voucher's own changes, saved:
  *
  *   { document_id, ...only the fields that changed, product_details: [{ product_id, ...changed fields }] }
  *
@@ -897,14 +908,30 @@ export const getDocumentHistory = async ({ companyId, financialYear, documentTyp
   return list.filter((row) => row && typeof row === 'object')
 }
 
+const INVENTORY_SALES_ORDER_HISTORY_URL = 'inventory/sales_order_history/'
+
 /**
- * POST invoice/document-delete/  { id, x_deleted: "true", y_deleted: "false" }
+ * POST inventory/sales_order_history/  { company_name }
+ * -> the company's inventory-managed Sales Orders: [{ booked_status, so_no,
+ * so_date, so_pdf, buyer_name, process, total_process_done, booked_inventory,
+ * OPO, IC }] (History/inventorySalesOrders reads them). A bare array is
+ * read, or one record on its own.
+ */
+export const getInventorySalesOrderHistory = async (companyName) => {
+  const body = { company_name: companyName }
+  const reply = await sharedRequest(INVENTORY_SALES_ORDER_HISTORY_URL, body, () => api.post(INVENTORY_SALES_ORDER_HISTORY_URL, body))
+  const list = Array.isArray(reply) ? reply : reply && typeof reply === 'object' && 'so_no' in reply ? [reply] : []
+  return list.filter((row) => row && typeof row === 'object')
+}
+
+/**
+ * DELETE invoice/document-delete/  { id, x_deleted: "true", y_deleted: "false" }
  * -> { msg }. The flags go as the text the backend takes them as. A refusal
  * (a document referenced elsewhere, say) arrives as an error carrying the
  * backend's own message (see authService).
  */
-export const deleteBusinessDocument = (documentId) =>
-  changesProducts(api.post(DOCUMENT_DELETE_URL, { id: documentId, x_deleted: 'true', y_deleted: 'false' }))
+export const deleteBusinessDocument = async (documentId) =>
+  changesProducts(await api.delete(DOCUMENT_DELETE_URL, { id: documentId, x_deleted: 'true', y_deleted: 'false' }))
 
 /* ------------------------------------------------------------------ */
 /* Fetching documents from Tally - over the app's WebSocket           */
@@ -1054,6 +1081,7 @@ export const buildInvoiceSaveRequest = ({
   partyLedgerId = form.buyer.ledgerId,
   rules,
   chargeLedgerSac = false,
+  prefillFrom = {},
 }) => {
   const ledgerOf = (id) => (id ? ledgersById.get(String(id)) : null)
   const ledgerName = (id) => text(ledgerOf(id)?.ledeger_name)
@@ -1062,6 +1090,7 @@ export const buildInvoiceSaveRequest = ({
   return {
     documentType: form.documentType,
     invoiceNo,
+    prefillFrom,
     sellerId: company?.company_id ?? null,
     buyerId: getLedgerId(ledgerOf(partyLedgerId)) ?? (partyLedgerId || null),
     rules,

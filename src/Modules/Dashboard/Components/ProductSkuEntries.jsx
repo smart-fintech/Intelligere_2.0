@@ -5,8 +5,8 @@
  *   SKU Details (2)                                    [+ Add SKU]
  *   ┌ SKU 1 ─────────────────────────────────────────────── [x] ┐
  *   │ Fabric Type   Material   GSM / Count   Color   Size  ...  │
- *   │ Warehouse Allocation                      [+ Add Warehouse]│
  *   │ Quantity   Expiry Date   Unit Rate                        │
+ *   │ Warehouse Allocation                      [+ Add Warehouse]│
  *   └───────────────────────────────────────────────────────────┘
  *   ┌ SKU 2 ...
  *
@@ -14,9 +14,9 @@
  * request's `product_details`:
  *
  *   its SKU fields        every customised field marked `sku_field`
- *   its warehouse stock   where this SKU is kept, and how much
  *   its own fields        Quantity, Expiry Date and Unit Rate - whichever
- *                         the company has - with the rate last
+ *                         the company has - right after its SKU fields
+ *   its warehouse stock   where this SKU is kept, and how much
  *
  * Which fields those are is worked out in ../productForm (buildProductSteps);
  * this component draws whatever the group holds, once per entry, and names
@@ -187,7 +187,10 @@ export default function ProductSkuEntries({
               {/* 1. What makes this SKU this SKU. */}
               {renderFields(group.skuFields)}
 
-              {/* 2. Where it is kept. */}
+              {/* 2. Its own quantity, expiry date and rate - after every SKU field. */}
+              {group.detailFields.length > 0 ? renderFields(group.detailFields) : null}
+
+              {/* 3. Where it is kept. */}
               {group.withWarehouse ? (
                 <ProductWarehouseAllocation
                   allocations={set.allocations}
@@ -202,9 +205,6 @@ export default function ProductSkuEntries({
                   onRemove={(lineId) => onRemoveLine(set.id, lineId)}
                 />
               ) : null}
-
-              {/* 3. Its own quantity, expiry date and - last - rate. */}
-              {group.detailFields.length > 0 ? renderFields(group.detailFields) : null}
             </div>
           )
         })}

@@ -46,6 +46,27 @@ export const DOCUMENT_TYPES = [
 
 export const findDocumentType = (value) => DOCUMENT_TYPES.find((type) => type.value === value) ?? null
 
+/**
+ * PREFILL FROM - the saved documents each type may be filled in from, by
+ * their DOCUMENT_TYPES values (what invoice/document-details/ is asked for).
+ * A type not listed here (Debit Note, and every Purchase Invoice module type)
+ * has no Prefill From at all. Credit Note: only from a Sales Invoice.
+ * Challan: only Proforma - its Sales Order products are chosen one by one
+ * (orderProducts), never the whole document.
+ */
+export const PREFILL_SOURCES = Object.freeze({
+  [DOCUMENT_TYPE_INVOICE]: ['Challan', 'Sales Order', 'Quotation', 'Proforma'],
+  'Credit Note': [DOCUMENT_TYPE_INVOICE],
+  'Purchase Order': ['Quotation'],
+  Proforma: ['Sales Order'],
+  Quotation: ['Sales Order'],
+  'Sales Order': ['Purchase Order', 'Quotation'],
+  Challan: ['Proforma'],
+})
+
+/** The source types a document type may be prefilled from - [] for none. */
+export const prefillSourcesOf = (documentType) => PREFILL_SOURCES[documentType] ?? []
+
 /* ------------------------------------------------------------------ */
 /* Challan                                                            */
 /* ------------------------------------------------------------------ */
@@ -111,7 +132,7 @@ export const INVOICE_STEPS = [
 export const ADDRESS_MAX_LENGTH = 100
 
 /** A product line's Description of Goods. */
-export const DESCRIPTION_MAX_LENGTH = 100
+export const DESCRIPTION_MAX_LENGTH = 160
 
 /** The document number - the earlier invoice backend refused anything longer. */
 export const INVOICE_NO_MAX_LENGTH = 16

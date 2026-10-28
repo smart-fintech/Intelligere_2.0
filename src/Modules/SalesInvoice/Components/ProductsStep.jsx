@@ -10,6 +10,8 @@ import { formatINR } from '@/Modules/Payment/pricing'
 import ChargeLedgerSac from '@/Modules/SalesInvoice/Components/ChargeLedgerSac'
 import { InvoiceCard, InvoiceGrid, WIDE_FIELD } from '@/Modules/SalesInvoice/Components/InvoiceGrid'
 import GstLedgerMapping from '@/Modules/SalesInvoice/Components/GstLedgerMapping'
+import OrderProducts from '@/Modules/SalesInvoice/Components/OrderProducts'
+import { entryFromOrderRow } from '@/Modules/SalesInvoice/orderProducts'
 import ProductEntry from '@/Modules/SalesInvoice/Components/ProductEntry'
 import { AddedProducts, BuyerProducts } from '@/Modules/SalesInvoice/Components/ProductLists'
 import { toast } from '@/Library/toast'
@@ -59,6 +61,11 @@ const ENTRY_MODES = [
  *   chargeSac       Sales Invoice only - an Other Charges ledger without a SAC
  *                   number is marked under its row (ChargeLedgerSac), with Add
  *                   SAC on Intelligere and what to do in Tally on Tally
+ *   orders          useOrderProducts(...) - a type that takes its party's order
+ *                   products (Challan, Inbound Challan, Purchase Invoice) lists
+ *                   them above Product Details (OrderProducts); a + fills the
+ *                   entry form, as an earlier product's does
+ *   partyLabel      whose orders they are - 'buyer' / 'supplier'
  */
 
 /** Paise as a plain "1234.50" - for a read-only amount box. */
@@ -170,6 +177,8 @@ export default function ProductsStep({
   showMapping,
   // Sales Invoice: { erp, companyId, onSaved(chargeId) } - each charge's ledger needs a SAC; null elsewhere.
   chargeSac = null,
+  orders = null,
+  partyLabel = 'buyer',
   disabled,
 }) {
   const { form, errors, setErrors, setField, updateEntry, commitEntry, editLine, cancelEntry, removeLine, setEntryMode } = invoice
@@ -218,8 +227,19 @@ export default function ProductsStep({
     updateEntry(() => next, ['productKey', 'skuValue', 'hsn', 'rate', 'gstRate'])
   }
 
+  /** A row of the party's order products: into the entry form, at what it still has to deliver. */
+  const fillFromOrder = (row) => {
+    const next = entryFromOrderRow(row, { ledgers, products: products.list })
+    if (!next) {
+      toast.error(`${row.productName || 'That product'} is not in the ${row.raw?.product_type === 'Service' ? 'ledger' : 'product'} list.`)
+      return
+    }
+    updateEntry(() => next, ['productKey', 'ledgerId', 'skuValue', 'hsn', 'quantity', 'rate', 'gstRate', 'discount'])
+  }
+
   return (
     <div className="space-y-3">
+      {orders?.source && !mappingOpen ? <OrderProducts orders={orders} partyLabel={partyLabel} disabled={disabled} onFill={fillFromOrder} /> : null}
       <InvoiceCard
         title={mappingOpen ? 'GST Ledger Mapping' : 'Product Details'}
         actions={
@@ -299,15 +319,15 @@ export default function ProductsStep({
               onUpdate={updateEntry}
             />
 
-            <div className="flex flex-wrap items-center gap-2">
-              <Button type="button" variant="secondary" size="sm" icon={editing ? Check : Plus} disabled={disabled} onClick={commit}>
-                {editing ? 'Update Product' : 'Add Product'}
-              </Button>
+            <div className="flex flex-wrap items-center justify-end gap-2">
               {editing || isEntryDirty(form.entry) ? (
                 <Button type="button" variant="outline" size="sm" icon={X} disabled={disabled} onClick={cancelEntry}>
                   {editing ? 'Cancel Edit' : 'Clear'}
                 </Button>
               ) : null}
+              <Button type="button" variant="secondary" size="sm" icon={editing ? Check : Plus} disabled={disabled} onClick={commit}>
+                {editing ? 'Update Product' : 'Add Product'}
+              </Button>
             </div>
 
             <AddedProducts

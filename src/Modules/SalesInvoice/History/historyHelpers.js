@@ -8,6 +8,7 @@
  *   MONTH_OPTIONS                  January..December, valued 1..12
  *   checkTallyRange(range)         what is wrong with a From / To range
  *   readHistoryRow(row)            a saved document as the table shows it
+ *   readHistoryProducts(value)     its product_data lines, as the opened row shows them
  *   uniqueHistoryRows(rows)        each document once, by its document_id
  *   historyPartyOptions(rows)      the buyers (or sellers) the rows name, once each
  *   filterHistoryRows(rows, filters)   the rows every set filter lets through
@@ -111,6 +112,63 @@ const objectOf = (value) => {
   return {}
 }
 
+/** A list the API may send as JSON text - read either way; anything else is no lines. */
+const listOf = (value) => {
+  if (Array.isArray(value)) return value
+  if (typeof value === 'string' && value.trim().startsWith('[')) {
+    try {
+      const parsed = JSON.parse(value)
+      return Array.isArray(parsed) ? parsed : []
+    } catch {
+      return []
+    }
+  }
+  return []
+}
+
+/** A number the line carries, or null - never a guess. */
+const numberOf = (value) => {
+  if (text(value) === '') return null
+  const number = Number(value)
+  return Number.isFinite(number) ? number : null
+}
+
+/**
+ * A document's product lines - product_data as the save writes it - for the
+ * row History opens out into. Every figure is the line's own; none is worked
+ * out here except adding up its GST amounts and rates:
+ *
+ *   name, description   'Product Name', Description
+ *   hsn                 hsn_sac_code
+ *   quantity, per       Quantity, 'Per Unit'
+ *   ratePaise           'Selling Rate'
+ *   discount            discount (%), null for none
+ *   taxablePaise        product_amount - the line's taxable value
+ *   gstRate             igst, else cgst + sgst (%), null when it has none
+ *   gstPaise            cgst_amount + sgst_amount + igst_amount, null when none
+ */
+export const readHistoryProducts = (value) =>
+  listOf(value)
+    .filter((line) => line && typeof line === 'object')
+    .map((line, index) => {
+      const rates = ['igst', 'cgst', 'sgst'].map((field) => numberOf(line[field]))
+      const amounts = ['cgst_amount', 'sgst_amount', 'igst_amount'].map((field) => numberOf(line[field])).filter((amount) => amount !== null)
+      const gstRate = rates[0] !== null ? rates[0] : rates[1] !== null || rates[2] !== null ? (rates[1] ?? 0) + (rates[2] ?? 0) : null
+      return {
+        key: `${index}-${text(line['Product Name'])}`,
+        name: text(line['Product Name']),
+        description: text(line.Description),
+        hsn: text(line.hsn_sac_code),
+        quantity: text(line.Quantity),
+        per: text(line['Per Unit']),
+        ratePaise: toPaise(line['Selling Rate']),
+        discount: numberOf(line.discount) ? numberOf(line.discount) : null,
+        taxablePaise: toPaise(line.product_amount),
+        gstRate,
+        gstPaise: amounts.length ? toPaise(amounts.reduce((sum, amount) => sum + amount, 0)) : null,
+      }
+    })
+
 /** "15/10/2026" (the history's document_date) or an ISO date, as YYYY-MM-DD - '' for none. */
 export const isoDateOf = (value) => {
   const raw = text(value)
@@ -133,11 +191,16 @@ export const isoDateOf = (value) => {
  *   documentDate  document_date, else invoice_master_details.document_date
  *   documentDay   the same as YYYY-MM-DD - what the date filter compares
  *   totalPaise  total_amount, in paise (null when it is not a number)
+ *   taxablePaise  total_taxable_amount - the document's taxable value (what
+ *               GST is charged on), in paise; null when it is not a number
+ *   products    readHistoryProducts(product_data) - its lines
  *   fromTally   past_tally_invoice is true - a document fetched from Tally;
  *               anything else was made in Intelligere (the rule the earlier
  *               history screens filtered by). Such a document is not edited.
  *   pdfUrl      doc_pdf - the document's saved PDF - as a URL the browser
  *               opens; null when it has none
+ *   ewayBillPdfUrl  e_way_bill_pdf - its E-Way Bill PDF, the same way; null
+ *               when it has none
  *   source      the row as the server sent it - what Edit fills the form from
  */
 export const readHistoryRow = (row) => {
@@ -153,8 +216,11 @@ export const readHistoryRow = (row) => {
     documentDate,
     documentDay: isoDateOf(documentDate),
     totalPaise: toPaise(row.total_amount),
+    taxablePaise: toPaise(row.total_taxable_amount),
+    products: readHistoryProducts(row.product_data),
     fromTally: row.past_tally_invoice === true || text(row.past_tally_invoice).toLowerCase() === 'true',
     pdfUrl: fileUrlOf(row.doc_pdf ?? row.doc_PDF),
+    ewayBillPdfUrl: fileUrlOf(row.e_way_bill_pdf),
     source: row,
   }
 }

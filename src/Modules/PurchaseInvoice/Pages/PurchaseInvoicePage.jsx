@@ -47,12 +47,14 @@ const PURCHASE_HISTORY = Object.freeze({
 
 /**
  * Voucher's options: only the Purchase Invoice vouchers, the supplier as the
- * party - and Add Voucher, for invoices other companies shared with this one.
+ * party - and Add Voucher: invoices other companies shared with this one, or
+ * invoice files read by the AI as Purchase Invoices.
  */
 const PURCHASE_VOUCHERS = Object.freeze({
   types: [PURCHASE_DOCUMENT_TYPE_INVOICE],
   labels: { account: 'Purchase', party: 'Seller' },
   sharedInvoices: true,
+  aiVoucher: PURCHASE_DOCUMENT_TYPE_INVOICE,
 })
 
 function Frame({ children }) {

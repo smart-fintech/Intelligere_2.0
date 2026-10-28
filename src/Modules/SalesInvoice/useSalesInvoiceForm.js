@@ -33,6 +33,9 @@
  *                               Edit) - every field counts as the user's, so no
  *                               server default (document number, With
  *                               Discount) is laid over it
+ *   invoice.prefill(form)       a form filled in from another document (Prefill
+ *                               From) - its With Discount stands, but the new
+ *                               document's number is still the server's to give
  *
  * The form starts from the company it is given, once. The page mounts it
  * afresh (a `key`) when the company changes, so no effect copies a company in.
@@ -230,6 +233,12 @@ export default function useSalesInvoiceForm(company, createForm = createInvoiceF
     setErrors({})
   }, [])
 
+  const prefill = useCallback((next) => {
+    touched.current = new Set([...touched.current, 'withDiscount'])
+    setForm({ ...next, entry: newInvoiceLine(entryModeOf(next)), editingLineId: null })
+    setErrors({})
+  }, [])
+
   const reset = useCallback(() => {
     touched.current = new Set()
     setForm(createForm(company))
@@ -254,6 +263,7 @@ export default function useSalesInvoiceForm(company, createForm = createInvoiceF
     removeCharge,
     applyDocumentDefaults,
     load,
+    prefill,
     reset,
   }
 }

@@ -6,6 +6,7 @@ import { ListSkeleton, RetryButton, StateMessage } from '@/Components/Common/Dat
 import { Button } from '@/Components/ui/button'
 import { Card, CardContent } from '@/Components/ui/card'
 import { ROUTES } from '@/Constants/routes'
+import { DOCUMENT_TYPE_INVOICE } from '@/Constants/salesInvoice'
 import { useActiveCompany } from '@/Hooks/useActiveCompany'
 import SalesInvoiceScreen from '@/Modules/SalesInvoice/Components/SalesInvoiceScreen'
 import { hasSalesInvoiceModule } from '@/Services/salesInvoiceService'
@@ -26,6 +27,9 @@ import { fetchCompanies, selectCompanyError, selectCompanyStatus } from '@/Store
  * Which document types the company may make (premium_modules) is decided
  * inside the screen, per type - see getDocumentTypeAccess.
  */
+
+/** Voucher's options: the usual vouchers, and AI Voucher - invoice files read by the AI as Sales Invoices. */
+const SALES_VOUCHERS = Object.freeze({ aiVoucher: DOCUMENT_TYPE_INVOICE })
 
 function Frame({ children }) {
   return (
@@ -98,5 +102,5 @@ export default function SalesInvoicePage() {
     )
   }
 
-  return <SalesInvoiceScreen key={activeCompanyId} company={activeCompany} />
+  return <SalesInvoiceScreen key={activeCompanyId} company={activeCompany} vouchers={SALES_VOUCHERS} />
 }

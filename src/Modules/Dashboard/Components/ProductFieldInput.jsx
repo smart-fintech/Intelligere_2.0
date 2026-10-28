@@ -19,7 +19,8 @@
  *   file        a file picker - and, once a file is chosen, its name with a
  *               Remove button, so the choice is still there to see after
  *               going to another step and back
- *   vendor      a dropdown of the company's vendors
+ *   vendor      the company's vendors, as many as wanted (MultiSelectField:
+ *               search, a tick per vendor, each chosen one a chip with an x)
  *   raw-material, semi-finished   a list of references to the company's
  *               own products, added one at a time (ProductReferencePicker)
  *               - always the whole row, whatever its size
@@ -28,7 +29,8 @@
  * Props:
  *   field      the customised field, as the backend sent it
  *   value      what the form holds for it: text, a File (or null) for a
- *              file, or the references added for a reference field
+ *              file, the vendors' ids for a vendor field, or the references
+ *              added for a reference field
  *   error      the message to show under it
  *   disabled   the form is saving
  *   readOnly   shown but not to be changed (the product's name, in an edit)
@@ -46,6 +48,7 @@ import { Paperclip, X } from 'lucide-react'
 import { Field, FieldError, FieldLabel, SelectField, TextareaField } from '@/Components/Common/FormFields'
 import { HsnSelector } from '@/Components/Common/HsnSelector'
 import { formatBytes } from '@/Components/Common/Loader'
+import { MultiSelectField } from '@/Components/Common/MultiSelectField'
 import { Button } from '@/Components/ui/button'
 import { Input } from '@/Components/ui/input'
 import { cn } from '@/Library/utils'
@@ -57,6 +60,7 @@ import {
   productFieldSpan,
   productInputKind,
   productOptions,
+  productVendorIds,
 } from '../productForm'
 import ProductReferencePicker from './ProductReferencePicker'
 
@@ -100,9 +104,10 @@ const XL_SPAN = {
   12: 'xl:col-span-12',
 }
 
-/** A multi-line box or a file's name needs more than the narrowest widths. */
+/** A multi-line box, a file's name or a row of vendor chips needs more than the narrowest widths. */
 const MINIMUM_SPAN = {
   [PRODUCT_INPUT.LONG_TEXT]: 4,
+  [PRODUCT_INPUT.VENDOR]: 4,
   [PRODUCT_INPUT.FILE]: 3,
 }
 
@@ -170,18 +175,25 @@ export default function ProductFieldInput({
     const loading = vendors.status === 'loading'
     const failed = vendors.status === 'failed'
 
+    /* Only the chosen vendors the list offers can be shown - by their name -
+       and only they are sent (collectProductValues). So none is shown while
+       the list loads, and one deleted since it was chosen drops out, as it
+       always did. */
+    const chosen = loading
+      ? []
+      : productVendorIds(value).filter((id) => vendors.options.some((option) => option.value === id))
+
     return (
-      <SelectField
+      <MultiSelectField
         {...common}
         // The form shows the reason, and Retry, above the fields.
         error={error || (failed ? 'Vendors could not be loaded' : undefined)}
-        placeholder={loading ? 'Loading...' : vendors.options.length === 0 ? 'No vendors found' : 'Select vendor'}
-        options={vendors.options}
-        value={value ?? ''}
-        disabled={disabled || loading || vendors.options.length === 0}
-        searchable={vendors.options.length >= SEARCHABLE_FROM}
+        placeholder={loading ? 'Loading...' : vendors.options.length === 0 ? 'No vendors found' : 'Select vendors'}
         searchPlaceholder="Search vendor..."
-        onValueChange={onChange}
+        options={vendors.options}
+        value={chosen}
+        disabled={disabled || loading || vendors.options.length === 0}
+        onChange={onChange}
       />
     )
   }

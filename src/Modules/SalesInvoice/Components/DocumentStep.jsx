@@ -39,7 +39,9 @@ import { paymentQrOfBank } from '@/Services/salesInvoiceService'
  *                   one fills Payment QR with that bank's QR, or empties it
  *   numbering       useDocumentNumbering(...) - { status, retry } of the last
  *                   document number for the type chosen on Step 1 (asked by
- *                   Step 2's Next - the only way here, the step bar goes back only)
+ *                   Step 2's Next - the only way here, the step bar goes back only);
+ *                   Auto Increment is its setAutoIncrement (the company's setting
+ *                   saved first, then the number asked for again when ticked)
  *   numberLocked    the document is already saved under this number (only
  *                   its PDF is still to go) - it can no longer change
  */
@@ -280,13 +282,18 @@ export default function DocumentStep({ invoice, banks, numbering, numberLocked, 
           id="document-auto-increment"
           label="Auto Increment"
           checked={document.autoIncrement}
-          disabled={disabled || numberLocked}
-          onCheckedChange={set('autoIncrement')}
+          disabled={disabled || numberLocked || numbering.switching}
+          onCheckedChange={(on) => numbering.setAutoIncrement(on === true)}
         />
       }
     >
       {/* The number is only ever filled in, never forced: while it is on its
           way, or if it could not be had, it can still be typed. */}
+      {numbering.switching ? (
+        <p role="status" className="mb-2 text-xs text-muted-foreground">
+          Saving Auto Increment...
+        </p>
+      ) : null}
       {!numberLocked && numbering.status === 'loading' ? (
         <p role="status" className="mb-2 text-xs text-muted-foreground">
           Reading the last document number...

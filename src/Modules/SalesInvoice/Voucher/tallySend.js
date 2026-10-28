@@ -3,22 +3,25 @@
  * The calls themselves are handed in, so the sequence can be followed (and
  * checked) without a server or a socket.
  *
- * TALLY - runTallySend({ documentId, payload, updateBody, expectReply, sendMessage, updateVoucher })
+ * TALLY - runTallySend({ documentId, payload, updateBody, expectReply, sendMessage, updateVoucher, onReply })
  *
  *   1. expectReply()             starts listening for Tally's answer before
  *                                anything is sent, so a quick answer is not
  *                                missed -> { reply: Promise, cancel() }
  *   2. sendMessage(message)      the WebSocket message (true once delivered)
- *   3. the reply                 Tally's stop_loader answer - only status
- *                                "success" goes on; anything else stops here
- *                                and the update is NOT called
+ *   3. the reply                 Tally's stop_loader answer - handed to
+ *                                onReply({ ok, message }) the moment it comes
+ *                                (its own msg, before the update), then only
+ *                                status "success" goes on; anything else stops
+ *                                here and the update is NOT called
  *   4. updateVoucher(updateBody) PUT invoice/tally-vouchers/ - recorded only
  *                                once Tally has the voucher
  *
  * NOT TALLY - runVoucherVerify({ documentId, updateBody, updateVoucher })
  *   the update alone - no WebSocket.
  *
- * -> { outcome, message }, outcome one of
+ * -> { outcome, message, tallyMessage? }, `tallyMessage` the reply's message
+ *    already handed to onReply (so it is not said twice), outcome one of
  *   sent            Tally confirmed it and the update was recorded
  *   verified        (not Tally) the update was recorded
  *   socket-failed   the message could not be delivered - nothing else was done
@@ -73,7 +76,7 @@ const once = async (documentId, run) => {
   }
 }
 
-export const runTallySend = ({ documentId, payload, updateBody, expectReply, sendMessage, updateVoucher }) =>
+export const runTallySend = ({ documentId, payload, updateBody, expectReply, sendMessage, updateVoucher, onReply }) =>
   once(documentId, async () => {
     const listening = expectReply()
     const delivered = await sendMessage(buildVoucherSocketMessage(payload))
@@ -84,11 +87,15 @@ export const runTallySend = ({ documentId, payload, updateBody, expectReply, sen
 
     const reply = await listening.reply
     if (reply === null) return { outcome: 'no-reply', message: 'Tally did not answer in time. Check Tally before sending the voucher again.' }
-    if (String(reply.status ?? '').toLowerCase() !== 'success') return { outcome: 'tally-failed', message: messageOf(reply, 'Tally could not create the voucher.') }
+    const ok = String(reply.status ?? '').toLowerCase() === 'success'
+    const tallyMessage = messageOf(reply, ok ? 'Voucher sent to Tally.' : 'Tally could not create the voucher.')
+    // Said now - not after the update below.
+    onReply?.({ ok, message: tallyMessage })
+    if (!ok) return { outcome: 'tally-failed', message: tallyMessage, tallyMessage }
 
     const done = await update(updateVoucher, updateBody, true)
-    if (done.failure) return done.failure
-    return { outcome: 'sent', message: messageOf(done.reply, messageOf(reply, 'Voucher sent to Tally.')) }
+    if (done.failure) return { ...done.failure, tallyMessage }
+    return { outcome: 'sent', message: messageOf(done.reply, tallyMessage), tallyMessage }
   })
 
 export const runVoucherVerify = ({ documentId, updateBody, updateVoucher }) =>

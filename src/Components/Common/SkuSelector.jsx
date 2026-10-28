@@ -42,6 +42,8 @@ const SEARCHABLE_FROM = 8
  *   emptyText     what the box says when there are no SKUs ("No SKUs")
  *   size          the box's size - 'sm' in a table row ('default' otherwise)
  *   ariaLabel     its name when it has no `label` (a table cell)
+ *   showChosenDetails   the chosen SKU's `sku_details` in the same tooltip
+ *                 when its code in the box is hovered (off by default)
  */
 const defaultValueOf = (variant, index) => String(variant?.product_id ?? index)
 
@@ -60,6 +62,7 @@ export function SkuSelector({
   emptyText = 'No SKUs',
   size,
   ariaLabel,
+  showChosenDetails = false,
   className,
 }) {
   const options = useMemo(
@@ -79,6 +82,21 @@ export function SkuSelector({
   const term = searchable ? search.trim().toLowerCase() : ''
   const visible = term ? options.filter((option) => option.label.toLowerCase().includes(term)) : options
   const empty = !loading && options.length === 0
+  const chosen = showChosenDetails && value ? options.find((option) => option.value === value) : null
+
+  const trigger = (
+    <SelectTrigger
+      id={id}
+      size={size}
+      aria-label={label ? undefined : ariaLabel}
+      className="w-full"
+      aria-invalid={Boolean(error) || undefined}
+      aria-required={required || undefined}
+      aria-describedby={error && id ? `${id}-error` : undefined}
+    >
+      <SelectValue placeholder={loading ? 'Loading...' : empty ? emptyText : placeholder} />
+    </SelectTrigger>
+  )
 
   return (
     <div className={className}>
@@ -97,17 +115,14 @@ export function SkuSelector({
             if (!open) setSearch('')
           }}
         >
-          <SelectTrigger
-            id={id}
-            size={size}
-            aria-label={label ? undefined : ariaLabel}
-            className="w-full"
-            aria-invalid={Boolean(error) || undefined}
-            aria-required={required || undefined}
-            aria-describedby={error && id ? `${id}-error` : undefined}
-          >
-            <SelectValue placeholder={loading ? 'Loading...' : empty ? emptyText : placeholder} />
-          </SelectTrigger>
+          {/* Above the box, so it never covers the fields beside it. */}
+          {chosen ? (
+            <SkuDetailsTooltip details={chosen.attributes} side="top">
+              {trigger}
+            </SkuDetailsTooltip>
+          ) : (
+            trigger
+          )}
 
           <SelectContent
             searchable={searchable}

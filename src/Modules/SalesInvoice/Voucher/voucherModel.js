@@ -606,7 +606,7 @@ export const resolveVoucher = (sourceVoucher, choices, { ledgers, products, acco
 }
 
 /* ------------------------------------------------------------------ */
-/* Edit: what changed, for invoice/edit_invoice/                       */
+/* Edit: what changed, for invoice/edit-document/                       */
 /* ------------------------------------------------------------------ */
 
 /** Whether a voucher can be edited and saved - its upload_type is exactly "pdf", as the API sent it. */
@@ -677,7 +677,7 @@ const gstChargesAfter = (mapping) => {
 }
 
 /**
- * WHAT AN EDIT CHANGED - the body of invoice/edit_invoice/, from the voucher
+ * WHAT AN EDIT CHANGED - the body of invoice/edit-document/, from the voucher
  * as it was when Edit was pressed (`before`) and as it is now (`after`), both
  * resolveVoucher's. Only what changed is in it; nothing unchanged is sent
  * again, and nothing is ever blanked:

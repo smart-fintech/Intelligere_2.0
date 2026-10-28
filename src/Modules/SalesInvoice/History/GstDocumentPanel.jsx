@@ -8,16 +8,17 @@ const LABEL = { einvoice: 'E-Invoice', ewaybill: 'E-Way Bill' }
 /**
  * History's E-Invoice / E-Way Bill buttons (useGstDocumentActions): the two
  * actions; once one is pressed, its Generate button (with how many are
- * ticked) and Cancel in their place.
+ * ticked) and Cancel in their place. `size` is the buttons' - the size of the
+ * buttons they stand beside.
  */
-export function GstToolbarActions({ gst, rows, disabled }) {
+export function GstToolbarActions({ gst, rows, disabled, size }) {
   if (!gst.mode) {
     return (
       <div className="flex flex-wrap gap-2" role="group" aria-label="E-Invoice and E-Way Bill">
-        <Button type="button" variant="outline" icon={FileCheck2} disabled={disabled || gst.busy} onClick={() => gst.start('einvoice')}>
+        <Button type="button" variant="outline" size={size} icon={FileCheck2} disabled={disabled || gst.busy} onClick={() => gst.start('einvoice')}>
           E-Invoice
         </Button>
-        <Button type="button" variant="outline" icon={Truck} disabled={disabled || gst.busy} onClick={() => gst.start('ewaybill')}>
+        <Button type="button" variant="outline" size={size} icon={Truck} disabled={disabled || gst.busy} onClick={() => gst.start('ewaybill')}>
           E-Way Bill
         </Button>
       </div>
@@ -28,6 +29,7 @@ export function GstToolbarActions({ gst, rows, disabled }) {
     <div className="flex flex-wrap items-center gap-2" role="group" aria-label={`${LABEL[gst.mode]} selection`}>
       <Button
         type="button"
+        size={size}
         icon={gst.mode === 'einvoice' ? FileCheck2 : Truck}
         loading={running}
         disabled={running || gst.selected.size === 0}
@@ -35,7 +37,7 @@ export function GstToolbarActions({ gst, rows, disabled }) {
       >
         {running ? 'Generating...' : `${LABEL[gst.mode]} Generate${gst.selected.size ? ` (${gst.selected.size})` : ''}`}
       </Button>
-      <Button type="button" variant="ghost" icon={X} disabled={running} onClick={gst.stop}>
+      <Button type="button" variant="ghost" size={size} icon={X} disabled={running} onClick={gst.stop}>
         Cancel
       </Button>
     </div>

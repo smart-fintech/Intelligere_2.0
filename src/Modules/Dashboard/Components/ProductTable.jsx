@@ -2,10 +2,10 @@
  * THE PRODUCT TABLE - the one both Product pages draw.
  *
  *   [ Search product name ] [ SKU Code v ] [ Warehouse v ] [ More Filters ]  ...actions
- *   Product Name | HSN Code | Group | Unit | Quantity | GST Rate | Rate | Actions
+ *   Product Name | HSN Code | Group | Unit | Quantity | GST Rate | Selling Rate | Actions
  *   Printed Cotton Fabric | 5208 | Primary | MTR | 400 | 5 | 120 - 135 |  >
  *     ...and under an opened row, its SKUs and where each one's stock is,
- *     each SKU with its own View (eye) and Edit (pencil)
+ *     each of its SKUs' records with its own View (eye) and Edit (pencil)
  *
  * ONE ROW PER PRODUCT, however many SKUs it has: the row is the product's
  * own values. The rows are read from the reply in ONE place,
@@ -21,10 +21,13 @@
  * no gap, no disabled stand-in - and a row's only action is the page's own
  * Edit. With no action to offer, the Actions column is not drawn either.
  *
- * VIEW AND EDIT ARE A SKU'S. With the arrow, a product row holds only the
- * arrow; View and Edit are on each SKU's line of the opened row, each
- * handed THAT SKU - View opens the dialog with the product narrowed to it,
- * Edit is onEditSku(product, variant). The row opens and closes smoothly
+ * VIEW AND EDIT ARE A RECORD'S. With the arrow, a product row holds only
+ * the arrow; View and Edit sit together on the line of each of a SKU's
+ * `product_details` entries in the opened row, both handed THAT SKU and
+ * THAT entry - View opens the dialog with the product narrowed to them,
+ * Edit is onEditSku(product, variant, detail) (the entry's `sr_no` is the
+ * record saved to). A product with no SKU has its View in the same place,
+ * opening the product as it is. The row opens and closes smoothly
  * (RowDetails), the arrow turning with it. A SKU's code there shows its
  * sku_details on hover, as the SKU Code filter's options do - the one
  * SkuDetailsTooltip.
@@ -72,11 +75,13 @@
  *   actions          optional - what sits at the right of the filter row
  *   onEdit(product)  optional. With it every row has an Edit button, and is
  *                    handed the product as productList read it
- *   onEditSku(product, variant)   optional - Edit one SKU (the Inventory
- *                    Management page: each SKU is its own record), from
- *                    that SKU's line in the opened row. For a user
- *                    without the arrow the row keeps an Edit: it opens
- *                    its only SKU straight away
+ *   onEditSku(product, variant, detail)   optional - Edit one entry of a
+ *                    SKU (the Inventory Management page: each SKU is its
+ *                    own record, each of its entries by its `sr_no`), from
+ *                    that entry's line in the opened row - `detail` is null
+ *                    for a SKU with none. For a user without the arrow the
+ *                    row keeps an Edit: it opens its only SKU straight
+ *                    away, from its first entry
  *   editDisabled     optional - Edit is there but cannot be pressed (the
  *                    page is busy with something an edit would cut across)
  *   selectedKey      optional - the `key` of the row to tint (the one open
@@ -114,7 +119,7 @@ import ProductVariantRows from './ProductVariantRows'
 const SEARCH_FIELDS = ['name']
 
 /** The seven columns of data, and the Actions column: the cells an opened row spans. */
-const COLUMN_COUNT = 8
+const COLUMN_COUNT = 9
 
 /** No expiry range set. */
 const NO_RANGE = { from: '', to: '' }
@@ -178,8 +183,19 @@ function Spacer({ rowRef, height, columns }) {
   )
 }
 
-/** The SKUs of a product Edit can open - those with a `product_id` to save under. */
-const editableSkus = (product) => product.variants.filter((variant) => variant.productId !== null)
+/**
+ * What a row's Edit can open, as { variant, detail }: each `product_details`
+ * entry (by its `sr_no`) of each SKU with a `product_id` to save under - a
+ * SKU with no entries is one, itself (detail null). Without the arrow there
+ * is no opened row to choose an entry in, so each SKU is one, from its first
+ * entry, as Edit has always opened it.
+ */
+const editTargets = (product, detailed) =>
+  product.variants
+    .filter((variant) => variant.productId !== null)
+    .flatMap((variant) =>
+      (detailed && variant.details.length > 0 ? variant.details : [variant.details[0] ?? null]).map((detail) => ({ variant, detail })),
+    )
 
 /**
  * The table's rows: every product of the page - or, on a page longer than
@@ -285,7 +301,7 @@ const ProductRow = memo(function ProductRow({
   onClosed,
 }) {
   const label = product.name || 'product'
-  const skuCount = rowEdit && !pageEdit ? editableSkus(product).length : 0
+  const targetCount = rowEdit && !pageEdit ? editTargets(product, detailed).length : 0
 
   /** On the opened details: their height, kept up to date as they open and close. */
   const measureDetails = useCallback(
@@ -311,7 +327,7 @@ const ProductRow = memo(function ProductRow({
         <TableCell>{orDash(product.hsn)}</TableCell>
         <TableCell title={product.group || undefined}>{orDash(product.group)}</TableCell>
         <TableCell>{orDash(product.unit)}</TableCell>
-        {withCategoryAndAmount ? <TableCell>{orDash(product.category)}</TableCell> : null}
+         <TableCell>{orDash(product.category)}</TableCell> 
         <TableCell>{orDash(product.quantity)}</TableCell>
         {withCategoryAndAmount ? <TableCell>{orDash(product.totalAmount)}</TableCell> : null}
         <TableCell>{orDash(product.gstRate)}</TableCell>
@@ -339,9 +355,9 @@ const ProductRow = memo(function ProductRow({
                   variant="iconEdit"
                   size="icon-sm"
                   icon={Pencil}
-                  tooltip={skuCount > 1 ? 'Edit - choose a SKU below' : 'Edit'}
+                  tooltip={targetCount > 1 ? 'Edit - choose a record below' : 'Edit'}
                   aria-label={`Edit ${label}`}
-                  disabled={editDisabled || (!pageEdit && skuCount === 0)}
+                  disabled={editDisabled || (!pageEdit && targetCount === 0)}
                   onClick={() => onEditRow(product)}
                 />
               ) : null}
@@ -365,8 +381,8 @@ const ProductRow = memo(function ProductRow({
             >
               <ProductVariantRows
                 product={product}
-                onViewSku={(variant) => onViewSku(product, variant)}
-                onEditSku={onEditSku ? (variant) => onEditSku(product, variant) : undefined}
+                onViewSku={(variant, detail) => onViewSku(product, variant, detail)}
+                onEditSku={onEditSku ? (variant, detail) => onEditSku(product, variant, detail) : undefined}
                 editDisabled={editDisabled}
               />
             </RowDetails>
@@ -497,7 +513,7 @@ export default function ProductTable({
   // The product and the SKU (its place among the product's SKUs) in the
   // dialog. Looked up again on every draw, so the dialog shows them as they
   // are after a reload, not as they were.
-  const [viewing, setViewing] = useState({ open: false, key: null, sku: null })
+  const [viewing, setViewing] = useState({ open: false, key: null, sku: null, detail: null })
 
   /** The arrow: `open` is whether the row is open now. */
   const toggle = useCallback((key, open) => {
@@ -511,28 +527,46 @@ export default function ProductTable({
 
   const closed = useCallback((key) => setClosing((previous) => previous.filter((entry) => entry !== key)), [])
 
-  /** The row's Edit: the page's own, or its one SKU, or its row opened onto its SKUs' own Edits. */
+  /** The row's Edit: the page's own, or its one record, or its row opened onto its records' own Edits. */
   const editRow = useCallback(
     (product) => {
       if (onEdit) return onEdit(product)
 
-      const skus = editableSkus(product)
-      if (skus.length === 1) return onEditSku(product, skus[0])
+      const targets = editTargets(product, detailed)
+      if (targets.length === 1) return onEditSku(product, targets[0].variant, targets[0].detail)
       setExpanded((previous) => (previous.includes(product.key) ? previous : [...previous, product.key]))
     },
-    [onEdit, onEditSku],
+    [onEdit, onEditSku, detailed],
   )
 
+  /**
+   * A line's View - handed the same SKU and entry as that line's Edit, kept
+   * by their places: `sku` and `detail` null for a product with no SKU, and
+   * `detail` null for a SKU with no entries.
+   */
   const viewSku = useCallback(
-    (product, variant) => setViewing({ open: true, key: product.key, sku: product.variants.indexOf(variant) }),
+    (product, variant, detail = null) =>
+      setViewing({
+        open: true,
+        key: product.key,
+        sku: variant ? product.variants.indexOf(variant) : null,
+        detail: variant && detail ? variant.details.indexOf(detail) : null,
+      }),
     [],
   )
 
-  // The product with ONLY the SKU whose View was pressed - so the dialog
-  // shows that SKU's details, never another SKU's of the same product.
+  // The product with ONLY the SKU whose View was pressed - and of that SKU
+  // only the entry (record) of that line - so the dialog shows that record,
+  // never another SKU's or another record's. A product with no SKU is shown
+  // as it is: it has nothing else to leave out.
   const viewedProduct = detailed ? (products.find((product) => product.key === viewing.key) ?? null) : null
-  const viewedSku = viewedProduct?.variants[viewing.sku] ?? null
-  const viewed = viewedSku ? { ...viewedProduct, variants: [viewedSku] } : null
+  const viewedSku = viewing.sku === null ? null : (viewedProduct?.variants[viewing.sku] ?? null)
+  const viewedDetail = viewing.detail === null || viewing.detail === undefined ? null : (viewedSku?.details[viewing.detail] ?? null)
+  const viewed = viewedSku
+    ? { ...viewedProduct, variants: [viewedDetail ? { ...viewedSku, details: [viewedDetail] } : viewedSku] }
+    : viewing.sku === null && viewedProduct?.variants.length === 0
+      ? viewedProduct
+      : null
 
   return (
     <>
@@ -569,11 +603,9 @@ export default function ProductTable({
               <SortableHead view={view} field="unit" width={90}>
                 Unit
               </SortableHead>
-              {withCategoryAndAmount ? (
                 <SortableHead view={view} field="category" width={130}>
                   Category
                 </SortableHead>
-              ) : null}
               <SortableHead view={view} field="quantity">
                 Quantity
               </SortableHead>
@@ -586,7 +618,7 @@ export default function ProductTable({
                 GST Rate
               </SortableHead>
               <SortableHead view={view} field="rateSort" width={130}>
-                Rate
+                Selling Rate
               </SortableHead>
               {hasActions ? (
                 <PlainHead width={actionsWidth} className="text-right">
@@ -624,7 +656,11 @@ export default function ProductTable({
           open={viewing.open}
           onOpenChange={(next) => setViewing((previous) => ({ ...previous, open: next }))}
           product={viewed}
-          description={viewedSku ? `SKU: ${viewedSku.skuCode || `${viewing.sku + 1} (no code)`}` : undefined}
+          description={
+            viewedSku
+              ? `SKU: ${viewedSku.skuCode || `${viewing.sku + 1} (no code)`}${viewedDetail && viewedDetail.srNo !== null ? ` · Sr No. ${viewedDetail.srNo}` : ''}`
+              : undefined
+          }
         />
       ) : null}
     </>

@@ -3,6 +3,7 @@ import { useSelector } from 'react-redux'
 import { AlertCircle, BadgeCheck, CheckCircle2, ChevronLeft, ChevronRight, ExternalLink, Eye, FileText, Pencil, RefreshCw, Save, Send, Trash2, TriangleAlert, X } from 'lucide-react'
 
 import { ActionDropdown } from '@/Components/Common/ActionDropdown'
+import AppLedgerProductMapping from '@/Modules/SalesInvoice/Voucher/AppLedgerProductMapping'
 import { ConfirmDialog } from '@/Components/Common/ConfirmDialog'
 import { InlineAlert, ListSkeleton, RetryButton, StateMessage } from '@/Components/Common/DataList'
 import { Modal } from '@/Components/Common/Modal'
@@ -68,7 +69,7 @@ import { selectIsErpKnown, selectIsTallyErp } from '@/Store/Slices/profileSlice'
  *
  * EDIT (a PDF-uploaded voucher only - upload_type "pdf"): Edit opens every
  * field of that voucher; what it held then is kept (`editing.before`), so Save
- * Changes sends invoice/edit_invoice/ only what changed since
+ * Changes sends invoice/edit-document/ only what changed since
  * (buildVoucherEditPayload) - once at a time; on success edit mode ends with
  * the new values on screen (the list is not read again), on failure the
  * edits stay to correct and retry. Cancel puts the voucher back as it was;
@@ -177,6 +178,10 @@ export default function TallyVouchers({ company, types = SALES_VOUCHER_TYPES, pa
   const mappingOf = (entry) => resolveVoucher(entry, choices[choiceKey(entry)], refs)
 
   const [previewing, setPreviewing] = useState(null)
+  // Mapping, in the panel in place of the PDF - the company's, for this document type, whatever the voucher shown.
+  const [mappingOpen, setMappingOpen] = useState(false)
+  // The mapping's document type: Purchase Invoice for its vouchers, Sales Invoice for the sales ones (Credit / Debit Note included).
+  const mappingType = type === 'Purchase Invoice' ? 'Purchase Invoice' : 'Sales Invoice'
   const [deleting, setDeleting] = useState(null)
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [problemsFor, setProblemsFor] = useState(null)
@@ -289,16 +294,26 @@ export default function TallyVouchers({ company, types = SALES_VOUCHER_TYPES, pa
     })
     const result =
       action === 'send'
-        ? await tally.send(entry.id, buildTallyVoucherPayload({ voucher: entry, mapping, company, ledgers, parties }), updateBody)
+        ? await tally.send(entry.id, buildTallyVoucherPayload({ voucher: entry, mapping, company, ledgers, parties }), updateBody, ({ ok, message }) =>
+            // Tally's own answer, the moment it comes over the WebSocket.
+            ok ? toast.success(message) : toast.error(message),
+          )
         : await tally.verify(entry.id, updateBody)
+    // Tally's answer has been said already - only what came after it is (the update failing).
+    if (result.tallyMessage && result.outcome !== 'update-failed') return
     if (result.outcome === 'sent' || result.outcome === 'verified') toast.success(result.message)
     else if (result.outcome === 'busy') toast.info(result.message)
     else toast.error(result.message)
   }
 
   const act = (entry, action) => {
-    if (action === 'preview') setPreviewing(entry.pdfUrl ? entry : null)
-    else if (action === 'delete') setDeleting(entry)
+    if (action === 'preview') {
+      setPreviewing(entry.pdfUrl ? entry : null)
+      setMappingOpen(false)
+    } else if (action === 'mapping') {
+      setMappingOpen(true)
+      setPreviewing(null)
+    } else if (action === 'delete') setDeleting(entry)
     else if (action === 'send' || action === 'verify') complete(entry, action)
   }
 
@@ -396,70 +411,79 @@ export default function TallyVouchers({ company, types = SALES_VOUCHER_TYPES, pa
                   editing={editingThis}
                   onChoose={(change) => choose(voucher, change)}
                   footer={
-                    <div className="flex flex-wrap items-center justify-between gap-2" aria-label="Voucher actions and status">
-                      <div className="min-w-0 text-xs" aria-live="polite">
-                        {editingThis ? (
-                          <span className="inline-flex items-center gap-1 font-semibold text-brand">
-                            <Pencil className="size-3.5" aria-hidden="true" />
-                            Editing{unsaved ? ' - unsaved changes' : ''}
-                          </span>
-                        ) : result?.outcome === 'sent' || result?.outcome === 'verified' ? (
-                          <span className="inline-flex items-center gap-1 font-semibold text-emerald-700 dark:text-emerald-400">
-                            <CheckCircle2 className="size-3.5" aria-hidden="true" />
-                            {result.outcome === 'sent' ? 'Sent to Tally' : 'Verified'}
-                          </span>
-                        ) : result ? (
-                          <span className="inline-flex items-start gap-1 text-destructive" role="alert">
-                            <TriangleAlert className="mt-px size-3.5 shrink-0" aria-hidden="true" />
-                            {result.message}
-                          </span>
-                        ) : mapping.problems.length > 0 ? (
-                          <span className="text-destructive">
-                            {mapping.problems.length} item{mapping.problems.length === 1 ? '' : 's'} to resolve
-                          </span>
-                        ) : (
-                          <span className="text-emerald-700 dark:text-emerald-400">All mappings resolved</span>
-                        )}
-                      </div>
-                      <div className="flex flex-wrap items-center justify-end gap-2" role="group" aria-label="Voucher actions">
-                        <ActionDropdown
-                          label="Preview"
-                          icon={Eye}
-                          variant={previewVoucher ? 'default' : 'outline'}
-                          size="sm"
-                          options={[
-                            { label: 'Preview', value: 'preview', disabled: !voucher.pdfUrl, description: voucher.pdfUrl ? undefined : 'This voucher has no PDF' },
-                            { label: 'Mapping', value: 'mapping', disabled: true, description: 'Coming in the next phase' },
-                          ]}
-                          onSelect={(value) => value === 'preview' && act(voucher, 'preview')}
-                        />
-                        {/* Edit - a PDF-uploaded voucher only (upload_type "pdf"); Save Changes / Cancel while editing. */}
-                        {editingThis ? (
-                          <>
-                            <Button type="button" variant="outline" size="sm" icon={X} disabled={saving} onClick={discardEdit}>
-                              Cancel
+                    <div className="space-y-2" aria-label="Voucher actions and status">
+                      {/* A failure has its own full-width line - however long, it never moves the buttons. */}
+                      {!editingThis && result && result.outcome !== 'sent' && result.outcome !== 'verified' ? (
+                        <p
+                          className="flex items-start gap-1.5 rounded-md border border-destructive/30 bg-destructive/5 px-2.5 py-1.5 text-xs text-destructive [overflow-wrap:anywhere]"
+                          role="alert"
+                          data-testid="voucher-action-error"
+                        >
+                          <TriangleAlert className="mt-px size-3.5 shrink-0" aria-hidden="true" />
+                          {result.message}
+                        </p>
+                      ) : null}
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="min-w-0 text-xs" aria-live="polite">
+                          {editingThis ? (
+                            <span className="inline-flex items-center gap-1 font-semibold text-brand">
+                              <Pencil className="size-3.5" aria-hidden="true" />
+                              Editing{unsaved ? ' - unsaved changes' : ''}
+                            </span>
+                          ) : result?.outcome === 'sent' || result?.outcome === 'verified' ? (
+                            <span className="inline-flex items-center gap-1 font-semibold text-emerald-700 dark:text-emerald-400">
+                              <CheckCircle2 className="size-3.5" aria-hidden="true" />
+                              {result.outcome === 'sent' ? 'Sent to Tally' : 'Verified'}
+                            </span>
+                          ) : mapping.problems.length > 0 ? (
+                            <span className="text-destructive">
+                              {mapping.problems.length} item{mapping.problems.length === 1 ? '' : 's'} to resolve
+                            </span>
+                          ) : (
+                            <span className="text-emerald-700 dark:text-emerald-400">All mappings resolved</span>
+                          )}
+                        </div>
+                        {/* ml-auto: on a line of its own (a narrow card) the group still sits on the right. */}
+                        <div className="ml-auto flex flex-wrap items-center justify-end gap-2" role="group" aria-label="Voucher actions">
+                          <ActionDropdown
+                            label="Preview"
+                            icon={Eye}
+                            variant={previewVoucher || mappingOpen ? 'default' : 'outline'}
+                            size="sm"
+                            options={[
+                              { label: 'Preview', value: 'preview', disabled: !voucher.pdfUrl, description: voucher.pdfUrl ? undefined : 'This voucher has no PDF' },
+                              { label: 'Mapping', value: 'mapping', description: `Map ${mappingType} ledgers and products` },
+                            ]}
+                            onSelect={(value) => act(voucher, value)}
+                          />
+                          {/* Edit - a PDF-uploaded voucher only (upload_type "pdf"); Save Changes / Cancel while editing. */}
+                          {editingThis ? (
+                            <>
+                              <Button type="button" variant="outline" size="sm" icon={X} disabled={saving} onClick={discardEdit}>
+                                Cancel
+                              </Button>
+                              <Button type="button" size="sm" icon={Save} loading={saving} onClick={saveEdit}>
+                                Save Changes
+                              </Button>
+                            </>
+                          ) : canEditVoucher(voucher) ? (
+                            <Button type="button" variant="outline" size="sm" icon={Pencil} disabled={sending} onClick={startEdit}>
+                              Edit
                             </Button>
-                            <Button type="button" size="sm" icon={Save} loading={saving} onClick={saveEdit}>
-                              Save Changes
+                          ) : null}
+                          {erp.isTally ? (
+                            <Button type="button" size="sm" icon={Send} loading={sending} disabled={!erp.known || tally.sendingId !== null || editingThis} title={editingThis ? 'Save or cancel the changes first' : undefined} onClick={() => act(voucher, 'send')}>
+                              Send to Tally
                             </Button>
-                          </>
-                        ) : canEditVoucher(voucher) ? (
-                          <Button type="button" variant="outline" size="sm" icon={Pencil} disabled={sending} onClick={startEdit}>
-                            Edit
+                          ) : (
+                            <Button type="button" size="sm" icon={BadgeCheck} loading={sending} disabled={!erp.known || tally.sendingId !== null || editingThis} title={editingThis ? 'Save or cancel the changes first' : undefined} onClick={() => act(voucher, 'verify')}>
+                              Verified
+                            </Button>
+                          )}
+                          <Button type="button" variant="destructive" size="sm" icon={Trash2} disabled={sending || deleteBusy || editingThis} title={editingThis ? 'Save or cancel the changes first' : undefined} onClick={() => act(voucher, 'delete')}>
+                            Delete
                           </Button>
-                        ) : null}
-                        {erp.isTally ? (
-                          <Button type="button" size="sm" icon={Send} loading={sending} disabled={!erp.known || tally.sendingId !== null || editingThis} title={editingThis ? 'Save or cancel the changes first' : undefined} onClick={() => act(voucher, 'send')}>
-                            Send to Tally
-                          </Button>
-                        ) : (
-                          <Button type="button" size="sm" icon={BadgeCheck} loading={sending} disabled={!erp.known || tally.sendingId !== null || editingThis} title={editingThis ? 'Save or cancel the changes first' : undefined} onClick={() => act(voucher, 'verify')}>
-                            Verified
-                          </Button>
-                        )}
-                        <Button type="button" variant="destructive" size="sm" icon={Trash2} disabled={sending || deleteBusy || editingThis} title={editingThis ? 'Save or cancel the changes first' : undefined} onClick={() => act(voucher, 'delete')}>
-                          Delete
-                        </Button>
+                        </div>
                       </div>
                     </div>
                   }
@@ -484,7 +508,15 @@ export default function TallyVouchers({ company, types = SALES_VOUCHER_TYPES, pa
               {/* ---- right: the preview - always there ---- */}
               <aside className="min-w-0 lg:sticky lg:top-3" aria-label="Voucher preview">
                 <div className="rounded-lg border border-border bg-card shadow-xs" aria-label="PDF preview">
-                  {previewVoucher ? (
+                  {mappingOpen ? (
+                    // A new mount for another company or document type - no tick carries over.
+                    <AppLedgerProductMapping
+                      key={`${company.comp_name}|${mappingType}`}
+                      companyName={company.comp_name}
+                      documentType={mappingType}
+                      onClose={() => setMappingOpen(false)}
+                    />
+                  ) : previewVoucher ? (
                     <>
                       <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
                         <p className="truncate text-sm font-semibold text-brand">{previewVoucher.documentNo || 'Voucher'} - PDF</p>

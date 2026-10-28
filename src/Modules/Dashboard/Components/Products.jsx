@@ -137,15 +137,16 @@ export default function Products() {
   const openDialog = (fromExisting = false) =>
     setDialog((previous) => ({ open: true, session: previous.session + 1, edit: null, fromExisting }))
 
-  /** Edit one SKU: the dialog, filled from what it was saved with. Versions
-      are for products made from others - Finished and Semi-Finished. */
-  const openEdit = (product, variant) =>
+  /** Edit one entry of a SKU (`detail`, by its `sr_no`): the dialog, filled
+      from what that entry was saved with. Versions are for products made
+      from others - Finished and Semi-Finished. */
+  const openEdit = (product, variant, detail = null) =>
     setDialog((previous) => ({
       open: true,
       session: previous.session + 1,
       edit: {
         productId: variant.productId,
-        saved: productEditSource(product, variant),
+        saved: productEditSource(product, variant, detail ?? variant.details[0] ?? null),
         versioning:
           isProductCategory(product, PRODUCT_CATEGORY.FINISHED) ||
           isProductCategory(product, PRODUCT_CATEGORY.SEMI_FINISHED),

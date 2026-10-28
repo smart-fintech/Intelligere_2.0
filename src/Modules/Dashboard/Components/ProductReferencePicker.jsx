@@ -4,9 +4,9 @@
  * with how much of it goes in and how much is wasted.
  *
  *   Primary Raw Material *
- *   [ Product v ] [ SKU v ] [ Quantity ] [ Wastage ] [ OK ]
- *   Product Name          | SKU Code        | SKU Details        | Qty | Wastage |  (pencil) (bin)
- *   Knitted Cotton Fabric | KNI-...-GRE-010 | Size: M, Color: ... | 1   | 3       |
+ *   [ Product Name v ] [ SKU Code v ] [ Quantity ] [ Wastage ] [ OK ]
+ *   Product Name          | SKU Code        | Qty | Wastage |  (pencil) (bin)
+ *   Knitted Cotton Fabric | KNI-...-GRE-010 | 1   | 3       |
  *
  * WHERE THE CHOICES COME FROM: the company's product list the page has
  * already read (useProducts - POST inventory/product/), so choosing costs no
@@ -16,8 +16,12 @@
  * own text untouched). A Finished product is never offered.
  *
  * ONE STEP AT A TIME: a product, then one of its SKUs (chosen for the user
- * when it has only one), then Quantity and Wastage, then OK. A SKU is shown
- * by its code and what it is made of; one with no code says so. A product
+ * when it has only one), then Quantity and Wastage, then OK. SKU Code is
+ * shown once the product has SKU variants - a product of one record with no
+ * code and no sku_details has nothing to choose, and its one SKU is taken.
+ * A SKU is shown by its CODE ONLY - in the options, the chosen box and the
+ * list below - and its sku_details are in the shared SkuDetailsTooltip when
+ * the code is hovered or focused; one with no code says so. A product
  * whose list has no SKU with a `product_id` has nothing to point a reference
  * at, so it cannot be added - and no SKU is made up for it. Changing the
  * product clears the SKU and both amounts.
@@ -52,6 +56,8 @@ import { useMemo, useState } from 'react'
 import { Pencil, Plus, Trash2, X } from 'lucide-react'
 
 import { Field, FieldError, FieldLabel, SelectField } from '@/Components/Common/FormFields'
+import { SkuDetailsTooltip } from '@/Components/Common/SkuDetailsTooltip'
+import { SkuSelector } from '@/Components/Common/SkuSelector'
 import { Button } from '@/Components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/Components/ui/table'
 import { cn } from '@/Library/utils'
@@ -73,20 +79,14 @@ const NOUN = {
   [PRODUCT_CATEGORY.SEMI_FINISHED]: 'semi-finished',
 }
 
-/** "Size: M, Color: Grey" - what a SKU is made of, on one line. */
-const detailsText = (entries) => entries.map(([name, value]) => `${name}: ${displayValue(value)}`).join(', ')
+/** A SKU's option value in SkuSelector (handed the SKU as the API sent it): its `product_id`. */
+const skuIdOf = (variant) => String(variant.product_id)
 
-/** A SKU as an option: its code and what it is made of, and the same one a line in the tooltip. */
-const skuOption = (variant) => {
-  const details = detailsText(variant.skuDetails)
-  const code = variant.skuCode || 'No SKU code'
-
-  return {
-    value: String(variant.productId),
-    label: details ? `${code} - ${details}` : code,
-    title: variant.skuDetails.map(([name, value]) => `${name}: ${displayValue(value)}`).join('\n') || undefined,
-  }
-}
+/** What a saved reference's SKU is made of, as SkuDetailsTooltip takes it - the empty ones left out. */
+const referenceDetails = (reference) =>
+  Object.entries(savedDetail(reference))
+    .map(([name, value]) => ({ name, value: displayValue(value) }))
+    .filter(({ value }) => value !== '--')
 
 /** The SKUs of a product a reference can point at: those with a `product_id`. */
 const referableSkus = (product) => product?.variants.filter((variant) => variant.productId !== null) ?? []
@@ -129,7 +129,8 @@ export default function ProductReferencePicker({
 
   const product = candidates.find((entry) => String(entry.key) === draft.product) ?? null
   const skus = referableSkus(product)
-  const skuOptions = skus.map(skuOption)
+  // A product of one record with no code and no sku_details has no SKU to choose.
+  const hasSkuVariants = skus.length !== 1 || Boolean(skus[0].skuCode) || skus[0].skuDetails.length > 0
   const variant = skus.find((entry) => String(entry.productId) === draft.sku) ?? null
 
   /* The reference being edited, as it was saved. When its SKU is no longer
@@ -246,7 +247,7 @@ export default function ProductReferencePicker({
           <>
             <Field
               id={`${id}-product`}
-              label="Product"
+              label="Product Name"
               className="col-span-12 sm:col-span-6 lg:col-span-3"
               value={original['Product Name'] ?? ''}
               readOnly
@@ -254,11 +255,9 @@ export default function ProductReferencePicker({
             />
             <Field
               id={`${id}-sku`}
-              label="SKU"
+              label="SKU Code"
               className="col-span-12 sm:col-span-6 lg:col-span-4"
-              value={[original.sku_code || 'No SKU code', detailsText(Object.entries(savedDetail(original)))]
-                .filter(Boolean)
-                .join(' - ')}
+              value={original.sku_code || 'No SKU code'}
               readOnly
               disabled
             />
@@ -267,7 +266,7 @@ export default function ProductReferencePicker({
           <>
             <SelectField
               id={`${id}-product`}
-              label="Product"
+              label="Product Name"
               className="col-span-12 sm:col-span-6 lg:col-span-3"
               placeholder={productPlaceholder}
               options={productOptions}
@@ -279,19 +278,23 @@ export default function ProductReferencePicker({
               onValueChange={chooseProduct}
             />
 
-            <SelectField
-              id={`${id}-sku`}
-              label="SKU"
-              className="col-span-12 sm:col-span-6 lg:col-span-4"
-              placeholder={!product ? 'Select a product first' : skuOptions.length === 0 ? 'No SKU to reference' : 'Select SKU'}
-              options={skuOptions}
-              value={draft.sku}
-              error={draftErrors.sku}
-              disabled={disabled || skuOptions.length === 0}
-              searchable={skuOptions.length >= SEARCHABLE_FROM}
-              searchPlaceholder="Search SKU..."
-              onValueChange={(next) => change('sku', next)}
-            />
+            {/* The shared SKU picker: codes only, each SKU's sku_details on hover. */}
+            {!product || hasSkuVariants ? (
+              <SkuSelector
+                id={`${id}-sku`}
+                label="SKU Code"
+                className="col-span-12 sm:col-span-6 lg:col-span-4"
+                skuVariants={skus.map((entry) => entry.source)}
+                valueOf={skuIdOf}
+                value={draft.sku}
+                error={draftErrors.sku}
+                placeholder="Select SKU code"
+                emptyText={!product ? 'Select a product first' : 'No SKU to reference'}
+                disabled={disabled}
+                showChosenDetails
+                onChange={(next) => change('sku', next)}
+              />
+            ) : null}
           </>
         )}
 
@@ -356,7 +359,7 @@ export default function ProductReferencePicker({
         <Table containerClassName="rounded-md border border-border">
           <TableHeader className="bg-muted">
             <TableRow className="hover:bg-transparent">
-              {['Product Name', 'SKU Code', 'SKU Details', 'Quantity', 'Wastage'].map((heading) => (
+              {['Product Name', 'SKU Code', 'Quantity', 'Wastage'].map((heading) => (
                 <TableHead key={heading} className="h-8 text-xs font-semibold tracking-wide uppercase">
                   {heading}
                 </TableHead>
@@ -380,10 +383,15 @@ export default function ProductReferencePicker({
                     {displayValue(reference['Product Name'])}
                   </TableCell>
                   <TableCell wrap className="py-2 text-sm">
-                    {displayValue(reference.sku_code)}
-                  </TableCell>
-                  <TableCell wrap className="py-2 text-sm">
-                    {displayValue(reference.sku_details)}
+                    {/* Its sku_details on hover or focus only - the shared SKU tooltip. */}
+                    <SkuDetailsTooltip details={referenceDetails(reference)}>
+                      <span
+                        tabIndex={0}
+                        className="cursor-help rounded-sm break-words underline decoration-muted-foreground/50 decoration-dotted underline-offset-2 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                      >
+                        {displayValue(reference.sku_code)}
+                      </span>
+                    </SkuDetailsTooltip>
                   </TableCell>
                   <TableCell className="py-2 text-sm">{displayValue(reference.qty)}</TableCell>
                   <TableCell className="py-2 text-sm">{displayValue(reference.wastage)}</TableCell>

@@ -43,9 +43,11 @@
  *   isProductCategory(product, category) whether a product is of a category
  *   hasMaterialReferences(product)       whether its category has raw and
  *                                        semi-finished references at all
- *   productEditSource(product, variant)  what one SKU was saved with, for Edit
+ *   productEditSource(product, variant, detail)  what one SKU entry was saved with, for Edit
+ *   sharedSkuValues(product)             what all its SKUs have the same of
  *   savedValue(objects, fieldName)       a form field's saved value in them
  *   otherFields(object, known)           whatever else an object carries
+ *   skuStockFields(variant)              its Quantity, Expiry Date, Unit Rate
  *   fieldLabel(key), displayValue(value) how a property and its value read
  *
  * DELETED: a `product_details` entry (or a SKU) marked `deleted: true` is
@@ -58,6 +60,7 @@
  * tomorrow appears in the details dialog with no change to this file.
  */
 
+import { PRODUCT_PER_SKU_FIELDS, perSkuFieldRank } from '@/Constants/inventory'
 import { toInputDate } from '@/Utils/date'
 
 /* ------------------------------------------------------------------ */
@@ -332,28 +335,32 @@ const readVariant = (variant, names) => {
 }
 
 /**
- * THE RATE SHOWN FOR A PRODUCT, in its one row of the table.
+ * THE SELLING RATE SHOWN FOR A PRODUCT, in its one row of the table.
  *
- * A product can have several SKUs at several rates, and no one of them is
- * "the" rate - so none is picked. The rule is the same for every product:
+ * It is the "Selling Rate" the API sends, exactly that key - on each SKU
+ * (`sku_variants[]`), or on the product row itself for a product sent with
+ * none. Never a "Unit Rate": that is one `product_details` entry's own, and
+ * is shown on that entry's line in the opened row.
  *
- *   every Unit Rate the product has (across its SKUs and their entries)
+ * A product can have several SKUs at several selling rates, and no one of
+ * them is "the" rate - so none is picked:
+ *
+ *   every Selling Rate the product has
  *     all the same        that rate                     "30000"
  *     different           the lowest to the highest      "120 - 135"
- *   no Unit Rate at all   the same rule on its SKUs' "Selling Rate"
- *   neither               nothing ("--")
+ *   none (or none a number)   nothing ("--")
  *
  * `sortValue` is the lowest of them, so sorting the column by rate orders
  * products by where their rates begin.
  */
 const tidy = (number) => String(Number(number.toFixed(4)))
 
-const readRate = (variants) => {
-  const unitRates = variants.flatMap((variant) => variant.details.map((detail) => numberOf(detail.unitRate)))
-  const sellingPrices = variants.map((variant) => numberOf(variant.source['Selling Rate']))
+const SELLING_RATE = 'Selling Rate'
 
-  const rates = unitRates.filter((rate) => rate !== null)
-  const numbers = rates.length > 0 ? rates : sellingPrices.filter((price) => price !== null)
+const readRate = (row, variants) => {
+  const ofSkus = variants.map((variant) => numberOf(variant.source[SELLING_RATE])).filter((rate) => rate !== null)
+  const own = numberOf(row[SELLING_RATE])
+  const numbers = ofSkus.length > 0 ? ofSkus : own !== null ? [own] : []
 
   if (numbers.length === 0) return { text: '', sortValue: null }
 
@@ -373,7 +380,7 @@ const distinct = (values) => [...new Set(values.map(textOf).filter(Boolean))]
  *                 place in the list
  *   name, hsn, group, unit, gstRate, category     the product's own
  *   quantity, totalAmount                         total_qty, total_amount
- *   rate, rateSort                                see readRate
+ *   rate, rateSort                                its Selling Rate - see readRate
  *   variants      its SKUs - see readVariant
  *   others        every other property the product carries
  *   source        the product exactly as the backend sent it
@@ -416,7 +423,7 @@ const readRows = (rows, warehouseNames) => {
       const variants = listOf(row.sku_variants)
         .filter((variant) => isPlainObject(variant) && variant.deleted !== true)
         .map((variant) => readVariant(variant, warehouseNames))
-      const rate = readRate(variants)
+      const rate = readRate(row, variants)
 
       const first = variants.find((variant) => variant.productId !== null)?.productId ?? `row-${index}`
       const key = taken.has(first) ? `${first}-${index}` : first
@@ -503,7 +510,15 @@ export const hasMaterialReferences = (product) => isProductCategory(product, PRO
  * A product is edited one SKU at a time: each SKU is its own record, named
  * by its `product_id` (see updateProduct in Services/inventoryService).
  *
- *   product, variant, entry   the product row, the SKU and its (first, not
+ * ONE ENTRY OF IT. A SKU can hold several `product_details` entries, each
+ * its own record by its `sr_no` (with its own `created_at`). `detail` is the
+ * one to start from - one of variant.details, as readVariant gives them -
+ * and without it the SKU's first. Everything an entry keeps is read from
+ * THAT entry alone - its Quantity, Unit Rate, warehouses, `sr_no`, and its
+ * SKU details and references when the SKU does not carry them itself - so
+ * one record is never filled with another's values.
+ *
+ *   product, variant, entry   the product row, the SKU and that (not
  *               deleted) `product_details` entry, as the backend sent them -
  *               what savedValue looks a field up in
  *   sku         its SKU details { name: value }
@@ -524,15 +539,20 @@ const withSkuDetailsKey = (reference) => {
   return { ...rest, sku_details: filledObject(rest.sku_details) ?? (isPlainObject(older) ? older : {}) }
 }
 
-export const productEditSource = (product, variant = null) => {
+/** A list the SKU carries itself, else the one its chosen entry carries - the first of `keys` either has. */
+const ownOrEntry = (variant, entry, keys) =>
+  [variant?.source, entry].map((object) => keys.map((key) => listOf(object?.[key])).find((list) => list.length > 0)).find(Boolean) ?? []
+
+export const productEditSource = (product, variant = null, detail = variant?.details[0] ?? null) => {
   // No SKU (none chosen yet, or none at all): the product's own values only.
-  const entry = variant?.details[0]?.source ?? {}
+  const entry = detail?.source ?? {}
 
   return {
     product: product.source,
     variant: variant?.source ?? {},
     entry,
-    sku: variant ? Object.fromEntries(variant.skuDetails) : {},
+    // The SKU's own sku_details, else this entry's - never another entry's.
+    sku: variant ? (filledObject(variant.source.sku_details) ?? filledObject(entry.sku_details) ?? Object.fromEntries(variant.skuDetails)) : {},
     warehouses: listOf(entry.warehouse)
       .filter(isPlainObject)
       .map((warehouse) => ({
@@ -547,13 +567,34 @@ export const productEditSource = (product, variant = null) => {
     // (they were `sku_detail`) is read under the one name, so an edit
     // shows them and sends them back under `sku_details` alone. The
     // history in `past_version` is never rewritten.
-    references: {
-      raw: (variant?.rawReferences ?? []).map(withSkuDetailsKey),
-      semiFinished: (variant?.semiFinishedReferences ?? []).map(withSkuDetailsKey),
-    },
+    references: variant
+      ? {
+        raw: ownOrEntry(variant, entry, ['raw_reference']).map(withSkuDetailsKey),
+        semiFinished: ownOrEntry(variant, entry, ['semi_finished_reference', 'semi_finished']).map(withSkuDetailsKey),
+      }
+      : { raw: [], semiFinished: [] },
     pastVersion: filledObject(variant?.source?.past_version) ?? filledObject(entry.past_version) ?? {},
     srNo: entry.sr_no ?? null,
   }
+}
+
+/**
+ * WHAT EVERY SKU OF A PRODUCT HAS THE SAME OF - the plain values (text, a
+ * number, yes/no) its SKUs all carry, each the same in all of them: a
+ * product's "Selling Rate" is kept on each SKU, not on the product, so a
+ * product chosen before one of its SKUs is still known by it when its SKUs
+ * agree. A value the SKUs differ on, or one some have and some do not, is
+ * not there. { name: value }.
+ */
+export const sharedSkuValues = (product) => {
+  const sources = (product?.variants ?? []).map((variant) => variant.source).filter(isPlainObject)
+  if (sources.length === 0) return {}
+
+  return Object.fromEntries(
+    Object.entries(sources[0]).filter(
+      ([key, value]) => isScalar(value) && textOf(value) !== '' && sources.every((source) => isScalar(source[key]) && textOf(source[key]) === textOf(value)),
+    ),
+  )
 }
 
 /** Whether a column of the custom report, by its name, is an expiry date ("Expiry Date", expiry_date). */
@@ -572,6 +613,23 @@ const isScalar = (value) => ['string', 'number', 'boolean'].includes(typeof valu
  */
 export const savedValue = (objects, fieldName) =>
   objects.find((object) => isPlainObject(object) && isScalar(object[fieldName]))?.[fieldName]
+
+/**
+ * A SKU's per-SKU stock fields - PRODUCT_PER_SKU_FIELDS: Quantity, Expiry
+ * Date, Unit Rate, always in that order - as [{ name, value }]. The value is
+ * the SKU's own sku_details one when it has the field, else its first
+ * entry's (the record Edit opens); undefined when neither has it.
+ */
+export const skuStockFields = (variant) => {
+  const entry = variant.details[0]
+  // The entry's, by the same place in PRODUCT_PER_SKU_FIELDS.
+  const fromEntry = [entry?.quantity, entry?.expiryDate, entry?.unitRate]
+
+  return PRODUCT_PER_SKU_FIELDS.map((name, rank) => {
+    const own = variant.skuDetails.find(([key]) => perSkuFieldRank(key) === rank)
+    return own ? { name: own[0], value: own[1] } : { name, value: fromEntry[rank] }
+  })
+}
 
 /** Every warehouse allocation of a SKU, across its entries. */
 export const variantWarehouses = (variant) => variant.details.flatMap((detail) => detail.warehouses)

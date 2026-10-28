@@ -31,7 +31,9 @@ import { selectIsTallyErp } from '@/Store/Slices/profileSlice'
  *             partyLabel, tally: false to leave out Fetch from Tally)
  *   vouchers  TallyVouchers' own options (types, labels) - Sales Invoice,
  *             Credit Note and Debit Note when not given; `sharedInvoices: true`
- *             adds View Voucher / Add Voucher (VoucherModes - Purchase Invoice)
+ *             adds Add Voucher (Purchase Invoice) and `aiVoucher` - the
+ *             document_type the AI reads for - AI Voucher, beside View Voucher
+ *             (VoucherModes)
  */
 const VIEWS = [
   { value: 'create', label: 'Create Document' },
@@ -49,7 +51,8 @@ export default function SalesInvoiceScreen({ company, title = 'Sales Invoice', f
   const [editRequest, setEditRequest] = useState(null)
   const [historyRefresh, setHistoryRefresh] = useState(0)
   const { tally = true, ...historyOptions } = history
-  const { sharedInvoices = false, ...voucherOptions } = vouchers
+  const { sharedInvoices = false, aiVoucher = null, ...voucherOptions } = vouchers
+  const addModes = [...(sharedInvoices ? ['shared'] : []), ...(aiVoucher ? ['ai'] : [])]
   // The screen usually appears the moment the company list arrives - inside
   // that request's handler, where a store update renders synchronously. The
   // heading shows then; the form and its preview (hundreds of elements) are
@@ -98,8 +101,15 @@ export default function SalesInvoiceScreen({ company, title = 'Sales Invoice', f
 
       {voucherOpened ? (
         <div hidden={view !== 'voucher'}>
-          {sharedInvoices ? (
-            <VoucherModes company={company} parties={flow?.parties} options={voucherOptions} />
+          {addModes.length ? (
+            <VoucherModes
+              company={company}
+              parties={flow?.parties}
+              options={voucherOptions}
+              addModes={addModes}
+              aiDocumentType={aiVoucher}
+              active={view === 'voucher'}
+            />
           ) : (
             <TallyVouchers company={company} parties={flow?.parties} {...voucherOptions} />
           )}

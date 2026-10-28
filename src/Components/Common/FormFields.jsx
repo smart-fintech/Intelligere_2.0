@@ -363,9 +363,17 @@ export function SelectField({
         </FieldLabel>
       ) : null}
 
+      {/* A value set from outside while the list is closed (a form filled
+          from a saved record) mounts its option in the same render - and
+          inside a <form> Radix syncs its hidden native <select> before that
+          option is there, finds no match and reports "" as the new value,
+          which would empty the field. No option can be "" (Radix forbids
+          it), so "" is never a choice the user made, and is not passed on. */}
       <Select
         value={value}
-        onValueChange={onValueChange}
+        onValueChange={(next) => {
+          if (next !== '') onValueChange?.(next)
+        }}
         disabled={disabled}
         onOpenChange={(next) => {
           setOpen(next)

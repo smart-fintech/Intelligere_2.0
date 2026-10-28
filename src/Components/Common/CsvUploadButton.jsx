@@ -29,7 +29,10 @@ import { toast } from '@/Library/toast'
  *   <CsvUploadButton onFileSelect={importProducts}>Import Products</CsvUploadButton>
  *
  * Props of its own:
- *   onFileSelect  (file) => void, once a CSV has been chosen
+ *   onFileSelect  (file) => void, once a CSV has been chosen - with
+ *                 `multiple`, (files) => void: every file that passed, as an array
+ *   multiple      several files in one pick; each is checked on its own and
+ *                 one turned away does not stop the others
  *   accept        the native accept string. Default ".csv"
  *   maxSizeMb     turned away above this. No limit unless you set one
  *   onInvalid     (message) => void when a file is turned away. Without it
@@ -41,6 +44,7 @@ import { toast } from '@/Library/toast'
  */
 export function CsvUploadButton({
   onFileSelect,
+  multiple = false,
   accept = '.csv',
   maxSizeMb,
   onInvalid,
@@ -50,8 +54,29 @@ export function CsvUploadButton({
 }) {
   const inputRef = useRef(null)
 
+  /* `accept` on the input only filters the file dialog - it is a hint, not
+     a rule: "All files" in the picker walks straight past it, so the name
+     is checked here for real. By extension rather than by type, because
+     Windows reports a .csv as "application/vnd.ms-excel" when Excel is
+     installed - trusting the browser's type would turn away the very file
+     the user was asked for. */
+  const allowed = accept
+    .split(',')
+    .map((rule) => rule.trim().toLowerCase())
+    .filter((rule) => rule.startsWith('.'))
+
+  /** Why a file is turned away, or null when it may go through. */
+  const problemOf = (file) => {
+    if (allowed.length > 0 && !allowed.some((rule) => file.name.toLowerCase().endsWith(rule))) {
+      return `Please choose a ${allowed.join(' or ').replaceAll('.', '').toUpperCase()} file.`
+    }
+    if (maxSizeMb && file.size > maxSizeMb * 1024 * 1024) return `This file is larger than ${maxSizeMb} MB.`
+    return null
+  }
+
   const handleChange = (event) => {
-    const picked = event.target.files?.[0]
+    const pickedFiles = Array.from(event.target.files ?? [])
+    const picked = pickedFiles[0]
 
     // Cleared first, so choosing the SAME file again still fires `change` -
     // otherwise re-picking a file the user has just corrected does nothing.
@@ -61,24 +86,19 @@ export function CsvUploadButton({
 
     const refuse = (why) => (onInvalid ? onInvalid(why) : toast.error(why))
 
-    /* `accept` on the input only filters the file dialog - it is a hint, not
-       a rule: "All files" in the picker walks straight past it, so the name
-       is checked here for real. By extension rather than by type, because
-       Windows reports a .csv as "application/vnd.ms-excel" when Excel is
-       installed - trusting the browser's type would turn away the very file
-       the user was asked for. */
-    const allowed = accept
-      .split(',')
-      .map((rule) => rule.trim().toLowerCase())
-      .filter((rule) => rule.startsWith('.'))
-
-    if (allowed.length > 0 && !allowed.some((rule) => picked.name.toLowerCase().endsWith(rule))) {
-      refuse(`Please choose a ${allowed.join(' or ').replaceAll('.', '').toUpperCase()} file.`)
+    if (multiple) {
+      const passed = pickedFiles.filter((file) => {
+        const why = problemOf(file)
+        if (why) refuse(`${file.name}: ${why}`)
+        return !why
+      })
+      if (passed.length > 0) onFileSelect?.(passed)
       return
     }
 
-    if (maxSizeMb && picked.size > maxSizeMb * 1024 * 1024) {
-      refuse(`This file is larger than ${maxSizeMb} MB.`)
+    const why = problemOf(picked)
+    if (why) {
+      refuse(why)
       return
     }
 
@@ -97,6 +117,7 @@ export function CsvUploadButton({
         ref={inputRef}
         type="file"
         accept={accept}
+        multiple={multiple}
         tabIndex={-1}
         aria-hidden="true"
         className="sr-only"

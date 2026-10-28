@@ -78,7 +78,7 @@ export const isSkuField = (field) => field?.sku_field === true
  * WHICH CONTROL A FIELD IS DRAWN WITH.
  *
  *   text | number | dropdown | date | file | long-text   the plain types
- *   vendor        one of the company's vendors (vendor_select)
+ *   vendor        any number of the company's vendors (vendor_select)
  *   raw-material  } references to the company's own products: a SKU of a
  *   semi-finished } Raw Material (raw_material) or Semi-Finished
  *                 } (semi_finished) product, a quantity and a wastage,
@@ -241,9 +241,11 @@ const detailRank = (field) => perSkuFieldRank(productFieldName(field))
  *   to one SKU:
  *
  *     skuFields      the SKU fields, in `sku_no` order (then field order)
- *     detailFields   the per-SKU normal fields (isDetailField) - Quantity,
- *                    Expiry Date, Unit Rate, whichever the company has - in
- *                    that order, so the rate closes the entry
+ *     detailFields   the per-SKU fields (isDetailField) - Quantity, Expiry
+ *                    Date, Unit Rate, whichever the company has - in that
+ *                    order, drawn right after the SKU fields. One of them
+ *                    marked `sku_field` is still here, never a SKU field, so
+ *                    it is never sent in `sku_details`
  *     withWarehouse  each entry has its own warehouse allocation
  *
  *   (`fields` is the two lists together.) Those fields are drawn NOWHERE
@@ -276,12 +278,15 @@ export const buildProductSteps = (rows, { skuActive = false } = {}) => {
   // Sorted by field_order first; every split below keeps that order.
   const fields = productFields(rows)
 
-  const sku = skuActive ? sortedBy(fields.filter(isSkuField), (field) => toNumber(field.sku_no)) : []
+  // Quantity, Expiry Date and Unit Rate are never SKU fields, even when
+  // marked `sku_field`: they are the entry's own, never in its sku_details.
+  const isSkuOnly = (field) => isSkuField(field) && !isDetailField(field)
+  const sku = skuActive ? sortedBy(fields.filter(isSkuOnly), (field) => toNumber(field.sku_no)) : []
   // SKU management with no SKU field to tell one SKU from another is a
   // product without SKUs.
   const hasSkus = sku.length > 0
 
-  const normal = hasSkus ? fields.filter((field) => !isSkuField(field)) : fields
+  const normal = hasSkus ? fields.filter((field) => !isSkuOnly(field)) : fields
   const perSku = hasSkus ? sortedBy(normal.filter(isDetailField), detailRank) : []
   // What is filled in once for the product - the top row and the later
   // steps are cut from this, so a per-SKU field never takes a place in them.
@@ -395,11 +400,22 @@ export const stepFields = (step) => (step?.groups ?? []).flatMap((group) => grou
 /* Values                                                             */
 /* ------------------------------------------------------------------ */
 
-/** What a field holds before anything is entered: no file, no references, or empty text. */
+/** What a field holds before anything is entered: no file, no references or vendors, or empty text. */
 export const emptyProductValue = (field) => {
   const kind = productInputKind(field)
   if (kind === PRODUCT_INPUT.FILE) return null
-  return isReferenceInput(kind) ? [] : ''
+  return isReferenceInput(kind) || kind === PRODUCT_INPUT.VENDOR ? [] : ''
+}
+
+/**
+ * The vendors a vendor field holds, as the list of their identifiers (as
+ * text, which is what the dropdown works in). A field holds a list; a single
+ * identifier - how the field held its one vendor before it took several - is
+ * read as a list of one, and nothing as none.
+ */
+export const productVendorIds = (value) => {
+  if (Array.isArray(value)) return value.map(String)
+  return value === null || value === undefined || String(value).trim() === '' ? [] : [String(value)]
 }
 
 /** Whether a value is "nothing entered": no value, no file, no references, or only spaces. */
@@ -617,7 +633,8 @@ export const checkProductStep = (step, { steps, values, skuSets, allocations }, 
  *             without gives exactly one, with no `sku` and no `fields` (its
  *             quantity, rate and expiry are in the top `fields`) and the
  *             product's own warehouse lines.
- *   vendors   [{ id, name }] - the vendor each vendor field holds
+ *   vendors   [{ id, name }] - every vendor the vendor fields hold, each
+ *             once, in the order they were chosen in
  *   files     { name: File } for the File fields that hold one
  *   references   { raw: [...], semiFinished: [...] } - what the
  *             raw-material and semi-finished fields filled in once hold,
@@ -671,8 +688,12 @@ export const collectProductValues = (steps, { values, skuSets, allocations }, { 
     }
 
     if (kind === PRODUCT_INPUT.VENDOR) {
-      const chosen = vendorOptions.find((option) => option.value === value)
-      if (chosen) vendors.push({ id: chosen.id, name: chosen.label })
+      // One that is no longer offered (deleted since) has no name to send
+      // and is left out, as it always was; one held twice is sent once.
+      productVendorIds(value).forEach((vendorValue) => {
+        const chosen = vendorOptions.find((option) => option.value === vendorValue)
+        if (chosen && !vendors.some((vendor) => vendor.id === chosen.id)) vendors.push({ id: chosen.id, name: chosen.label })
+      })
       return
     }
 
@@ -735,9 +756,9 @@ export const collectProductValues = (steps, { values, skuSets, allocations }, { 
  * details first, a per-SKU field in the entry first, any other field in the
  * product first. A value is put into the form the way the form holds it -
  * a date as YYYY-MM-DD, anything else as text. A vendor field holds its
- * vendor's id (the first vendor for the first such field, and so on); a
- * raw-material or semi-finished field the SKU's current references (the
- * first such field of each kind takes them all, so none is sent twice).
+ * vendors' ids, and a raw-material or semi-finished field the SKU's current
+ * references - in each case the first such field takes them all, so none is
+ * sent twice, and any other starts empty.
  * A file cannot be put back into a file box, and a field nothing is found
  * for starts empty.
  */
@@ -745,7 +766,6 @@ export const prefillProductForm = (steps, saved) => {
   const values = {}
   const skuValues = {}
   const given = new Set()
-  let vendorIndex = 0
 
   const fill = (field, target, objects) => {
     const name = productFieldName(field)
@@ -754,9 +774,12 @@ export const prefillProductForm = (steps, saved) => {
     if (kind === PRODUCT_INPUT.UNSUPPORTED || kind === PRODUCT_INPUT.FILE) return
 
     if (kind === PRODUCT_INPUT.VENDOR) {
-      const vendor = saved.vendors[vendorIndex]
-      vendorIndex += 1
-      if (vendor?.id !== undefined && vendor?.id !== null) target[name] = String(vendor.id)
+      if (given.has(kind)) return
+      given.add(kind)
+      target[name] = saved.vendors
+        .map((vendor) => vendor?.id)
+        .filter((id) => id !== undefined && id !== null)
+        .map(String)
       return
     }
 
@@ -780,14 +803,19 @@ export const prefillProductForm = (steps, saved) => {
     step.groups.forEach((group) => {
       if (group.key === PRODUCT_GROUP.SKU) {
         group.skuFields.forEach((field) => fill(field, skuValues, [saved.sku, ...ofEntry]))
-        group.detailFields.forEach((field) => fill(field, skuValues, ofEntry))
+        // The entry's own first; one saved inside sku_details before is still found.
+        group.detailFields.forEach((field) => fill(field, skuValues, [...ofEntry, saved.sku]))
         return
       }
 
       // Without SKUs a field marked `sku_field` is a normal one - but it was
       // saved among the SKU details all the same.
       group.fields.forEach((field) =>
-        fill(field, values, isSkuField(field) ? [saved.sku, ...ofEntry] : isDetailField(field) ? ofEntry : ofProduct),
+        fill(
+          field,
+          values,
+          isDetailField(field) ? [...ofEntry, saved.sku] : isSkuField(field) ? [saved.sku, ...ofEntry] : ofProduct,
+        ),
       )
     })
   })

@@ -1,6 +1,6 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useDispatch, useSelector } from 'react-redux'
-import { ArrowLeft, ArrowRight, FilePlus, RefreshCw, Save, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Boxes, FilePlus, RefreshCw, Save, X } from 'lucide-react'
 
 import { InlineAlert } from '@/Components/Common/DataList'
 import { CheckboxField } from '@/Components/Common/FormFields'
@@ -34,7 +34,17 @@ import useDocumentMappings from '@/Modules/SalesInvoice/useDocumentMappings'
 import useDocumentNumbering from '@/Modules/SalesInvoice/useDocumentNumbering'
 import useInvoiceReferenceData from '@/Modules/SalesInvoice/useInvoiceReferenceData'
 import useSalesInvoiceForm from '@/Modules/SalesInvoice/useSalesInvoiceForm'
-import { formFromSavedDocument } from '@/Modules/SalesInvoice/documentPrefill'
+import { formFromSavedDocument, formPrefilledFrom } from '@/Modules/SalesInvoice/documentPrefill'
+import useDocumentPrefill from '@/Modules/SalesInvoice/useDocumentPrefill'
+import useOrderProducts from '@/Modules/SalesInvoice/useOrderProducts'
+import { orderReference } from '@/Modules/SalesInvoice/orderProducts'
+import OrderProducts from '@/Modules/SalesInvoice/Components/OrderProducts'
+import InventoryBookingModal from '@/Modules/SalesInvoice/Components/InventoryBookingModal'
+import InventoryDetailsModal from '@/Modules/SalesInvoice/Components/InventoryDetailsModal'
+import { PROCUREMENT_STATE, QUOTATION_STATES } from '@/Modules/SalesInvoice/procurement'
+import useProcurement from '@/Modules/SalesInvoice/useProcurement'
+import useInventoryAccess from '@/Hooks/useInventoryAccess'
+import { buildPrefillFrom, readPrefillFrom } from '@/Services/documentPrefillService'
 import { SAVE_OUTCOME, runSaveWorkflow } from '@/Modules/SalesInvoice/saveWorkflow'
 import {
   buyerFromLedger,
@@ -74,6 +84,7 @@ import { getLedgerId } from '@/Services/ledgerService'
 import { getCountries, getStates } from '@/Services/locationService'
 import { fetchCompanies } from '@/Store/Slices/companySlice'
 import { selectIsIntelligereErp, selectIsTallyErp } from '@/Store/Slices/profileSlice'
+import { formatDate } from '@/Utils/date'
 import { missingGstLedgers, missingGstTypes, resolveGstLedgers } from '@/Utils/gstLedgers'
 
 /**
@@ -107,6 +118,9 @@ const SHARED_DOCUMENT_TYPES = Object.freeze(['Sales Invoice', 'Credit Note', 'De
 
 /** Every challan copy, in order - what Download PDF prints, and what Save Challan starts with ticked. */
 const ALL_COPIES = CHALLAN_COPIES.map((copy) => copy.value)
+
+/** The Sales Order document type - its stock is booked, and its PDF save answers with it. */
+const SALES_ORDER = 'Sales Order'
 
 const saveToDisk = async (bytes, fileName) => {
   const { downloadPdf } = await import('@/Modules/SalesInvoice/Document/invoicePdf')
@@ -197,6 +211,49 @@ const STEP_OF_PARTY = { seller: INVOICE_STEP.SELLER, buyer: INVOICE_STEP.BUYER }
  * it is - or nothing, when no file was chosen (save-document-pdf/ is then
  * never called). A failed upload keeps the document (Retry Upload sends the
  * file chosen then - never a second document).
+ *
+ * PREFILL FROM (useDocumentPrefill, beside the Document Type)
+ * ------------------------------------------------------------------
+ * A type with sources (PREFILL_SOURCES) offers Prefill From - a source type,
+ * then one of the company's documents of it. The chosen document is read
+ * (invoice/prefill-document-details/) and, once the ledger, product and bank
+ * lists are in, put into the form (formPrefilledFrom): the new document keeps
+ * its own type, number, date and company side. It is saved with
+ *   prefill_from   { document_from, document_id: [...] }
+ * - only while that source is still one its type allows; otherwise {}.
+ * Not offered while editing (an update keeps the record's own prefill_from)
+ * or once the document is saved.
+ *
+ * ORDER PRODUCTS (useOrderProducts - Challan, Inbound Challan, Purchase Invoice)
+ * ------------------------------------------------------------------
+ * Step 2's Next asks for the party's order numbers (invoice/order-document-
+ * numbers/ - the ledger chosen, as buyer_id); Products lists the chosen
+ * orders' products (OrderProducts - on the Document step too, where the
+ * Reference No. it fills is checked), and a product's + fills the entry form.
+ * The rows ticked set Reference No. when they all share one. Another party
+ * or type shows nothing of the last one's.
+ *
+ * A SALES ORDER'S STOCK (Inventory Management)
+ * ------------------------------------------------------------------
+ * A NEW Sales Order, for a company with Inventory Management, books its
+ * stock once it is saved and before its PDF (saveWorkflow's step 2b -
+ * InventoryBookingModal, inventory/inventory_booking/ with the document_id
+ * just returned; when no product has warehouses to choose from, it is booked
+ * without the modal showing). Closed without booking, the order stays saved and waits:
+ * Book Inventory opens it again, Skip booking goes on to the PDF - nothing is
+ * ever created twice, and a booking done is never asked for again. Every
+ * Sales Order's PDF save answers with its `stock`, kept for Inventory Details
+ * (InventoryDetailsModal) - offered once the order is saved.
+ *
+ * From there the order's purchasing runs as one workflow (useProcurement -
+ * procurement.js): saved, booking, then - once Request for Quotation is
+ * pressed - its requirements calculated from that stock
+ * (inventory/order_requirement/) and, when something must be bought, a
+ * Request for Quotation - inside Inventory Details, its only entry point
+ * (RequestQuotation: what is bought at which level, the raw materials'
+ * vendors, then each seller's quantities and Download -
+ * inventory/request_quotation/). The booking modal is the workflow's
+ * WAREHOUSE_BOOKING.
  *
  * EDITING A SAVED DOCUMENT (History's Edit)
  * ------------------------------------------------------------------
@@ -392,11 +449,14 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
 
   // Asked only by the Buyer step's Next (see next() below) - never on opening,
   // on a render, between other steps, or after a save.
+  // Auto Increment's box changes only once the company's setting is saved (numbering.setAutoIncrement).
+  const setAutoIncrement = useCallback((on) => setField('document.autoIncrement', on), [setField])
   const numbering = useDocumentNumbering({
     companyId,
     documentType: documentTypeValue,
     round: numberingRound,
     apply: applyDocumentDefaults,
+    setAutoIncrement,
   })
 
 
@@ -425,14 +485,114 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
   const [editing, setEditing] = useState(null)
   const [pendingEdit, setPendingEdit] = useState(null)
   const [seenEditRequest, setSeenEditRequest] = useState(null)
+
+  /* ---- Prefill From ----
+     `prefilledFrom` - the source the form was last filled from ({ documentFrom,
+     documentIds }), what prefill_from records; `pendingPrefill` a record waiting
+     for the lists it is read against, as an Edit's does. */
+  const [prefilledFrom, setPrefilledFrom] = useState(null)
+  const [pendingPrefill, setPendingPrefill] = useState(null)
+  const prefill = useDocumentPrefill({
+    companyId,
+    documentType: documentTypeValue,
+    enabled: !saved && !editing && !pendingEdit,
+    onDocument: (record, source) => setPendingPrefill({ record, source }),
+    onClear: () => {
+      setPendingPrefill(null)
+      setPrefilledFrom(null)
+    },
+  })
+  const { clear: clearPrefill } = prefill
+
+  /* ---- a Sales Order's stock ----
+     `procurement` - the saved order's purchasing; the booking modal is open
+     in its WAREHOUSE_BOOKING, and its answer settles the save's step 2b
+     (bookingAnswer). `inventoryDetails` - { documentId, documentNo, stock }
+     from the last Sales Order's PDF save, for Inventory Details. */
+  const inventoryAccess = useInventoryAccess()
+  // A NEW Sales Order of a company with Inventory Management books its stock - an update never does.
+  const booksInventory = documentTypeValue === SALES_ORDER && inventoryAccess.full && !editing
+  const procurement = useProcurement({ companyId })
+  const bookingAnswer = useRef(null)
+  const [inventoryDetails, setInventoryDetails] = useState(null)
+  const [inventoryOpen, setInventoryOpen] = useState(false)
+  /**
+   * The saved order as its purchasing needs it - taken as it is saved, since
+   * the form is cleared once its PDF is. Its date (DD/MM/YYYY, as the request
+   * for quotation's Word file shows it) and the company asking - the active
+   * company's own details - are for that file.
+   */
+  const orderSnapshot = (documentId, documentNo) => {
+    const own = sellerFromCompany(company)
+    return {
+      documentId,
+      documentNo,
+      documentDate: formatDate(form.document.invoiceDate, '').replace(/-/g, '/'),
+      companyName: company.comp_name,
+      buyer: { name: own.name, address: own.address, gstin: own.gstin, phone: own.phone, email: own.email },
+      lines: applicable.lines,
+      productsByKey: products.byKey,
+      booked: null,
+    }
+  }
+  const settleBooking = (answer) => {
+    const resolve = bookingAnswer.current
+    bookingAnswer.current = null
+    resolve?.(answer)
+  }
+  // Nothing of a booking outlives the workspace.
+  useEffect(
+    () => () => {
+      bookingAnswer.current?.('paused')
+    },
+    [],
+  )
+
+  /* ---- order products - the party's orders, after Step 2 ---- */
+  const ledgerParty = form[parties.ledger]
+  const orders = useOrderProducts({
+    companyId,
+    documentType: documentTypeValue,
+    partyKey: ledgerParty.ledgerId,
+    // The ticked rows' one shared Reference No. goes into the document's; rows that differ leave it as it is.
+    onCheckedChange: (rows) => {
+      const reference = orderReference(rows)
+      if (reference) setField('document.referenceNo', reference)
+    },
+  })
+
   if (editRequest && editRequest !== seenEditRequest) {
     setSeenEditRequest(editRequest)
     setPendingEdit(editRequest.record)
     setEditing(null)
     setSaved(null)
     setStepIndex(0)
+    setPendingPrefill(null)
+    setPrefilledFrom(null)
+    clearPrefill()
   }
   const listsSettled = ![ledgers.status, products.status, banks.status].some((status) => status === 'idle' || status === 'loading')
+  if (pendingPrefill && listsSettled) {
+    const { record, source } = pendingPrefill
+    setPendingPrefill(null)
+    // Still a source this type allows (the type may have changed while it loaded).
+    if (prefill.sources.includes(source.documentType)) {
+      invoice.prefill(
+        formPrefilledFrom(record, form, {
+          createForm: flow.createForm,
+          company,
+          parties,
+          ledgers,
+          products: products.list,
+          banks: banks.list,
+          countries: { countryNames: getCountries(countries.data), stateNamesOf: (country) => getStates(countries.data, country) },
+        }),
+      )
+      setPrefilledFrom({ documentFrom: source.documentType, documentIds: [source.documentId] })
+      // Another party may be in the form now: its earlier products wait for its step again.
+      setConfirmedLedgerId(null)
+    }
+  }
   if (pendingEdit && listsSettled) {
     const record = pendingEdit
     invoice.load(
@@ -450,6 +610,8 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
       // The record's own document_id (business-document-history) - what the PUT names.
       documentId: record.document_id,
       documentNo: String(record.document_no ?? '').trim() || String(objectDocumentNo(record) ?? ''),
+      // Where it was prefilled from, as saved - an update keeps it.
+      prefillFrom: readPrefillFrom(record.prefill_from),
     })
     setPendingEdit(null)
     setConfirmedLedgerId(null)
@@ -517,6 +679,11 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
         // for the type chosen on Step 1 (a repeat for the same type asks nothing).
         // (Never while editing - the document keeps the number it was saved under.)
         if (step.key === INVOICE_STEP.BUYER && !editing) numbering.request()
+        // ...and the party's order numbers, for a type that takes order products - buyer_id as the save sends it.
+        if (step.key === INVOICE_STEP.BUYER && orders.source) {
+          const ledger = ledgers.byId.get(ledgerParty.ledgerId)
+          orders.request(getLedgerId(ledger) ?? ledgerParty.ledgerId)
+        }
         goTo(stepIndex + 1)
       }
     } catch (failure) {
@@ -581,7 +748,7 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
   }
 
   /** The outcome of a save attempt, in words - and what is kept for a retry. */
-  const report = ({ outcome, saved: keep, error, uploaded }, invoiceNo) => {
+  const report = ({ outcome, saved: keep, error, uploaded, reply }, invoiceNo) => {
     const what = `${documentType?.label ?? 'Document'} ${invoiceNo}`
     // What goes with the document: its PDF (and its E-Way Bill PDF), or (a type that uploads its own) the file chosen.
     const attachment = uploadsFile ? 'file' : makesEwayBill ? 'PDFs' : 'PDF'
@@ -591,9 +758,16 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
         toast.success(
           `${what} ${editing ? 'updated' : 'saved'}${uploadsFile && !uploaded ? '.' : makesEwayBill ? ', with its PDF and E-Way Bill PDF.' : `, with its ${attachment}.`}`,
         )
+        // A Sales Order's PDF save answers with its stock - kept for Inventory Details.
+        if (documentTypeValue === SALES_ORDER && reply?.stock && typeof reply.stock === 'object')
+          setInventoryDetails({ documentId: keep?.documentId ?? null, documentNo: invoiceNo, stock: reply.stock })
+        // Its purchasing goes on from that stock (only an order whose booking is done or skipped waits for it).
+        if (documentTypeValue === SALES_ORDER && keep?.documentId != null) procurement.stockArrived(keep.documentId, reply?.stock ?? null)
         setSaved(null)
         setEditing(null)
         setDocumentFile(null)
+        setPrefilledFrom(null)
+        clearPrefill()
         reset()
         setNumberingRound((round) => round + 1)
         goTo(0)
@@ -605,6 +779,11 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
         return
       case SAVE_OUTCOME.NO_DOCUMENT_ID:
         toast.error('The server did not return the saved document. Please check before saving again.')
+        return
+      case SAVE_OUTCOME.BOOKING_PAUSED:
+        // The order is saved; its stock (and so its PDF) waits for Book Inventory or Skip booking.
+        setSaved(keep)
+        toast.info(`${what} is saved, but its inventory is not booked yet. Press Book Inventory - or Skip booking.`)
         return
       case SAVE_OUTCOME.PDF_FAILED:
         console.error('[Sales Invoice] PDF generation failed:', error)
@@ -674,7 +853,7 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
     save(copiesRef.current)
   }
 
-  const save = async (copies = ALL_COPIES) => {
+  const save = async (copies = ALL_COPIES, { skipBooking = false } = {}) => {
     if (busyRef.current) return
     busyRef.current = true
     copiesRef.current = copies
@@ -709,6 +888,9 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
             challanType: showsDocumentField(form, 'challanType'),
           },
           chargeLedgerSac: Boolean(flow.chargeLedgerSac),
+          prefillFrom: editing
+            ? editing.prefillFrom
+            : buildPrefillFrom(prefilledFrom && prefill.sources.includes(prefilledFrom.documentFrom) ? prefilledFrom : null),
         })
       }
 
@@ -719,6 +901,21 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
         invoiceNo,
         // Editing: the saved document is updated (PUT, its document_id) - never a new one made.
         createDocument: () => (editing ? updateBusinessDocument(editing.documentId, request) : createBusinessDocument(request)),
+        // A new Sales Order with Inventory Management: its stock booked before the PDF (or skipped, as asked).
+        book: booksInventory
+          ? skipBooking
+            ? (documentId) => {
+                procurement.orderSaved(orderSnapshot(documentId, invoiceNo))
+                procurement.bookingSkipped()
+                return Promise.resolve('skipped')
+              }
+            : (documentId) =>
+                new Promise((resolve) => {
+                  bookingAnswer.current = resolve
+                  procurement.orderSaved(orderSnapshot(documentId, invoiceNo))
+                  procurement.openBooking()
+                })
+          : null,
         // Purchase Invoice / Inbound Challan: the chosen file, or none - never a PDF made from the form.
         makePdf: uploadsFile ? () => documentFile : makeDocumentPdfs(copies),
         uploadPdf: uploadsFile
@@ -766,10 +963,15 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
 
   /** Leaves a saved document whose PDF did not go up, and starts a fresh one. */
   const startNew = () => {
+    // That order's purchasing ends with it - its PDF (and so its stock) is not coming.
+    procurement.reset()
     setSaved(null)
     setEditing(null)
     setPendingEdit(null)
     setDocumentFile(null)
+    setPendingPrefill(null)
+    setPrefilledFrom(null)
+    clearPrefill()
     reset()
     // That document used its number: the next one is asked for at Step 2.
     setNumberingRound((round) => round + 1)
@@ -777,15 +979,28 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
   }
 
   const saveWord = `${editing ? 'Update' : 'Save'} ${isInvoice ? 'Invoice' : (documentType?.label ?? 'Document')}`
+  // A saved Sales Order whose booking was closed: Save books it.
+  const bookingPending = Boolean(saved) && saved.booked === false
   const retryWord = uploadsFile ? 'Retry Upload' : 'Retry PDF'
   const saveLabel = {
     download: saved ? retryWord : saveWord,
     creating: 'Saving...',
+    booking: 'Booking inventory...',
     pdf: uploadsFile ? 'Saving...' : 'Generating PDF...',
     uploading: uploadsFile ? 'Uploading file...' : 'Uploading PDF...',
-  }[phase] ?? (saved ? retryWord : saveWord)
+  }[phase] ?? (bookingPending ? 'Book Inventory' : saved ? retryWord : saveWord)
 
   const stepProps = { invoice, disabled: locked }
+
+  // The purchasing of the order Inventory Details shows - none for an order updated, or another order.
+  const purchasing = Boolean(inventoryDetails) && procurement.order !== null && String(procurement.order.documentId) === String(inventoryDetails.documentId)
+  const purchaseNote = !purchasing
+    ? ''
+    : {
+        [PROCUREMENT_STATE.REQUIREMENTS_LOADING]: procurement.machine.error ? 'Its purchase requirements could not be calculated.' : 'Calculating its purchase requirements...',
+        [PROCUREMENT_STATE.NO_PURCHASE_REQUIRED]: 'No purchase is needed.',
+        [PROCUREMENT_STATE.QUOTATION_SUCCESS]: 'A request for quotation is sent.',
+      }[procurement.state] ?? (QUOTATION_STATES.includes(procurement.state) ? 'A request for quotation is under way.' : '')
 
   return (
     <div ref={topRef} className="scroll-mt-4 space-y-3">
@@ -801,7 +1016,22 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
           {pendingEdit ? (
             <InlineAlert>Loading {String(pendingEdit.document_no ?? '').trim() || 'the document'} for editing...</InlineAlert>
           ) : null}
-          {saved ? (
+          {bookingPending ? (
+            <InlineAlert
+              action={
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" size="sm" disabled={busy} onClick={() => save(copiesRef.current)}>
+                    Book Inventory
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => save(copiesRef.current, { skipBooking: true })}>
+                    Skip booking
+                  </Button>
+                </div>
+              }
+            >
+              {saved.invoiceNo} is saved (document {saved.documentId}), but its inventory is not booked yet - its PDF is made once it is (or once you skip booking). It will not be saved a second time.
+            </InlineAlert>
+          ) : saved ? (
             <InlineAlert
               action={
                 <Button type="button" variant="outline" size="sm" icon={FilePlus} disabled={busy} onClick={startNew}>
@@ -814,13 +1044,40 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
             </InlineAlert>
           ) : null}
 
+          {inventoryDetails && !saved ? (
+            // Not a problem - a notice, in the brand's colour (InlineAlert is for what went wrong).
+            <div className="flex flex-wrap items-center gap-2 rounded-md border border-brand/30 bg-brand-soft px-2.5 py-2 text-xs text-brand" role="status" data-testid="inventory-details-notice">
+              <Boxes className="size-3.5 shrink-0" aria-hidden="true" />
+              <span className="min-w-0 flex-1">
+                {inventoryDetails.documentNo} is saved - see its products&apos; stock.{purchaseNote ? ` ${purchaseNote}` : ''}
+              </span>
+              <Button type="button" size="sm" onClick={() => setInventoryOpen(true)}>
+                Inventory Details
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                aria-label="Dismiss inventory details"
+                onClick={() => {
+                  setInventoryDetails(null)
+                  procurement.reset()
+                }}
+              >
+                Dismiss
+              </Button>
+            </div>
+          ) : null}
           {step.key === INVOICE_STEP.SELLER ? (
             <>
-              <DocumentTypeCard {...stepProps} documentTypes={documentTypes} locked={Boolean(saved) || Boolean(editing)} />
+              <DocumentTypeCard {...stepProps} documentTypes={documentTypes} locked={Boolean(saved) || Boolean(editing)} prefill={prefill} />
               <SellerDetails {...stepProps} ledgers={ledgers} countries={countries} onSettingChange={changeSetting} />
             </>
           ) : null}
           {step.key === INVOICE_STEP.BUYER ? <BuyerDetails {...stepProps} ledgers={ledgers} countries={countries} /> : null}
+          {step.key === INVOICE_STEP.DOCUMENT && orders.source ? (
+            <OrderProducts orders={orders} partyLabel={parties.ledger === 'buyer' ? 'buyer' : 'supplier'} disabled={locked} />
+          ) : null}
           {step.key === INVOICE_STEP.DOCUMENT ? (
             <DocumentStep {...stepProps} banks={banks} numbering={numbering} numberLocked={Boolean(saved) || Boolean(editing)} />
           ) : null}
@@ -834,6 +1091,8 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
               gstLedgers={gstLedgers}
               gstCheck={gstCheck}
               buyerProducts={buyerProducts}
+              orders={orders}
+              partyLabel={parties.ledger === 'buyer' ? 'buyer' : 'supplier'}
               showMapping={chargesGst}
               chargeSac={
                 chargeSacRule
@@ -958,6 +1217,35 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
       </Modal>
 
       {shareOffer ? <ShareInvoiceModal offer={shareOffer} onClose={() => setShareOffer(null)} /> : null}
+
+      {/* A new Sales Order's stock - mounted afresh per order, so nothing typed for one reaches another. */}
+      {procurement.state === PROCUREMENT_STATE.WAREHOUSE_BOOKING ? (
+        <InventoryBookingModal
+          key={`${procurement.order.documentId}:${procurement.machine.bookingRound}`}
+          open
+          lines={procurement.order.lines}
+          productsByKey={procurement.order.productsByKey}
+          companyId={companyId}
+          companyName={procurement.order.companyName}
+          documentId={procurement.order.documentId}
+          documentNo={procurement.order.documentNo}
+          initialBooked={procurement.order.booked}
+          onBooked={(reply, booked) => {
+            procurement.bookingConfirmed(booked)
+            settleBooking('booked')
+          }}
+          onClose={() => {
+            procurement.bookingClosed()
+            settleBooking('paused')
+          }}
+        />
+      ) : null}
+      <InventoryDetailsModal
+        stock={inventoryOpen ? inventoryDetails?.stock : null}
+        documentNo={inventoryDetails?.documentNo}
+        procurement={purchasing ? procurement : null}
+        onClose={() => setInventoryOpen(false)}
+      />
 
       {/* Mounted only while a feature is being authenticated - its username and password go with it. */}
       {portalAuth ? (

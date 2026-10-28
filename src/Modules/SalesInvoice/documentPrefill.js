@@ -1,7 +1,9 @@
 /**
- * A SAVED DOCUMENT, BACK IN THE FORM - for Edit in History.
+ * A SAVED DOCUMENT, BACK IN THE FORM - for Edit in History, and for Prefill From.
  *
  *   formFromSavedDocument(record, { createForm, company, parties, ledgers, products, banks, countries })
+ *   formPrefilledFrom(record, form, { ...the same })   Prefill From: see below
+ *   lineFromSavedProduct(row, { ledgers, products })   one product_data row as a line
  *
  * `record` is one row of invoice/business-document-history/ as the server
  * sent it. Its fields are read under the names the document was saved with
@@ -207,28 +209,7 @@ export const formFromSavedDocument = (record, { createForm, company, parties, le
   }
 
   /* ---- the lines ---- */
-  const lines = listOf(record.product_data).map((row) => {
-    const service = sameText(row.product_type, SERVICE_PRODUCT_TYPE)
-    const name = textOf(row['Product Name'])
-    let line
-    if (service) {
-      const id = ledgerIdByName(name)
-      line = lineFromServiceLedger(newInvoiceLine(LINE_KIND.SERVICE), ledgers.byId.get(id) ?? null, id)
-    } else {
-      line = lineFromExistingProduct(newInvoiceLine(LINE_KIND.PRODUCT), row, products) ?? newInvoiceLine(LINE_KIND.PRODUCT)
-    }
-    const saved = (value, fallback) => (textOf(value) ? textOf(value) : fallback)
-    return {
-      ...line,
-      hsn: saved(row.hsn_sac_code, line.hsn),
-      gstRate: slabOfSaved(row) || line.gstRate,
-      quantity: numberText(row.Quantity),
-      rate: saved(row['Selling Rate'], line.rate),
-      per: service ? '' : saved(row['Per Unit'], line.per),
-      discount: Number(row.discount) > 0 ? numberText(row.discount) : '',
-      description: textOf(row.Description),
-    }
-  })
+  const lines = listOf(record.product_data).map((row) => lineFromSavedProduct(row, { ledgers, products }))
 
   /* ---- Other Details ---- */
   const other = objectOf(record.other_details)
@@ -274,5 +255,87 @@ export const formFromSavedDocument = (record, { createForm, company, parties, le
     roundOff,
     tcs,
     note,
+  }
+}
+
+/**
+ * ONE SAVED PRODUCT ROW AS A LINE - a product_data row (or an order's product,
+ * which comes in the same shape): a product found in the product list by name
+ * (and SKU code), a service by its ledger's name - with the row's HSN/SAC,
+ * quantity, rate, unit, discount, GST slab and description. A product no
+ * longer in the list leaves the line without one (its own check says so).
+ *
+ * A row saved from an order (ref_doc_no - see the order products) keeps that
+ * link as the line's `order`: { documentNo, documentId, referenceNo }, with
+ * no remaining quantity (none is known once saved).
+ */
+export const lineFromSavedProduct = (row, { ledgers, products }) => {
+  const service = sameText(row.product_type, SERVICE_PRODUCT_TYPE)
+  const name = textOf(row['Product Name'])
+  let line
+  if (service) {
+    const id = ledgers.named.find((ledger) => sameText(ledger.name, name))?.id ?? ''
+    line = lineFromServiceLedger(newInvoiceLine(LINE_KIND.SERVICE), ledgers.byId.get(id) ?? null, id)
+  } else {
+    line = lineFromExistingProduct(newInvoiceLine(LINE_KIND.PRODUCT), row, products) ?? newInvoiceLine(LINE_KIND.PRODUCT)
+  }
+  const saved = (value, fallback) => (textOf(value) ? textOf(value) : fallback)
+  const next = {
+    ...line,
+    hsn: saved(row.hsn_sac_code, line.hsn),
+    gstRate: slabOfSaved(row) || line.gstRate,
+    quantity: numberText(row.Quantity),
+    rate: saved(row['Selling Rate'], line.rate),
+    per: service ? '' : saved(row['Per Unit'], line.per),
+    discount: Number(row.discount) > 0 ? numberText(row.discount) : '',
+    description: textOf(row.Description),
+  }
+  if (!textOf(row.ref_doc_no)) return next
+  return {
+    ...next,
+    order: {
+      documentNo: textOf(row.ref_doc_no),
+      documentId: row.document_id ?? null,
+      referenceNo: textOf(row.reference_no),
+      remainQty: null,
+      key: `saved:${textOf(row.ref_doc_no)}|${name}|${textOf(row.sku_code)}`,
+      itemKey: service ? line.ledgerId : line.productKey,
+    },
+  }
+}
+
+/**
+ * PREFILL FROM - the form filled in from another saved document (`record`,
+ * as invoice/prefill-document-details/ sends it), read exactly as Edit reads
+ * one (formFromSavedDocument), but still the NEW document `form` is:
+ *
+ *   kept from `form`     the document type, its number (and the auto-number
+ *                        parts) and date, the company side (the company as
+ *                        it is now) and the company's settings
+ *   from the record      the ledger party, Shipping To / Dispatched From, the
+ *                        other Document Details, the bank, the lines, Other
+ *                        Charges, discount, TCS, round off, the note - and
+ *                        Reverse Charge
+ *
+ * Whatever the form held before is replaced, never added to - no line or
+ * charge is doubled. A source line's own order link (`order`) is not taken:
+ * it was that document's, not the new one's.
+ */
+export const formPrefilledFrom = (record, form, options) => {
+  const source = formFromSavedDocument(record, options)
+  const { parties } = options
+  return {
+    ...source,
+    lines: source.lines.map((line) => ({ ...line, order: null })),
+    documentType: form.documentType,
+    [parties.company]: form[parties.company],
+    settings: { ...form.settings, reverseCharge: source.settings.reverseCharge },
+    document: {
+      ...source.document,
+      autoIncrement: form.document.autoIncrement,
+      invoiceNo: form.document.invoiceNo,
+      invoiceNoParts: form.document.invoiceNoParts,
+      invoiceDate: form.document.invoiceDate,
+    },
   }
 }

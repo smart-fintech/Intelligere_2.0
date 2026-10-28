@@ -70,8 +70,11 @@
  * EDIT - ONE SKU AT A TIME
  * ------------------------------------------------------------------
  * With `edit` the same dialog edits one saved SKU (each SKU is its own
- * record, named by its `product_id`). It opens filled from what the SKU
- * was saved with (prefillProductForm), the product's name cannot be
+ * record, named by its `product_id`) - one `product_details` entry of it,
+ * by that entry's `sr_no`, named under the title with its `created_at`.
+ * It opens filled from what that entry was saved with (prefillProductForm),
+ * Save sends that `sr_no` back with it, and the SKU's other entries are not
+ * sent, so they stay as they are. The product's name cannot be
  * changed, there is no Add SKU (it is one SKU), and Save sends PUT with
  * that `product_id` (updateProduct) instead of creating a product.
  * Since the form starts full, Cancel always asks before throwing changes
@@ -177,7 +180,7 @@ import {
   skuGroupOf,
   skuSetHasData,
 } from '../productForm'
-import { PRODUCT_FIELD, productEditSource, readProducts } from '../productList'
+import { PRODUCT_FIELD, productEditSource, readProducts, savedValue, sharedSkuValues } from '../productList'
 import ProductFieldInput from './ProductFieldInput'
 import ProductSkuEntries from './ProductSkuEntries'
 import ProductWarehouseAllocation from './ProductWarehouseAllocation'
@@ -194,6 +197,19 @@ const skuByPlace = (_variant, index) => String(index)
  */
 const LOCKED_FIELDS = [PRODUCT_FIELD.NAME, PRODUCT_FIELD.GROUP, PRODUCT_FIELD.HSN, PRODUCT_FIELD.UNIT, PRODUCT_FIELD.CATEGORY]
 const LOCKED_BEFORE_CHOICE = [PRODUCT_FIELD.HSN]
+
+/**
+ * Which saved record an edit is of, under the title - its SKU code, its
+ * entry's `sr_no` and `created_at`, whichever it has, as the API sent them.
+ */
+const editedRecord = (saved) =>
+  [
+    saved.variant.sku_code ? `SKU ${saved.variant.sku_code}` : '',
+    saved.srNo !== null ? `Sr No. ${saved.srNo}` : '',
+    saved.entry.created_at ? `Created ${saved.entry.created_at}` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ')
 
 /** Nothing wrong anywhere - the shape checkProductStep reports in. */
 const NO_ERRORS = { fields: {}, sets: {}, lines: {} }
@@ -311,14 +327,21 @@ export default function ProductFormModal({
   const offersSku = existingSkus.length > 1 || existingSkus.some((variant) => variant.skuCode)
 
   /* The fields that belong to ONE SKU wherever the form draws them: its
-     SKU fields, its Quantity / Expiry Date / Unit Rate, and the vendor and
-     references a SKU carries. Choosing a SKU sets every one of them. */
-  const skuDependentFields = formSteps
-    .flatMap((entry) => entry.groups.filter((group) => group.key !== PRODUCT_GROUP.SKU).flatMap((group) => group.fields))
-    .filter((field) => {
-      const kind = productInputKind(field)
-      return isDetailField(field) || isSkuField(field) || isReferenceInput(kind) || kind === PRODUCT_INPUT.VENDOR
-    })
+     SKU fields, its Quantity / Expiry Date / Unit Rate, the vendor and
+     references a SKU carries - and the product's own fields the product
+     keeps on each SKU rather than on itself, its "Selling Rate" say (the
+     ones its row does not carry). Choosing a SKU sets every one of them. */
+  const productLevelFields = formSteps.flatMap((entry) => entry.groups.filter((group) => group.key !== PRODUCT_GROUP.SKU).flatMap((group) => group.fields))
+  const skuDependentFields = productLevelFields.filter((field) => {
+    const kind = productInputKind(field)
+    return (
+      isDetailField(field) ||
+      isSkuField(field) ||
+      isReferenceInput(kind) ||
+      kind === PRODUCT_INPUT.VENDOR ||
+      savedValue([existingProduct?.source], productFieldName(field)) === undefined
+    )
+  })
 
   /** Saved warehouse lines, each with a key of its own - numbered in a handler only. */
   const numberLines = (lines) =>
@@ -334,7 +357,10 @@ export default function ProductFormModal({
 
     // One SKU with no code is the product itself - no choice to offer.
     const only = product.variants.length === 1 && !product.variants[0].skuCode ? product.variants[0] : null
-    const filled = prefillProductForm(formSteps, productEditSource(product, only))
+    // No SKU chosen yet: a field kept on each SKU ("Selling Rate") is filled
+    // when all its SKUs have the same of it - and once a SKU is chosen, from that one.
+    const source = productEditSource(product, only)
+    const filled = prefillProductForm(formSteps, only ? source : { ...source, variant: sharedSkuValues(product) })
 
     skuSetCount.current += 1
     setValues(filled.values)
@@ -753,6 +779,7 @@ export default function ProductFormModal({
       open={open}
       onOpenChange={onOpenChange}
       title={edit ? 'Edit Product' : fromExisting ? 'Add Existing Product' : 'Add Product'}
+      description={edit ? editedRecord(edit.saved) || undefined : undefined}
       // The fields are sized in twelfths of the row, which wants the width.
       size="xxl"
       // With something entered, or while saving, only Cancel closes it - see

@@ -26,7 +26,8 @@
  *   Intelligere   saved over HTTP: POST to add, PUT with the product's `id`
  *                 to change. The backend can decline an add because the
  *                 product already exists - that is said as a warning and
- *                 the form keeps what was typed. Has an optional Vendor.
+ *                 the form keeps what was typed. Has optional Vendors -
+ *                 as many as the product is bought from.
  *
  *   Tally         saved over the app's shared WebSocket, exactly as the
  *                 Ledger form saves a ledger: the message is sent, and the
@@ -50,8 +51,12 @@
  *              not to a product - and it is only a reading aid: what is
  *              sent is the rate itself.
  *
- * A product saved with a group, unit or rate that is no longer in its list
- * still shows what it holds.
+ *   Vendor     the company's vendors (the Vendor tab's list), any number of
+ *              them: search, a tick per vendor, each chosen one a chip with
+ *              an x (MultiSelectField). None is fine.
+ *
+ * A product saved with a group, unit, rate or vendor that is no longer in its
+ * list still shows what it holds.
  *
  * WHEN THE GROUPS OR THE UNITS CANNOT BE LOADED nothing is said about it:
  * no error line, no toast. The dropdown is simply empty - "No options", and
@@ -76,6 +81,7 @@ import { useEffect, useRef, useState } from 'react'
 import { InlineAlert, RetryButton } from '@/Components/Common/DataList'
 import { Field, FormActions, FormGrid, SelectField } from '@/Components/Common/FormFields'
 import { HsnSelector } from '@/Components/Common/HsnSelector'
+import { MultiSelectField } from '@/Components/Common/MultiSelectField'
 import { Panel } from '@/Components/Common/Panel'
 import { Button } from '@/Components/ui/button'
 import { GST_RATES, gstBreakdown } from '@/Constants/gst'
@@ -97,9 +103,6 @@ import {
 } from '@/Services/productService'
 
 const GST_OPTIONS = toOptions(GST_RATES)
-
-/** The choice that means "no vendor" - a dropdown cannot be emptied once set. */
-const NO_VENDOR = '__none__'
 
 /** A long list gets a search box; a short one does not need it. */
 const SEARCHABLE_FROM = 8
@@ -132,20 +135,23 @@ const withSaved = (options, saved) =>
 const initialForm = (fields, product) =>
   Object.fromEntries(fields.map(({ key, from }) => [key, product ? textOf(product[from]).trim() : '']))
 
-/** The vendor a product was saved with, as the dropdown's value - '' when it has none. */
-const initialVendor = (product) => {
-  const id = product?.vendors?.[0]?.id
-  return id === null || id === undefined ? '' : String(id)
-}
+/** A saved vendor's identifier, as the multi-select's value - null when it has none. */
+const vendorValueOf = (vendor) => (vendor?.id === null || vendor?.id === undefined ? null : String(vendor.id))
+
+/** The vendors a product was saved with, as the multi-select's values - [] when it has none. */
+const initialVendors = (product) => (product?.vendors ?? []).map(vendorValueOf).filter((value) => value !== null)
+
+/** Whether two lists of vendor values hold the same vendors, in any order. */
+const sameVendors = (a, b) => a.length === b.length && a.every((value) => b.includes(value))
 
 export default function BasicProductForm({ erp, product, companyName, groups, units, vendors, onSaved, onCancel }) {
   const editing = Boolean(product)
   const isTally = erp === BASIC_PRODUCT_ERP.TALLY
   const fields = BASIC_PRODUCT_FIELDS[erp]
 
-  const [initial] = useState(() => ({ form: initialForm(fields, product), vendor: initialVendor(product) }))
+  const [initial] = useState(() => ({ form: initialForm(fields, product), vendors: initialVendors(product) }))
   const [form, setForm] = useState(initial.form)
-  const [vendor, setVendor] = useState(initial.vendor)
+  const [chosenVendors, setChosenVendors] = useState(initial.vendors)
   const [errors, setErrors] = useState({})
   const [submitting, setSubmitting] = useState(false)
 
@@ -266,13 +272,21 @@ export default function BasicProductForm({ erp, product, companyName, groups, un
       return
     }
 
-    /* The vendor. One the user has not touched goes back exactly as the
-       product came with it - so an edit of the name never drops a vendor
-       that is no longer in the list, or the others of a product saved with
-       several. Only a change replaces it. */
-    const chosen = vendors.options.find((option) => option.value === vendor)
+    /* The vendors. Ones the user has not touched go back exactly as the
+       product came with them - so an edit of the name never drops a vendor
+       that is no longer in the list. A change sends what is chosen now, each
+       as the list names it - or, for one the list no longer has but that is
+       still chosen, as it was saved. */
     const vendorList =
-      editing && vendor === initial.vendor ? product.vendors : chosen ? [{ id: chosen.id, name: chosen.label }] : []
+      editing && sameVendors(chosenVendors, initial.vendors)
+        ? product.vendors
+        : chosenVendors.reduce((list, value) => {
+            const listed = vendors.options.find((option) => option.value === value)
+            const saved = product?.vendors?.find((entry) => vendorValueOf(entry) === value)
+            if (listed) list.push({ id: listed.id, name: listed.label })
+            else if (saved) list.push(saved)
+            return list
+          }, [])
 
     const payload = buildIntelligereProductPayload(companyName, form, vendorList)
 
@@ -309,7 +323,8 @@ export default function BasicProductForm({ erp, product, companyName, groups, un
     setErrors(found)
     if (Object.keys(found).length > 0) return
 
-    const unchanged = fields.every(({ key }) => form[key].trim() === initial.form[key]) && vendor === initial.vendor
+    const unchanged =
+      fields.every(({ key }) => form[key].trim() === initial.form[key]) && sameVendors(chosenVendors, initial.vendors)
     if (editing && unchanged) {
       toast.info('Nothing has been changed.')
       return
@@ -441,13 +456,23 @@ export default function BasicProductForm({ erp, product, companyName, groups, un
     )
   }
 
-  const vendorChoices = [{ value: NO_VENDOR, label: 'No vendor' }, ...vendors.options]
+  /* The company's vendors, plus any the product was saved with that the list
+     no longer has - so those still show by name, and can be removed. */
+  const vendorChoices = [
+    ...vendors.options,
+    ...(product?.vendors ?? [])
+      .filter((entry) => {
+        const value = vendorValueOf(entry)
+        return value !== null && !vendors.options.some((option) => option.value === value)
+      })
+      .map((entry) => ({ value: vendorValueOf(entry), label: entry.name || 'Vendor ' + entry.id })),
+  ]
   const loadingVendors = vendors.status === 'loading'
 
   return (
     <>
       <Panel title={editing ? 'Edit Product' : 'Product Form'}>
-        {/* A product can still be saved without a vendor. */}
+        {/* A product can still be saved without vendors. */}
         {!isTally && vendors.status === 'failed' ? (
           <InlineAlert action={<RetryButton onClick={vendors.retry} />}>
             Vendors could not be loaded. {vendors.error}
@@ -468,20 +493,23 @@ export default function BasicProductForm({ erp, product, companyName, groups, un
           <FormGrid>
             {fields.map(renderField)}
 
-            {/* Optional, and Intelligere's alone - see the note at the top. */}
+            {/* Optional, and Intelligere's alone - see the note at the top.
+                The whole row, so the chosen vendors' chips have room. */}
             {isTally ? null : (
-              <SelectField
+              <MultiSelectField
                 id="basic-product-vendor"
                 label="Vendor"
+                className="sm:col-span-2"
                 placeholder={
-                  loadingVendors ? 'Loading...' : vendors.options.length === 0 ? 'No vendors found' : 'Select vendor'
+                  loadingVendors ? 'Loading...' : vendorChoices.length === 0 ? 'No vendors found' : 'Select vendors'
                 }
-                options={vendorChoices}
-                value={vendor}
-                disabled={submitting || loadingVendors || vendors.options.length === 0}
-                searchable={vendors.options.length >= SEARCHABLE_FROM}
                 searchPlaceholder="Search vendor..."
-                onValueChange={(value) => setVendor(value === NO_VENDOR ? '' : value)}
+                options={vendorChoices}
+                // None shown while the list loads: there is nothing yet to
+                // show a vendor by.
+                value={loadingVendors ? [] : chosenVendors}
+                disabled={submitting || loadingVendors || vendorChoices.length === 0}
+                onChange={setChosenVendors}
               />
             )}
           </FormGrid>

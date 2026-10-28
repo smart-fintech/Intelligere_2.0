@@ -767,15 +767,27 @@ export const lineFromExistingProduct = (line, existing, products) => {
 }
 
 /**
+ * A line's order link (`order` - a product filled in from an order's products,
+ * see orderProducts) while it is still the same product or service it was
+ * filled with; null once another was chosen in its place, or when it has none.
+ */
+export const activeOrderOf = (line) => {
+  const order = line?.order
+  if (!order) return null
+  return (isServiceLine(line) ? line.ledgerId : line.productKey) === order.itemKey ? order : null
+}
+
+/**
  * Add Product / Update: the entry form becomes a line of the invoice - a new
  * one, or the line it was loaded from by Edit - and empties for the next.
+ * An order link no longer matching its product (activeOrderOf) is dropped.
  * An entry with no product commits nothing, so a second click (the form
  * already empty) can never add a blank or a duplicate line.
  */
 export const commitEntryToLines = (form) => {
   if (isServiceLine(form.entry) ? !form.entry.ledgerId : !form.entry.productKey) return form
   const editing = form.editingLineId && form.lines.some((line) => line.id === form.editingLineId)
-  const line = { ...form.entry, id: editing ? form.editingLineId : newInvoiceLine().id }
+  const line = { ...form.entry, order: activeOrderOf(form.entry), id: editing ? form.editingLineId : newInvoiceLine().id }
   return {
     ...form,
     lines: editing ? form.lines.map((current) => (current.id === line.id ? line : current)) : [...form.lines, line],
@@ -789,15 +801,27 @@ export const commitEntryToLines = (form) => {
 const flagValue = (value) => value === true || value === 1 || textOf(value).toLowerCase() === 'true'
 
 /**
+ * The number after the last document's middle part - the earlier screens'
+ * rule: one more, as wide as it was ("009" -> "010"). Anything but digits is
+ * left as it is.
+ */
+export const nextDocumentSerial = (value) => {
+  const serial = textOf(value)
+  return /^\d+$/.test(serial) ? (BigInt(serial) + 1n).toString().padStart(serial.length, '0') : serial
+}
+
+/**
  * invoice/last-document-number/'s answer, applied to the form:
  *
  *   { document_no_f: "INV", document_no_s: 34, document_no_t: "25-26",
  *     auto_increment: "true", with_discount: "false", ... }
  *
- * Auto Increment and With Discount follow the answer; with Auto Increment on,
- * the three number parts are filled from it. A field in `touched` (changed by
- * the user) is left exactly as they made it, and an answer with none of these
- * (an error, "Company not found") changes nothing.
+ * The parts are the LAST document's, so with Auto Increment on the form gets
+ * the next one: document_no_f / nextDocumentSerial(document_no_s) /
+ * document_no_t ("INV" / "35" / "25-26"). Auto Increment and With Discount
+ * follow the answer. A field in `touched` (changed by the user) is left
+ * exactly as they made it, and an answer with none of these (an error,
+ * "Company not found") changes nothing.
  */
 export const withDocumentDefaults = (form, reply, touched = new Set()) => {
   if (!reply || typeof reply !== 'object') return form
@@ -808,7 +832,7 @@ export const withDocumentDefaults = (form, reply, touched = new Set()) => {
     next.document.autoIncrement = flagValue(reply.auto_increment)
   }
   if (next.document.autoIncrement && hasNumber && !touched.has('document.invoiceNoParts')) {
-    next.document.invoiceNoParts = [textOf(reply.document_no_f), textOf(reply.document_no_s), textOf(reply.document_no_t)]
+    next.document.invoiceNoParts = [textOf(reply.document_no_f), nextDocumentSerial(reply.document_no_s), textOf(reply.document_no_t)]
   }
   if (reply.with_discount !== undefined && !touched.has('withDiscount')) {
     next.withDiscount = flagValue(reply.with_discount)
@@ -1248,6 +1272,11 @@ const checkLine = (found, line, key, { productsByKey, ledgersById, withDiscount,
   if (textOf(line.description).length > DESCRIPTION_MAX_LENGTH) {
     found[key('description')] = `Keep it to ${DESCRIPTION_MAX_LENGTH} characters`
   }
+  // From an order: never more than it still has to deliver.
+  const order = activeOrderOf(line)
+  if (order && Number.isFinite(order.remainQty) && numberOf(line.quantity) > order.remainQty) {
+    found[key('quantity')] = `Only ${order.remainQty} left on ${order.documentNo}`
+  }
 }
 
 /** Whether the entry form holds something not yet added to the invoice. */
@@ -1259,6 +1288,11 @@ export const validateEntry = (form, { productsByKey, ledgersById }) => {
   const found = {}
   const withDiscount = applicableForm(form).withDiscount
   checkLine(found, form.entry, (field) => `entry.${field}`, { productsByKey, ledgersById, withDiscount, challan: isChallan(form) })
+  // An order's row goes on the document once - a second time is an edit of that line.
+  const order = activeOrderOf(form.entry)
+  if (order && form.lines.some((line) => line.id !== form.editingLineId && activeOrderOf(line)?.key === order.key)) {
+    found['entry.productKey'] = `This ${order.documentNo} product is already added - edit that line instead`
+  }
   return found
 }
 

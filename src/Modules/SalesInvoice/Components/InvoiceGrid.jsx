@@ -17,7 +17,7 @@ import { cn } from '@/Library/utils'
  * (WIDE_FIELD), leaving the third for a field beside it; FULL_FIELD is for
  * the rare thing that genuinely needs the whole row.
  */
-export const WIDE_FIELD = '@sm:col-span-2'
+export const WIDE_FIELD = '@sm:col-span-1'
 export const FULL_FIELD = 'col-span-full'
 
 export function InvoiceGrid({ className, children }) {

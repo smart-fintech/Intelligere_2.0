@@ -9,7 +9,9 @@
  *   General                  the product itself
  *   SKU Variants             each SKU: its code, stock, selling rate, its
  *                            sku_details and its own fields (Width,
- *                            Manufacturing Date ...)
+ *                            Manufacturing Date ...) - then, together at
+ *                            the end, its Quantity, Expiry Date and Unit
+ *                            Rate (skuStockFields)
  *   Warehouse                each SKU's product_details entries - quantity,
  *                            rate, expiry, when added - and where the stock
  *                            of each is kept
@@ -48,9 +50,10 @@ import { useState } from 'react'
 import { DetailItem, DetailList } from '@/Components/Common/DetailList'
 import { Modal } from '@/Components/Common/Modal'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/Components/ui/table'
+import { perSkuFieldRank } from '@/Constants/inventory'
 import { cn } from '@/Library/utils'
 import { formatDate } from '@/Utils/date'
-import { displayValue, fieldLabel, referencesOfCategory, variantWarehouses } from '../productList'
+import { displayValue, fieldLabel, referencesOfCategory, skuStockFields, variantWarehouses } from '../productList'
 
 /* ------------------------------------------------------------------ */
 /* Small pieces                                                       */
@@ -170,6 +173,10 @@ function VariantsTab({ product }) {
       {product.variants.map((variant, index) => {
         // Its sku_details first; a field of the same name on the SKU is not repeated.
         const detailNames = variant.skuDetails.map(([name]) => name)
+        // Quantity, Expiry Date and Unit Rate are not among them: they close
+        // the SKU, together (skuStockFields).
+        const skuFields = variant.skuDetails.filter(([name]) => perSkuFieldRank(name) === -1)
+        const otherFields = variant.others.filter(({ key }) => perSkuFieldRank(key) === -1)
 
         return (
           <section key={index} className="space-y-2">
@@ -180,14 +187,22 @@ function VariantsTab({ product }) {
               <DetailItem label="SKU Quantity">{displayValue(variant.totalQty)}</DetailItem>
               <DetailItem label="SKU Amount">{displayValue(variant.totalAmount)}</DetailItem>
               <DetailItem label="Selling Rate">{displayValue(variant.source['Selling Rate'])}</DetailItem>
-              {variant.skuDetails
+              {skuFields
                 .filter(([, value]) => isFilled(value))
                 .map(([name, value]) => (
                   <DetailItem key={`sku-${name}`} label={name}>
                     {readable(value)}
                   </DetailItem>
                 ))}
-              {otherItems(variant.others, detailNames)}
+              {otherItems(otherFields, detailNames)}
+            </DetailList>
+
+            <DetailList>
+              {skuStockFields(variant).map(({ name, value }) => (
+                <DetailItem key={`stock-${name}`} label={name}>
+                  {isFilled(value) ? readable(value) : '--'}
+                </DetailItem>
+              ))}
             </DetailList>
           </section>
         )

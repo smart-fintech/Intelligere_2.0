@@ -20,13 +20,22 @@
  * Only the answer for the company, type and round still chosen is applied -
  * one for a type left behind is dropped. "No document found" is an answer,
  * not a failure, and leaves the form as it is.
+ *
+ * AUTO INCREMENT - numbering.setAutoIncrement(on), the box on Step 3: the
+ * company's setting is saved first (saveAutoIncrement), and only once it is
+ * does the box change (setAutoIncrement - the form's). Ticked, the number is
+ * then asked for again and applied the same way (the last document's parts,
+ * the middle one plus 1 - withDocumentDefaults); unticked, nothing is asked
+ * and the number typed stays. A refused save changes nothing and asks
+ * nothing. `switching` while the save is on its way - one at a time.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { getLastDocumentNumber } from '@/Services/salesInvoiceService'
+import { toast } from '@/Library/toast'
+import { getLastDocumentNumber, saveAutoIncrement } from '@/Services/salesInvoiceService'
 
-export default function useDocumentNumbering({ companyId, documentType, round, apply }) {
+export default function useDocumentNumbering({ companyId, documentType, round, apply, setAutoIncrement }) {
   const key = JSON.stringify({ companyId, documentType, round })
   const [answer, setAnswer] = useState({ key: null, status: 'idle' })
 
@@ -64,5 +73,28 @@ export default function useDocumentNumbering({ companyId, documentType, round, a
 
   const request = useCallback(() => ask(false), [ask])
   const retry = useCallback(() => ask(true), [ask])
-  return { status: answer.key === key ? answer.status : 'idle', request, retry }
+
+  const [switching, setSwitching] = useState(false)
+  const saving = useRef(false)
+  const switchAutoIncrement = useCallback(
+    async (on) => {
+      if (saving.current || !companyId) return
+      saving.current = true
+      setSwitching(true)
+      try {
+        await saveAutoIncrement(companyId, on)
+      } catch (failure) {
+        toast.error(failure.message || 'Auto Increment could not be saved.')
+        return
+      } finally {
+        saving.current = false
+        setSwitching(false)
+      }
+      setAutoIncrement(on)
+      if (on) ask(true)
+    },
+    [companyId, setAutoIncrement, ask],
+  )
+
+  return { status: answer.key === key ? answer.status : 'idle', request, retry, switching, setAutoIncrement: switchAutoIncrement }
 }
