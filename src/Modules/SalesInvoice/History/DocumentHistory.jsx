@@ -21,6 +21,7 @@ import useInventoryAccess from '@/Hooks/useInventoryAccess'
 import { useListView } from '@/Hooks/useListView'
 import { GstProgressPanel, GstToolbarActions } from '@/Modules/SalesInvoice/History/GstDocumentPanel'
 import HistoryPdfModal from '@/Modules/SalesInvoice/History/HistoryPdfModal'
+import HistoryChildDocuments from '@/Modules/SalesInvoice/History/HistoryChildDocuments'
 import HistoryProductRows from '@/Modules/SalesInvoice/History/HistoryProductRows'
 import InventorySalesOrderHistory from '@/Modules/SalesInvoice/History/InventorySalesOrderHistory'
 import TallyFetchModal from '@/Modules/SalesInvoice/History/TallyFetchModal'
@@ -67,7 +68,8 @@ import { formatDate } from '@/Utils/date'
  *               document's total added up), Actions
  *
  * THE ARROW, first in a row's Actions, opens the row out into its product
- * lines (product_data, already in the history - HistoryProductRows) and closes
+ * lines (product_data, already in the history - HistoryProductRows) and the
+ * documents made from it (child_documents - HistoryChildDocuments), and closes
  * it again; each row on its own, kept open across pages and filters by its
  * document_id.
  *
@@ -797,6 +799,7 @@ export default function DocumentHistory({
                               {/* The visible width less the table's 1px border on each side. */}
                               <div className="sticky left-0" style={visibleWidth ? { width: visibleWidth - 2 } : undefined}>
                                 <HistoryProductRows products={row.products} documentNo={row.documentNo} />
+                                <HistoryChildDocuments documents={row.children} documentNo={row.documentNo} />
                               </div>
                             </TableCell>
                           </TableRow>

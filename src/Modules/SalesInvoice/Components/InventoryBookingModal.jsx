@@ -1,71 +1,50 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Check, PackageX } from 'lucide-react'
 
 import { Modal } from '@/Components/Common/Modal'
 import { Button } from '@/Components/ui/button'
-import { toast } from '@/Library/toast'
+import useWarehouses from '@/Hooks/useWarehouses'
 import { cn } from '@/Library/utils'
-import { automaticBooking, bookedOf, bookingItemsOf, buildBookingBody, checkBooking, hasBookingProblems, totalBooked } from '@/Modules/SalesInvoice/inventoryBooking'
+import { automaticBooking, bookedOf, bookingItemsOf, checkBooking, hasBookingProblems, totalBooked } from '@/Modules/SalesInvoice/inventoryBooking'
 import { toDecimalInput } from '@/Modules/SalesInvoice/salesInvoiceForm'
-import { bookInventory } from '@/Services/inventoryBookingService'
-import { getWarehouses } from '@/Services/inventoryService'
 
 const cell = 'px-2 py-1.5'
 const quantity = (value) => String(Number(Number(value).toFixed(3)))
 
 /**
- * BOOK THE SALES ORDER'S STOCK - once the order is saved, before its PDF
- * (the workspace's save: saveWorkflow's `book`). Each product on its own:
- * its name and order quantity, then the warehouses that hold its SKU -
- * Warehouse Name, Contact No., Available Quantity, Book Quantity (typed) and
- * Remaining Quantity (available - booked, as it is typed). OK works only once
- * it all checks out (inventoryBooking's checkBooking - each product booked for
- * its whole order quantity) and sends inventory/inventory_booking/ once, however often
- * pressed: booked - the server's message, onBooked(reply, booked); refused -
- * its message, the modal stays open with every quantity, to try again.
- * Closing it books nothing (onClose) - the order stays saved.
+ * BOOK THE SALES ORDER'S STOCK - the first thing a new Sales Order's Save
+ * does, BEFORE the order is created (the workspace's save). Each product on
+ * its own: its name and order quantity, then the warehouses that hold its
+ * SKU - Warehouse Name, Contact No., Available Quantity, Book Quantity
+ * (typed) and Remaining Quantity (available - booked, as it is typed). OK
+ * works only once it all checks out (inventoryBooking's checkBooking - each
+ * product booked for its whole order quantity) and hands the quantities back
+ * - onConfirm(items, booked); nothing is sent from here. The workspace then
+ * creates the order and books it (inventory/inventory_booking/ needs the
+ * document_id the create returns). Closing it (onClose) saves nothing.
  *
- * NOTHING TO CHOOSE, NOTHING ASKED. When no product has more than one
- * warehouse to book from (automaticBooking), the first booking is sent at
- * once, each product whole from its warehouse, without the modal showing -
- * the very request OK would send, checked the same way. Refused, the modal
- * opens with those quantities filled in, to try again. Opened again to
- * change the booking (initialBooked), it always shows.
+ * When no product has more than one warehouse to book from, it opens with
+ * each product booked whole from its warehouse (automaticBooking) - one OK.
  *
  *   open
  *   lines           the order's lines
  *   productsByKey   the product list's products - where each SKU's stock is
- *   companyId, companyName
- *   documentId, documentNo   the saved order
- *   initialBooked   the quantities it opens with - the booking made, when it
- *                   is opened again to change it
+ *   companyId
+ *   documentNo      the order's number
+ *   initialBooked   the quantities it opens with - the ones chosen last, when
+ *                   the order is saved and its booking was refused
  */
-export default function InventoryBookingModal({ open, lines, productsByKey, companyId, companyName, documentId, documentNo, initialBooked = null, onBooked, onClose }) {
-  // The company's warehouses - their names and contact numbers.
-  const [warehouses, setWarehouses] = useState([])
-  useEffect(() => {
-    if (!open) return undefined
-    let current = true
-    getWarehouses(companyId)
-      .then((list) => current && setWarehouses(Array.isArray(list) ? list : []))
-      .catch(() => {
-        // Without the list the stock still shows - only names and contact numbers are missing.
-      })
-    return () => {
-      current = false
-    }
-  }, [open, companyId])
+export default function InventoryBookingModal({ open, lines, productsByKey, companyId, documentNo, initialBooked = null, onConfirm, onClose }) {
+  // The company's warehouses - their names and contact numbers. The shared list
+  // (useWarehouses): no request when another screen has it. Without it the stock
+  // still shows - only names and contact numbers are missing.
+  const { warehouses } = useWarehouses(open, companyId)
 
   const items = useMemo(() => bookingItemsOf({ lines, productsByKey, warehouses }), [lines, productsByKey, warehouses])
   // Taken once, as it opens - the warehouse list only names the warehouses, it never adds one.
-  const [automatic] = useState(() => (initialBooked ? null : automaticBooking(items)))
-  const [booked, setBooked] = useState(() => initialBooked ?? automatic ?? {})
-  const [sending, setSending] = useState(false)
-  // While the automatic booking is on its way the modal stays hidden; refused, it shows.
-  const [hidden, setHidden] = useState(Boolean(automatic))
-  const busy = useRef(false)
+  const [booked, setBooked] = useState(() => initialBooked ?? automaticBooking(items) ?? {})
   const problems = checkBooking(items, booked)
-  // OK works only with every quantity valid (the workflow's confirmBooking).
+  // OK works only with every quantity valid.
   const valid = !hasBookingProblems(problems)
   // A wrong number shows as it is typed; a product not fully booked once something is typed for it.
   const typedFor = (key) => Object.values(booked[key] ?? {}).some((value) => String(value ?? '').trim() !== '')
@@ -74,50 +53,14 @@ export default function InventoryBookingModal({ open, lines, productsByKey, comp
   const type = (itemKey, warehouseId, text) =>
     setBooked((current) => ({ ...current, [itemKey]: { ...current[itemKey], [warehouseId]: toDecimalInput(text) } }))
 
-  /** Sends the booking - true once it is booked; refused, its message, and false. */
-  const deliver = (quantities) => {
-    const body = buildBookingBody({ companyName, documentId, items, booked: quantities })
-    // Nothing any warehouse holds - nothing to book.
-    if (body.products.length === 0) {
-      onBooked(null, quantities)
-      return Promise.resolve(true)
-    }
-    return bookInventory(body)
-      .then((reply) => {
-        toast.success(reply?.msg || 'The stock was booked.')
-        onBooked(reply, quantities)
-        return true
-      })
-      .catch((failure) => {
-        toast.error(failure.message || 'The stock could not be booked.')
-        return false
-      })
+  const confirm = () => {
+    if (valid) onConfirm(items, booked)
   }
-
-  const confirm = async () => {
-    if (busy.current || !valid) return
-    busy.current = true
-    setSending(true)
-    await deliver(booked)
-    busy.current = false
-    setSending(false)
-  }
-
-  // The automatic booking - sent once, as the modal opens (`busy` keeps a second mount from sending it again).
-  useEffect(() => {
-    if (!open || !automatic || busy.current) return
-    busy.current = true
-    deliver(automatic).then((done) => {
-      busy.current = false
-      if (!done) setHidden(false)
-    })
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only as it opens
-  }, [])
 
   return (
     <Modal
-      open={open && !hidden}
-      onOpenChange={(next) => !next && !busy.current && onClose()}
+      open={open}
+      onOpenChange={(next) => !next && onClose()}
       title={`Book inventory - ${documentNo || 'Sales Order'}`}
       description="Book each product's order quantity from the warehouses that hold it."
       size="xl"
@@ -125,10 +68,10 @@ export default function InventoryBookingModal({ open, lines, productsByKey, comp
       footer={
         <div className="flex flex-wrap items-center justify-end gap-2">
           {valid ? null : <p className="mr-auto text-xs text-muted-foreground">Book each product&apos;s whole order quantity to continue.</p>}
-          <Button type="button" variant="outline" disabled={sending} onClick={onClose}>
+          <Button type="button" variant="outline" onClick={onClose}>
             Close
           </Button>
-          <Button type="button" icon={Check} loading={sending} disabled={sending || !valid} onClick={confirm}>
+          <Button type="button" icon={Check} disabled={!valid} onClick={confirm}>
             OK
           </Button>
         </div>
@@ -190,7 +133,6 @@ export default function InventoryBookingModal({ open, lines, productsByKey, comp
                                 aria-invalid={Boolean(cellError)}
                                 className="h-8 w-full rounded-md border border-input bg-card px-2 text-right text-sm tabular-nums outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 aria-invalid:border-destructive"
                                 value={booked[item.key]?.[warehouse.id] ?? ''}
-                                disabled={sending}
                                 onChange={(event) => type(item.key, warehouse.id, event.target.value)}
                               />
                               {cellError ? <p className="mt-0.5 text-[11px] text-destructive">{cellError}</p> : null}

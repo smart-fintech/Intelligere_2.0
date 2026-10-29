@@ -9,6 +9,7 @@ import useDocumentMappings from '@/Modules/SalesInvoice/useDocumentMappings'
 import useInvoiceReferenceData from '@/Modules/SalesInvoice/useInvoiceReferenceData'
 import HistoryPdfJob from '@/Modules/SalesInvoice/History/HistoryPdfJob'
 import { getCountries, getStates } from '@/Services/locationService'
+import { MAPPING_DOCUMENT_TYPE } from '@/Services/salesInvoiceService'
 import { resolveGstLedgers } from '@/Utils/gstLedgers'
 import '@/Modules/SalesInvoice/Document/invoiceSheet.css'
 
@@ -46,7 +47,7 @@ const printedOn = (now = new Date()) =>
 export default function useHistoryDocumentPdf(company) {
   const companyId = company.company_id
   const { ledgers, banks, countries, products } = useInvoiceReferenceData(companyId)
-  const mappings = useDocumentMappings(companyId, true)
+  const mappings = useDocumentMappings(companyId, MAPPING_DOCUMENT_TYPE.SALES)
   const [job, setJob] = useState(null)
   const queue = useRef(Promise.resolve())
   const jobCount = useRef(0)

@@ -40,11 +40,17 @@ import useOrderProducts from '@/Modules/SalesInvoice/useOrderProducts'
 import { orderReference } from '@/Modules/SalesInvoice/orderProducts'
 import OrderProducts from '@/Modules/SalesInvoice/Components/OrderProducts'
 import InventoryBookingModal from '@/Modules/SalesInvoice/Components/InventoryBookingModal'
+import StockBookingModal from '@/Modules/SalesInvoice/Components/StockBookingModal'
+import ChallanStockModal from '@/Modules/SalesInvoice/Components/ChallanStockModal'
+import { buildStockSummaryRequest, needsChallanStock, readStockSummary } from '@/Modules/SalesInvoice/challanStock'
 import InventoryDetailsModal from '@/Modules/SalesInvoice/Components/InventoryDetailsModal'
+import { buildBookingBody } from '@/Modules/SalesInvoice/inventoryBooking'
+import { needsStockBooking, stockBookingItems } from '@/Modules/SalesInvoice/stockBooking'
 import { PROCUREMENT_STATE, QUOTATION_STATES } from '@/Modules/SalesInvoice/procurement'
 import useProcurement from '@/Modules/SalesInvoice/useProcurement'
 import useInventoryAccess from '@/Hooks/useInventoryAccess'
 import { buildPrefillFrom, readPrefillFrom } from '@/Services/documentPrefillService'
+import { bookInventory, getStockSummary } from '@/Services/inventoryBookingService'
 import { SAVE_OUTCOME, runSaveWorkflow } from '@/Modules/SalesInvoice/saveWorkflow'
 import {
   buyerFromLedger,
@@ -72,6 +78,7 @@ import {
   createBusinessDocument,
   documentPdfFileName,
   getDocumentTypeAccess,
+  MAPPING_DOCUMENT_TYPE,
   saveBuyerLedger,
   saveDocumentFile,
   saveDocumentPdf,
@@ -235,13 +242,15 @@ const STEP_OF_PARTY = { seller: INVOICE_STEP.SELLER, buyer: INVOICE_STEP.BUYER }
  *
  * A SALES ORDER'S STOCK (Inventory Management)
  * ------------------------------------------------------------------
- * A NEW Sales Order, for a company with Inventory Management, books its
- * stock once it is saved and before its PDF (saveWorkflow's step 2b -
- * InventoryBookingModal, inventory/inventory_booking/ with the document_id
- * just returned; when no product has warehouses to choose from, it is booked
- * without the modal showing). Closed without booking, the order stays saved and waits:
- * Book Inventory opens it again, Skip booking goes on to the PDF - nothing is
- * ever created twice, and a booking done is never asked for again. Every
+ * A NEW Sales Order, for a company with Inventory Management, has its stock
+ * booked FIRST: Save (once the form checks out) opens InventoryBookingModal,
+ * and only its OK goes on - the order is created (invoice/business-documents/),
+ * then booked with the quantities chosen and the document_id just returned
+ * (saveWorkflow's step 2b - inventory/inventory_booking/), then its PDF.
+ * Closed, nothing is created. A booking the server refuses leaves the order
+ * saved and waiting: Book Inventory opens the modal again (with the quantities
+ * chosen) and sends only the booking, Skip booking goes on to the PDF - nothing
+ * is ever created twice, and a booking done is never asked for again. Every
  * Sales Order's PDF save answers with its `stock`, kept for Inventory Details
  * (InventoryDetailsModal) - offered once the order is saved.
  *
@@ -252,8 +261,28 @@ const STEP_OF_PARTY = { seller: INVOICE_STEP.SELLER, buyer: INVOICE_STEP.BUYER }
  * Request for Quotation - inside Inventory Details, its only entry point
  * (RequestQuotation: what is bought at which level, the raw materials'
  * vendors, then each seller's quantities and Download -
- * inventory/request_quotation/). The booking modal is the workflow's
- * WAREHOUSE_BOOKING.
+ * inventory/request_quotation/).
+ *
+ * A PURCHASE'S STOCK (Purchase Invoice, Inbound Challan - Inventory Management)
+ * ------------------------------------------------------------------
+ * Once a NEW one is created, and before its file / PDF is saved, its product
+ * lines are booked into warehouses (saveWorkflow's step 2b -
+ * StockBookingModal: each line in the product form, filled from the product
+ * list, the warehouse the user's to choose; one product POST per line, with
+ * the document_id). It cannot be closed; a retry of the upload never books
+ * again. Not for a Purchase Invoice whose Prefill From is an Inbound Challan
+ * (needsStockBooking) - that stock came in with the challan.
+ *
+ * A CHALLAN'S STOCK (Challan with no Prefill From - Inventory Management)
+ * ------------------------------------------------------------------
+ * Before a NEW one is created: its products' stock summary (POST
+ * inventory/SKUWarehouseSummaryAPI/), ChallanStockModal to take each one's
+ * quantity out of a warehouse's free stock or a Sales Order's booking, the
+ * PUT - and only once that succeeds, the Challan is created and its PDF made.
+ * Closed, or refused, nothing is saved. Done once for the same lines (a create
+ * that fails is saved again without taking the stock out twice). Not with a
+ * Prefill From - a Sales Order's stock is that order's booking; a Proforma's
+ * as it always was (needsChallanStock).
  *
  * EDITING A SAVED DOCUMENT (History's Edit)
  * ------------------------------------------------------------------
@@ -316,11 +345,13 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
      Every document that charges GST names, in gst_charges, the LEDGER each
      tax is posted to - so every type needs a real ledger for each tax and
      rate it charges. The GST mappings (invoice/document-mapping/) are the
-     company's, read once per company (shared cache) for every type that
-     charges GST; ledgers are also matched by name. One rule, Utils/gstLedgers
-     - the table, the preview, the check before saving and the saved
-     gst_charges all read the same answer. */
-  const mappings = useDocumentMappings(companyId, chargesGst)
+     company's for its side - 'Sales Invoice' on a sale, 'Purchase Invoice'
+     on a purchase - read once per company and side (shared cache) for every
+     type that charges GST; ledgers are also matched by name. One rule,
+     Utils/gstLedgers - the table, the preview, the check before saving and
+     the saved gst_charges all read the same answer. */
+  const mappingType = parties.company === 'seller' ? MAPPING_DOCUMENT_TYPE.SALES : MAPPING_DOCUMENT_TYPE.PURCHASE
+  const mappings = useDocumentMappings(companyId, chargesGst ? mappingType : null)
   const ledgerMapping = chargesGst ? mappings.ledgerMapping : null
 
   /* ---- the buyer's earlier products - once the Buyer step is completed ---- */
@@ -505,15 +536,21 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
   const { clear: clearPrefill } = prefill
 
   /* ---- a Sales Order's stock ----
-     `procurement` - the saved order's purchasing; the booking modal is open
-     in its WAREHOUSE_BOOKING, and its answer settles the save's step 2b
-     (bookingAnswer). `inventoryDetails` - { documentId, documentNo, stock }
-     from the last Sales Order's PDF save, for Inventory Details. */
+     `procurement` - the saved order's purchasing. `bookingAsk` - the booking
+     modal, open while a save waits for its answer (bookingAnswer: the
+     quantities chosen, or null - closed); `bookedRef` the quantities last
+     chosen, for a booking that was refused. `inventoryDetails` - { documentId,
+     documentNo, stock } from the last Sales Order's PDF save, for Inventory Details. */
   const inventoryAccess = useInventoryAccess()
   // A NEW Sales Order of a company with Inventory Management books its stock - an update never does.
   const booksInventory = documentTypeValue === SALES_ORDER && inventoryAccess.full && !editing
+  // { documentId, documentNo, items } while its lines are being booked; stockAnswer settles the save's step 2b.
+  const [stockAsk, setStockAsk] = useState(null)
+  const stockAnswer = useRef(null)
   const procurement = useProcurement({ companyId })
   const bookingAnswer = useRef(null)
+  const bookedRef = useRef(null)
+  const [bookingAsk, setBookingAsk] = useState(null)
   const [inventoryDetails, setInventoryDetails] = useState(null)
   const [inventoryOpen, setInventoryOpen] = useState(false)
   /**
@@ -535,18 +572,59 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
       booked: null,
     }
   }
+  /** Opens the booking modal - its answer: { items, booked } on OK, null when closed. */
+  const askBooking = (documentNo, initialBooked) =>
+    new Promise((resolve) => {
+      bookingAnswer.current = resolve
+      setBookingAsk({ documentNo, initialBooked })
+    })
   const settleBooking = (answer) => {
     const resolve = bookingAnswer.current
     bookingAnswer.current = null
+    setBookingAsk(null)
     resolve?.(answer)
   }
   // Nothing of a booking outlives the workspace.
   useEffect(
     () => () => {
-      bookingAnswer.current?.('paused')
+      bookingAnswer.current?.(null)
+      stockAnswer.current?.('paused')
     },
     [],
   )
+  /**
+   * The saved purchase's lines booked into warehouses (step 2b) - 'booked'
+   * once the last is saved; 'skipped' when it has no product to book. A line
+   * whose product is no longer in the product list is left out, and said so.
+   */
+  const bookStock = (documentId, documentNo) => {
+    const { items, unmatched } = stockBookingItems({ lines: applicable.lines, productsByKey: products.byKey })
+    if (unmatched.length > 0) toast.warning(`Not in the product list, so not booked into a warehouse: ${unmatched.join(', ')}.`)
+    if (items.length === 0) return Promise.resolve('skipped')
+    return new Promise((resolve) => {
+      stockAnswer.current = resolve
+      setStockAsk({ documentId, documentNo, items })
+    })
+  }
+  /**
+   * The saved order booked with the quantities chosen (step 2b) - 'booked', or
+   * 'paused' when the server refuses it (its message shown; the order stays saved).
+   */
+  const sendBooking = async (documentId, { items, booked }) => {
+    const body = buildBookingBody({ companyName: company.comp_name, documentId, items, booked })
+    // Nothing any warehouse holds - nothing to book.
+    if (body.products.length > 0) {
+      try {
+        const reply = await bookInventory(body)
+        toast.success(reply?.msg || 'The stock was booked.')
+      } catch (failure) {
+        toast.error(failure.message || 'The stock could not be booked.')
+        return 'paused'
+      }
+    }
+    procurement.bookingConfirmed(booked)
+    return 'booked'
+  }
 
   /* ---- order products - the party's orders, after Step 2 ---- */
   const ledgerParty = form[parties.ledger]
@@ -560,6 +638,52 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
       if (reference) setField('document.referenceNo', reference)
     },
   })
+  // A NEW Purchase Invoice / Inbound Challan books its stock after it is created - not one prefilled from an Inbound Challan (needsStockBooking).
+  const booksStock = needsStockBooking({ documentType: documentTypeValue, orderSource: orders.source, inventory: inventoryAccess.full, editing: Boolean(editing) })
+  // A NEW Challan with nothing in Prefill From takes its stock out before it is created (needsChallanStock).
+  const takesChallanStock = needsChallanStock({
+    documentType: documentTypeValue,
+    inventory: inventoryAccess.full,
+    editing: Boolean(editing),
+    prefilled: Boolean(orders.source || prefill.sourceType || prefilledFrom),
+  })
+  // { rows, documentNo } while the modal is open; challanStockAnswer settles the save's wait for it;
+  // challanStockFor - the lines whose stock is already out (never taken out twice).
+  const [challanStockAsk, setChallanStockAsk] = useState(null)
+  const challanStockAnswer = useRef(null)
+  const challanStockFor = useRef(null)
+  const linesTaken = JSON.stringify(applicable.lines.map((line) => [line.productKey, line.skuValue, line.quantity]))
+  /** The Challan's stock taken out (POST, the modal, PUT) - true once it is, or there is nothing to take; false - not saved. */
+  const takeChallanStock = async (documentNo) => {
+    const { body, items } = buildStockSummaryRequest({ companyName: company.comp_name, lines: applicable.lines, productsByKey: products.byKey })
+    if (body.length === 0) return true
+    let reply
+    try {
+      reply = await getStockSummary(body)
+    } catch (failure) {
+      toast.error(failure.message || 'The stock could not be read.')
+      return false
+    }
+    const rows = readStockSummary(reply, items)
+    if (rows.length === 0) return true
+    return new Promise((resolve) => {
+      challanStockAnswer.current = resolve
+      setChallanStockAsk({ rows, documentNo })
+    })
+  }
+  const settleChallanStock = (done) => {
+    const resolve = challanStockAnswer.current
+    challanStockAnswer.current = null
+    setChallanStockAsk(null)
+    resolve?.(done)
+  }
+  // Nor does a Challan's wait for its stock.
+  useEffect(
+    () => () => {
+      challanStockAnswer.current?.(false)
+    },
+    [],
+  )
 
   if (editRequest && editRequest !== seenEditRequest) {
     setSeenEditRequest(editRequest)
@@ -680,7 +804,8 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
         // (Never while editing - the document keeps the number it was saved under.)
         if (step.key === INVOICE_STEP.BUYER && !editing) numbering.request()
         // ...and the party's order numbers, for a type that takes order products - buyer_id as the save sends it.
-        if (step.key === INVOICE_STEP.BUYER && orders.source) {
+        // (A type that chooses its source keeps the party for when one is chosen - Prefill From.)
+        if (step.key === INVOICE_STEP.BUYER && (orders.source || orders.choices.length > 0)) {
           const ledger = ledgers.byId.get(ledgerParty.ledgerId)
           orders.request(getLedgerId(ledger) ?? ledgerParty.ledgerId)
         }
@@ -763,11 +888,14 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
           setInventoryDetails({ documentId: keep?.documentId ?? null, documentNo: invoiceNo, stock: reply.stock })
         // Its purchasing goes on from that stock (only an order whose booking is done or skipped waits for it).
         if (documentTypeValue === SALES_ORDER && keep?.documentId != null) procurement.stockArrived(keep.documentId, reply?.stock ?? null)
+        bookedRef.current = null
+        challanStockFor.current = null
         setSaved(null)
         setEditing(null)
         setDocumentFile(null)
         setPrefilledFrom(null)
         clearPrefill()
+        orders.clearSource()
         reset()
         setNumberingRound((round) => round + 1)
         goTo(0)
@@ -781,9 +909,9 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
         toast.error('The server did not return the saved document. Please check before saving again.')
         return
       case SAVE_OUTCOME.BOOKING_PAUSED:
-        // The order is saved; its stock (and so its PDF) waits for Book Inventory or Skip booking.
+        // The order is saved, its booking refused; its stock (and so its PDF) waits for Book Inventory or Skip booking.
         setSaved(keep)
-        toast.info(`${what} is saved, but its inventory is not booked yet. Press Book Inventory - or Skip booking.`)
+        toast.info(`${what} is saved, but its inventory could not be booked. Press Book Inventory to try again - or Skip booking.`)
         return
       case SAVE_OUTCOME.PDF_FAILED:
         console.error('[Sales Invoice] PDF generation failed:', error)
@@ -895,27 +1023,42 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
       }
 
       const invoiceNo = saved?.invoiceNo ?? request.invoiceNo
+      // A new Sales Order's stock is chosen BEFORE it is created (or, saved with
+      // its booking refused, again before only the booking is sent). Closed -
+      // nothing is created, nothing sent.
+      let booking = null
+      if (booksInventory && !skipBooking && (!saved || saved.booked === false)) {
+        setPhase('booking')
+        booking = await askBooking(invoiceNo, saved ? bookedRef.current : null)
+        if (!booking) return
+        bookedRef.current = booking.booked
+      }
+      // A new Challan with no Prefill From: its stock out of the warehouses first - once for these lines.
+      if (!saved && takesChallanStock && challanStockFor.current !== linesTaken) {
+        setPhase('booking')
+        if (!(await takeChallanStock(invoiceNo))) return
+        challanStockFor.current = linesTaken
+      }
       const result = await runSaveWorkflow({
         // A retry of a type that uploads its own file sends the file chosen NOW (it may have been replaced).
-        saved: uploadsFile && saved ? { documentId: saved.documentId, invoiceNo: saved.invoiceNo } : saved,
+        // (`booked` kept, so a retry never books the stock again.)
+        saved: uploadsFile && saved ? { documentId: saved.documentId, invoiceNo: saved.invoiceNo, booked: saved.booked } : saved,
         invoiceNo,
         // Editing: the saved document is updated (PUT, its document_id) - never a new one made.
         createDocument: () => (editing ? updateBusinessDocument(editing.documentId, request) : createBusinessDocument(request)),
-        // A new Sales Order with Inventory Management: its stock booked before the PDF (or skipped, as asked).
+        // A new Sales Order with Inventory Management: booked with the quantities chosen, before the PDF (or skipped, as asked).
         book: booksInventory
-          ? skipBooking
-            ? (documentId) => {
-                procurement.orderSaved(orderSnapshot(documentId, invoiceNo))
+          ? (documentId) => {
+              procurement.orderSaved(orderSnapshot(documentId, invoiceNo))
+              if (!booking) {
                 procurement.bookingSkipped()
                 return Promise.resolve('skipped')
               }
-            : (documentId) =>
-                new Promise((resolve) => {
-                  bookingAnswer.current = resolve
-                  procurement.orderSaved(orderSnapshot(documentId, invoiceNo))
-                  procurement.openBooking()
-                })
-          : null,
+              return sendBooking(documentId, booking)
+            }
+          : booksStock
+            ? (documentId) => bookStock(documentId, invoiceNo)
+            : null,
         // Purchase Invoice / Inbound Challan: the chosen file, or none - never a PDF made from the form.
         makePdf: uploadsFile ? () => documentFile : makeDocumentPdfs(copies),
         uploadPdf: uploadsFile
@@ -965,6 +1108,8 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
   const startNew = () => {
     // That order's purchasing ends with it - its PDF (and so its stock) is not coming.
     procurement.reset()
+    bookedRef.current = null
+    challanStockFor.current = null
     setSaved(null)
     setEditing(null)
     setPendingEdit(null)
@@ -972,6 +1117,7 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
     setPendingPrefill(null)
     setPrefilledFrom(null)
     clearPrefill()
+    orders.clearSource()
     reset()
     // That document used its number: the next one is asked for at Step 2.
     setNumberingRound((round) => round + 1)
@@ -979,7 +1125,7 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
   }
 
   const saveWord = `${editing ? 'Update' : 'Save'} ${isInvoice ? 'Invoice' : (documentType?.label ?? 'Document')}`
-  // A saved Sales Order whose booking was closed: Save books it.
+  // A saved Sales Order whose booking was refused: Save books it.
   const bookingPending = Boolean(saved) && saved.booked === false
   const retryWord = uploadsFile ? 'Retry Upload' : 'Retry PDF'
   const saveLabel = {
@@ -1029,7 +1175,7 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
                 </div>
               }
             >
-              {saved.invoiceNo} is saved (document {saved.documentId}), but its inventory is not booked yet - its PDF is made once it is (or once you skip booking). It will not be saved a second time.
+              {saved.invoiceNo} is saved (document {saved.documentId}), but its inventory could not be booked - its PDF is made once it is (or once you skip booking). It will not be saved a second time.
             </InlineAlert>
           ) : saved ? (
             <InlineAlert
@@ -1070,7 +1216,7 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
           ) : null}
           {step.key === INVOICE_STEP.SELLER ? (
             <>
-              <DocumentTypeCard {...stepProps} documentTypes={documentTypes} locked={Boolean(saved) || Boolean(editing)} prefill={prefill} />
+              <DocumentTypeCard {...stepProps} documentTypes={documentTypes} locked={Boolean(saved) || Boolean(editing)} prefill={prefill} orderSource={orders} />
               <SellerDetails {...stepProps} ledgers={ledgers} countries={countries} onSettingChange={changeSetting} />
             </>
           ) : null}
@@ -1094,6 +1240,7 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
               orders={orders}
               partyLabel={parties.ledger === 'buyer' ? 'buyer' : 'supplier'}
               showMapping={chargesGst}
+              mappingType={mappingType}
               chargeSac={
                 chargeSacRule
                   ? {
@@ -1218,26 +1365,41 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
 
       {shareOffer ? <ShareInvoiceModal offer={shareOffer} onClose={() => setShareOffer(null)} /> : null}
 
-      {/* A new Sales Order's stock - mounted afresh per order, so nothing typed for one reaches another. */}
-      {procurement.state === PROCUREMENT_STATE.WAREHOUSE_BOOKING ? (
+      {/* A new Challan's stock, taken out before it is saved - mounted only while the save waits for it. */}
+      {challanStockAsk ? (
+        <ChallanStockModal
+          rows={challanStockAsk.rows}
+          companyName={company.comp_name}
+          documentNo={challanStockAsk.documentNo}
+          onDone={() => settleChallanStock(true)}
+          onClose={() => settleChallanStock(false)}
+        />
+      ) : null}
+      {/* A saved purchase's stock, line by line - mounted only while a save waits for it. */}
+      {stockAsk ? (
+        <StockBookingModal
+          items={stockAsk.items}
+          documentId={stockAsk.documentId}
+          documentNo={stockAsk.documentNo}
+          onDone={() => {
+            const resolve = stockAnswer.current
+            stockAnswer.current = null
+            setStockAsk(null)
+            resolve?.('booked')
+          }}
+        />
+      ) : null}
+      {/* A new Sales Order's stock - mounted afresh each time a save asks, so nothing typed for one reaches another. */}
+      {bookingAsk ? (
         <InventoryBookingModal
-          key={`${procurement.order.documentId}:${procurement.machine.bookingRound}`}
           open
-          lines={procurement.order.lines}
-          productsByKey={procurement.order.productsByKey}
+          lines={applicable.lines}
+          productsByKey={products.byKey}
           companyId={companyId}
-          companyName={procurement.order.companyName}
-          documentId={procurement.order.documentId}
-          documentNo={procurement.order.documentNo}
-          initialBooked={procurement.order.booked}
-          onBooked={(reply, booked) => {
-            procurement.bookingConfirmed(booked)
-            settleBooking('booked')
-          }}
-          onClose={() => {
-            procurement.bookingClosed()
-            settleBooking('paused')
-          }}
+          documentNo={bookingAsk.documentNo}
+          initialBooked={bookingAsk.initialBooked}
+          onConfirm={(items, booked) => settleBooking({ items, booked })}
+          onClose={() => settleBooking(null)}
         />
       ) : null}
       <InventoryDetailsModal

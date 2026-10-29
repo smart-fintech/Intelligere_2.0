@@ -20,47 +20,19 @@
  *
  *   const warehouses = useWarehouseOptions(true, company.company_id)
  *
- * The same list the Warehouse tab shows (getWarehouses), read with the same
- * `company_id` from the store. A warehouse that has arrived without an
- * identifier cannot be chosen, so it is left out.
+ * The same list the Warehouse tab shows - the shared one (useWarehouses), so
+ * it costs no request when another screen has it already, and it follows a
+ * warehouse created, changed or deleted. A warehouse that has arrived without
+ * an identifier cannot be chosen, so it is left out.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo } from 'react'
 
-import { useActiveCompany } from '@/Hooks/useActiveCompany'
-import { getWarehouseId, getWarehouses } from '@/Services/inventoryService'
-
-const NO_WAREHOUSES = []
+import useWarehouses from '@/Hooks/useWarehouses'
+import { getWarehouseId } from '@/Services/inventoryService'
 
 export default function useWarehouseOptions(enabled, forCompanyId) {
-  const { activeCompanyId } = useActiveCompany()
-  const companyId = forCompanyId ?? activeCompanyId
-
-  // Kept with the company it belongs to, as on the Warehouse tab: an answer
-  // for a company the header has since left is not this company's.
-  const [state, setState] = useState({ status: 'loading', warehouses: NO_WAREHOUSES, error: null, forKey: null })
-  const [attempt, setAttempt] = useState(0)
-  const request = useRef(null)
-
-  useEffect(() => {
-    if (!enabled || !companyId) return
-
-    const requestKey = `${companyId}#${attempt}`
-    if (request.current === requestKey) return
-    request.current = requestKey
-
-    getWarehouses(companyId)
-      .then((warehouses) => {
-        if (request.current === requestKey) setState({ status: 'ready', warehouses, error: null, forKey: companyId })
-      })
-      .catch((failure) => {
-        if (request.current !== requestKey) return
-        setState({ status: 'failed', warehouses: NO_WAREHOUSES, error: failure.message, forKey: companyId })
-      })
-  }, [enabled, companyId, attempt])
-
-  const mine = enabled && Boolean(companyId) && state.forKey === companyId
-  const warehouses = mine ? state.warehouses : NO_WAREHOUSES
+  const { status, warehouses, error, reload } = useWarehouses(enabled, forCompanyId)
 
   const options = useMemo(
     () =>
@@ -74,13 +46,5 @@ export default function useWarehouseOptions(enabled, forCompanyId) {
     [warehouses],
   )
 
-  return {
-    status: !enabled || !companyId ? 'idle' : mine ? state.status : 'loading',
-    options,
-    error: mine ? state.error : null,
-    retry: () => {
-      setState((previous) => ({ ...previous, forKey: null }))
-      setAttempt((count) => count + 1)
-    },
-  }
+  return { status, options, error, retry: reload }
 }

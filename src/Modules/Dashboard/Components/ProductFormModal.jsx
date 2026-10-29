@@ -120,6 +120,26 @@
  * The product has to be chosen before step 1 can be left; a SKU need not
  * be.
  *
+ * ------------------------------------------------------------------
+ * BOOKING A PURCHASE'S STOCK
+ * ------------------------------------------------------------------
+ * With `booking` it is Add Existing Product for ONE line of a saved
+ * Purchase Invoice or Inbound Challan (StockBookingModal walks the lines):
+ * the product and SKU already chosen - the line's own, shown but not
+ * changed - and the form filled from them as Add Existing Product fills it
+ * (prefillStockBooking), with the line's Quantity and Unit Rate and no
+ * warehouse: one line to choose it in, holding the quantity. It cannot be
+ * closed - no X, Escape, outside click or Cancel - and saves only once every
+ * unit is in a warehouse (stockBookingError, on top of the usual checks).
+ * The same POST, with `booking.extra` ({ document_id }) added to the
+ * payload; there is no Add SKU (it is that line's SKU).
+ *
+ * No steps to walk: two views instead - Product (step 1: the product, its
+ * SKU and its warehouse lines; open first) and Details (every later step's
+ * fields, together) - one form, so switching keeps every value. ONE button,
+ * in either view, saves the line (every step checked, as Save always does;
+ * the view with the problem opened) - once, however often pressed.
+ *
  * Props:
  *   open, onOpenChange   controlled by the Products page, the same as Modal
  *   steps        from buildProductSteps - never empty. The dialog shows them
@@ -135,6 +155,8 @@
  *                { productId, saved: productEditSource(...), versioning }
  *                - `versioning` is whether Add Version is offered
  *   fromExisting   Add Existing Product - see above
+ *   booking      null, or { productKey, skuIndex, quantity, rate, extra, title,
+ *                submitLabel } - see "Booking a purchase's stock" above
  *   onSaved(response)   after a successful save
  */
 
@@ -142,6 +164,8 @@ import { useMemo, useRef, useState } from 'react'
 import { ArrowLeft, ArrowRight, History, Undo2 } from 'lucide-react'
 
 import { ConfirmPopover } from '@/Components/Common/ConfirmPopover'
+import { Label } from '@/Components/ui/label'
+import { RadioGroup, RadioGroupItem } from '@/Components/ui/radio-group'
 import { InlineAlert, RetryButton } from '@/Components/Common/DataList'
 import { SelectField } from '@/Components/Common/FormFields'
 import { SkuSelector } from '@/Components/Common/SkuSelector'
@@ -180,6 +204,7 @@ import {
   skuGroupOf,
   skuSetHasData,
 } from '../productForm'
+import { prefillStockBooking, stockBookingError } from '../productBooking'
 import { PRODUCT_FIELD, productEditSource, readProducts, savedValue, sharedSkuValues } from '../productList'
 import ProductFieldInput from './ProductFieldInput'
 import ProductSkuEntries from './ProductSkuEntries'
@@ -231,8 +256,11 @@ export default function ProductFormModal({
   singleWarehouse = false,
   edit = null,
   fromExisting = false,
+  booking = null,
   onSaved,
 }) {
+  // Booking a purchase's stock is Add Existing Product with the product already chosen.
+  const fromList = fromExisting || Boolean(booking)
   // The numbers the next SKU entry and the next warehouse line get - only
   // ever read in a handler. Entry 1 is the one every form starts with, and
   // one counter numbers every line, so no two lines share a key whichever
@@ -244,6 +272,19 @@ export default function ProductFormModal({
   // opens (it gets a new `key` every time). Saved lines are numbered
   // apart from new ones, so no two share a key.
   const [initial] = useState(() => {
+    if (booking) {
+      // The line's product and SKU, as the list has them - the warehouse left to choose (see the note at the top).
+      const product = readProducts(products?.rows).find((entry) => String(entry.key) === String(booking.productKey))
+      const variant = product?.variants[booking.skuIndex] ?? null
+      if (!product || !variant) return null
+      const filled = prefillStockBooking(formSteps, { product, variant, quantity: booking.quantity, rate: booking.rate })
+      const line = { ...emptyAllocation('booking-0'), warehouse_quantity: String(booking.quantity ?? '').trim() }
+      return {
+        values: filled.values,
+        skuSet: { id: 1, values: filled.skuValues, allocations: filled.hasSkus ? [line] : [] },
+        allocations: filled.hasSkus ? [] : [line],
+      }
+    }
     if (!edit) return null
     const filled = prefillProductForm(formSteps, edit.saved)
     const numbered = (lines, prefix) => lines.map((line, index) => ({ id: `${prefix}-${index}`, ...line }))
@@ -264,7 +305,9 @@ export default function ProductFormModal({
   const [heldAllocations, setAllocations] = useState(() => initial?.allocations ?? [0])
   // Add Existing Product: the product and SKU chosen (by their place in
   // the lists below), and the message under the product picker.
-  const [existing, setExisting] = useState({ product: '', sku: '', error: undefined })
+  const [existing, setExisting] = useState(() =>
+    booking ? { product: String(booking.productKey), sku: String(booking.skuIndex), error: undefined } : { product: '', sku: '', error: undefined },
+  )
 
   // Edit: the new version started with Add Version, or null -
   // { key, archive: { raw, semiFinished }, before: { values, sku } }.
@@ -287,6 +330,11 @@ export default function ProductFormModal({
   const openIndex = Math.min(stepIndex, steps.length - 1)
   const step = steps[openIndex]
   const isLastStep = openIndex === steps.length - 1
+  // Booking: Product (step 1) or Details (every later step at once) - see the note at the top.
+  const view = booking ? (openIndex === 0 ? 'product' : 'details') : null
+  const detailGroups = booking ? steps.slice(1).flatMap((entry) => entry.groups) : []
+  // One save on its way at a time - a second press before it answers sends nothing.
+  const saving = useRef(false)
 
   /* One warehouse: every line is read as holding it - see the note at the
      top. '' while it is not known, which no check lets through. Everything
@@ -315,13 +363,21 @@ export default function ProductFormModal({
   const quantity = productQuantity(steps, values)
   const totalError = allocationTotalError(allocations, quantity)
 
+  /* Booking: every unit of the line in a warehouse - the SKU entry's lines
+     against its Quantity, or the product's (see the note at the top). */
+  const bookingError = booking
+    ? skuGroupOf(steps)
+      ? stockBookingError({ allocations: skuSets[0]?.allocations ?? [], quantity: productQuantity(steps, skuSets[0]?.values ?? {}) })
+      : stockBookingError({ allocations, quantity })
+    : undefined
+
   /* ---------------- Add Existing Product ----------------
      See the note at the top. The products are the page's own list, read
      the one way every product screen reads it. */
-  const listed = useMemo(() => (fromExisting ? readProducts(products?.rows) : []), [fromExisting, products?.rows])
+  const listed = useMemo(() => (fromList ? readProducts(products?.rows) : []), [fromList, products?.rows])
   const existingProduct = listed.find((product) => String(product.key) === existing.product) ?? null
   // The fields that cannot be changed - see LOCKED_FIELDS.
-  const lockedFields = edit ? LOCKED_FIELDS : fromExisting ? (existing.product ? LOCKED_FIELDS : LOCKED_BEFORE_CHOICE) : []
+  const lockedFields = edit ? LOCKED_FIELDS : fromList ? (existing.product ? LOCKED_FIELDS : LOCKED_BEFORE_CHOICE) : []
   const existingSkus = existingProduct?.variants ?? []
   // A choice to make: several SKUs, or one that has a code.
   const offersSku = existingSkus.length > 1 || existingSkus.some((variant) => variant.skuCode)
@@ -410,7 +466,7 @@ export default function ProductFormModal({
 
   /** Step 1 cannot be left without the product it starts from. */
   const existingMissing = () => {
-    if (!fromExisting || existing.product) return false
+    if (!fromList || existing.product) return false
     setExisting((previous) => ({ ...previous, error: 'Select the existing product to add' }))
     return true
   }
@@ -612,13 +668,36 @@ export default function ProductFormModal({
     const failing = steps.findIndex((entry) => !check(entry, true).passes)
 
     if (failing !== -1) {
+      if (booking) {
+        // Details is every later step at once - all their problems shown together.
+        const shown = failing === 0 ? [steps[0]] : steps.slice(1)
+        const found = shown.map((entry) => check(entry, true))
+        showErrors({
+          fields: Object.assign({}, ...found.map((entry) => entry.fields)),
+          sets: Object.assign({}, ...found.map((entry) => entry.sets)),
+          lines: Object.assign({}, ...found.map((entry) => entry.lines)),
+        })
+        setStepIndex(failing === 0 ? 0 : 1)
+        const where = failing === 0 ? 'product' : 'details'
+        if (where !== view) toast.error(`Please complete ${where === 'product' ? 'Product' : 'Details'} first.`)
+        return
+      }
       showErrors(check(steps[failing], true))
       setStepIndex(failing)
       if (failing !== openIndex) toast.error(`Please complete "${steps[failing].title}" first.`)
       return
     }
 
+    if (bookingError) {
+      setStepIndex(0)
+      toast.error(bookingError)
+      return
+    }
+
+    if (saving.current) return
+    saving.current = true
     setSubmitting(true)
+    let saved = false
 
     try {
       const { fields, details, vendors: chosenVendors, files, references } = collectProductValues(
@@ -642,7 +721,7 @@ export default function ProductFormModal({
             buildProductUpdatePayload({ ...product, productId: edit.productId, pastVersion, srNo: edit.saved.srNo }),
             files,
           )
-        : await createProduct(buildProductPayload(product), files)
+        : await createProduct({ ...buildProductPayload(product), ...(booking?.extra ?? {}) }, files)
 
       // The backend's own message, and the SKU code it gave the product
       // when it made one. Nothing else in the reply is this form's to show.
@@ -650,12 +729,15 @@ export default function ProductFormModal({
         response?.msg || (edit ? 'Product updated successfully' : 'Product saved successfully'),
         response?.sku_code ? { description: `SKU Code: ${response.sku_code}` } : undefined,
       )
+      saved = true
       onSaved?.(response)
     } catch (failure) {
       // `failure.message` is the backend's own `msg` (see authService).
       // Nothing is cleared: everything typed is still there to send again.
       toast.error(failure.message)
     } finally {
+      // A booking saved is done with - the next line takes over; nothing more is sent from this one.
+      if (!(booking && saved)) saving.current = false
       setSubmitting(false)
     }
   }
@@ -665,7 +747,8 @@ export default function ProductFormModal({
     // Enter in a box arrives here too, even while the button is off.
     if (submitting) return
 
-    if (isLastStep) save()
+    // A booking saves from either view - no steps to walk.
+    if (booking || isLastStep) save()
     else goNext()
   }
 
@@ -693,7 +776,7 @@ export default function ProductFormModal({
       skuVariants={existingSkus.map((variant) => variant.source)}
       valueOf={skuByPlace}
       value={existing.sku}
-      disabled={submitting}
+      disabled={submitting || Boolean(booking)}
       onChange={chooseExistingSku}
     />
   )
@@ -715,8 +798,8 @@ export default function ProductFormModal({
           singleWarehouse={singleWarehouse}
           disabled={submitting}
           // An edit is of one SKU - see the note at the top.
-          onAdd={edit ? undefined : addSkuSet}
-          headerExtra={fromExisting && offersSku ? skuPicker : null}
+          onAdd={edit || booking ? undefined : addSkuSet}
+          headerExtra={fromList && offersSku ? skuPicker : null}
           onRemove={removeSkuSet}
           onValueChange={setSkuValue}
           onAddLine={addSkuLine}
@@ -778,19 +861,20 @@ export default function ProductFormModal({
     <Modal
       open={open}
       onOpenChange={onOpenChange}
-      title={edit ? 'Edit Product' : fromExisting ? 'Add Existing Product' : 'Add Product'}
+      title={booking?.title ?? (edit ? 'Edit Product' : fromExisting ? 'Add Existing Product' : 'Add Product')}
       description={edit ? editedRecord(edit.saved) || undefined : undefined}
       // The fields are sized in twelfths of the row, which wants the width.
       size="xxl"
       // With something entered, or while saving, only Cancel closes it - see
       // "Leaving" at the top.
-      closeOnBackdropClick={!hasEntries && !submitting}
-      closeOnEsc={!hasEntries && !submitting}
-      showCloseButton={!hasEntries && !submitting}
+      // A booking cannot be left - its stock has to go into a warehouse first.
+      closeOnBackdropClick={!booking && !hasEntries && !submitting}
+      closeOnEsc={!booking && !hasEntries && !submitting}
+      showCloseButton={!booking && !hasEntries && !submitting}
       // autoFocus={false}
       footer={
         <>
-          {hasEntries ? (
+          {booking ? null : hasEntries ? (
             <ConfirmPopover
               open={confirmingCancel}
               onOpenChange={setConfirmingCancel}
@@ -806,7 +890,7 @@ export default function ProductFormModal({
             cancelButton
           )}
 
-          {openIndex > 0 ? (
+          {openIndex > 0 && !booking ? (
             <Button type="button" variant="outline" icon={ArrowLeft} disabled={submitting} onClick={goBack}>
               Back
             </Button>
@@ -814,9 +898,9 @@ export default function ProductFormModal({
 
           {/* `form` ties these to the form above, outside of which the
               dialog draws its footer. */}
-          {isLastStep ? (
+          {isLastStep || booking ? (
             <Button type="submit" form={FORM_ID} loading={submitting}>
-              {submitting ? 'Saving...' : edit ? 'Update Product' : 'Save Product'}
+              {submitting ? 'Saving...' : (booking?.submitLabel ?? (edit ? 'Update Product' : 'Save Product'))}
             </Button>
           ) : (
             <Button type="submit" form={FORM_ID}>
@@ -829,15 +913,40 @@ export default function ProductFormModal({
     >
       {/* `p-1`: room for the focus ring, inside the dialog's scroll box. */}
       <form id={FORM_ID} onSubmit={handleSubmit} noValidate className="space-y-4 p-1">
-        <Stepper
-          steps={steps}
-          current={openIndex}
-          disabled={submitting}
-          onStepClick={(index) => {
-            setErrors(NO_ERRORS)
-            setStepIndex(index)
-          }}
-        />
+        {booking ? (
+          <RadioGroup
+            value={view}
+            onValueChange={(next) => setStepIndex(next === 'product' ? 0 : 1)}
+            aria-label="Product form view"
+            className="flex w-fit items-center gap-1 rounded-md border border-border p-0.5"
+          >
+            {[
+              ['product', 'Product'],
+              ['details', 'Details'],
+            ].map(([value, label]) => (
+              <Label
+                key={value}
+                htmlFor={`booking-view-${value}`}
+                className={`flex cursor-pointer items-center gap-1.5 rounded px-2 py-1 text-xs transition-colors ${
+                  view === value ? 'bg-brand-soft font-semibold text-brand' : 'text-muted-foreground hover:text-brand'
+                }`}
+              >
+                <RadioGroupItem id={`booking-view-${value}`} value={value} disabled={submitting} />
+                {label}
+              </Label>
+            ))}
+          </RadioGroup>
+        ) : (
+          <Stepper
+            steps={steps}
+            current={openIndex}
+            disabled={submitting}
+            onStepClick={(index) => {
+              setErrors(NO_ERRORS)
+              setStepIndex(index)
+            }}
+          />
+        )}
 
         {/* A vendor field with nothing to choose from: said once, here, with
             the only way to try again. */}
@@ -869,7 +978,7 @@ export default function ProductFormModal({
         ) : null}
 
         {/* Add Existing Product: what the form starts from - on step 1. */}
-        {fromExisting && openIndex === 0 ? (
+        {fromList && openIndex === 0 ? (
           <div className="grid grid-cols-12 items-start gap-3 rounded-md border border-border bg-muted/30 p-3">
             <SelectField
               id="existing-product"
@@ -886,7 +995,7 @@ export default function ProductFormModal({
               options={existingOptions}
               value={existing.product}
               error={existing.error}
-              disabled={submitting || listed.length === 0}
+              disabled={submitting || listed.length === 0 || Boolean(booking)}
               searchable
               searchPlaceholder="Search product..."
               onValueChange={chooseExisting}
@@ -896,7 +1005,23 @@ export default function ProductFormModal({
           </div>
         ) : null}
 
-        {step.groups.map(renderGroup)}
+        {booking && bookingError ? (
+          <p className="rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground" role="status" data-testid="stock-booking-note">
+            {bookingError}
+          </p>
+        ) : null}
+
+        {view === 'details' ? (
+          detailGroups.length > 0 ? (
+            detailGroups.map(renderGroup)
+          ) : (
+            <p className="text-xs text-muted-foreground" data-testid="booking-no-details">
+              This product has no other fields.
+            </p>
+          )
+        ) : (
+          step.groups.map(renderGroup)
+        )}
       </form>
     </Modal>
   )

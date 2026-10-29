@@ -328,7 +328,7 @@ function HsnBlock({ model, part }) {
   const rateCells = (rate, amount) => (
     <>
       <td className="center">{rate ?? ''}</td>
-      <td>{amount ? formatAmount(amount) : ''}</td>
+      <td>{rate == null ? '' : formatAmount(amount)}</td>
     </>
   )
 

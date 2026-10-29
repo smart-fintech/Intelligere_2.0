@@ -6,13 +6,16 @@
  *   PRODUCTS            POST inventory/product/          [PRODUCTS, companyName]
  *   PRODUCT_GROUPS      POST inventory/product_group_list/ [PRODUCT_GROUPS, companyName]
  *   PRODUCT_UNITS       POST inventory/product_units/    [PRODUCT_UNITS, companyName]
- *   DOCUMENT_MAPPINGS   POST invoice/document-mapping/   [DOCUMENT_MAPPINGS, companyId]
+ *   DOCUMENT_MAPPINGS   POST invoice/document-mapping/   [DOCUMENT_MAPPINGS, companyId, documentType] -
+ *                       'Sales Invoice' or 'Purchase Invoice', each its own mappings
  *   TALLY_VOUCHERS      POST invoice/tally-vouchers/     [TALLY_VOUCHERS, companyId] - one
  *                       answer per company, shared by Sales and Purchase Invoice
  *   TALLY_VOUCHER_TYPES POST tally/voucher-list/        [TALLY_VOUCHER_TYPES, companyName] - the
  *                       company's voucher types, for every voucher of both modules
  *   APP_LEDGER_PRODUCTS POST invoice/app-ledger-product/  [APP_LEDGER_PRODUCTS, companyName, documentType] -
  *                       the ledgers and products the Voucher view's Mapping lists
+ *   WAREHOUSES          POST inventory/warehouse_create/  [WAREHOUSES, companyId] - the list, read
+ *                       again after a warehouse is created, changed or deleted (useWarehouses)
  *
  * How long an answer is used before it is asked for again, even with no
  * change seen here: what another user, another tab or Tally may have
@@ -26,6 +29,7 @@ export const QUERY = Object.freeze({
   TALLY_VOUCHERS: 'tallyVouchers',
   TALLY_VOUCHER_TYPES: 'tallyVoucherTypes',
   APP_LEDGER_PRODUCTS: 'appLedgerProducts',
+  WAREHOUSES: 'warehouses',
 })
 
 export const MASTER_DATA_STALE_MS = 5 * 60 * 1000

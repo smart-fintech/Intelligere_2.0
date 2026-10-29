@@ -359,7 +359,7 @@ function HsnView({ model, part, grow }) {
       <DataCell width={each} align="center">
         {rate ?? ''}
       </DataCell>
-      <DataCell width={each}>{amount ? formatAmount(amount) : ''}</DataCell>
+      <DataCell width={each}>{rate == null ? '' : formatAmount(amount)}</DataCell>
     </>
   )
 

@@ -9,6 +9,7 @@
  *   checkTallyRange(range)         what is wrong with a From / To range
  *   readHistoryRow(row)            a saved document as the table shows it
  *   readHistoryProducts(value)     its product_data lines, as the opened row shows them
+ *   readChildDocuments(value)      its child_documents, each with its own lines and totals
  *   uniqueHistoryRows(rows)        each document once, by its document_id
  *   historyPartyOptions(rows)      the buyers (or sellers) the rows name, once each
  *   filterHistoryRows(rows, filters)   the rows every set filter lets through
@@ -169,6 +170,82 @@ export const readHistoryProducts = (value) =>
       }
     })
 
+/**
+ * A line's whole GST rate (%) from its own cgst / sgst / igst - the history
+ * sends all three, the unused ones as 0: IGST when it is charged, else CGST +
+ * SGST, else 0 when a rate is sent at all; null when none is.
+ */
+const gstRateOf = (line) => {
+  const [igst, cgst, sgst] = ['igst', 'cgst', 'sgst'].map((field) => numberOf(line[field]))
+  if (igst !== null && igst > 0) return igst
+  if (cgst !== null || sgst !== null) return (cgst ?? 0) + (sgst ?? 0)
+  return igst
+}
+
+/** The lines' paise for one field added up - null when no line has it. */
+const sumPaise = (lines, field) => {
+  const present = lines.map((line) => line[field]).filter((paise) => paise !== null)
+  return present.length ? present.reduce((sum, paise) => sum + paise, 0) : null
+}
+
+/**
+ * A linked document's product lines (its product_data), as its Product
+ * Details table shows them - every figure the line's own:
+ *
+ *   name, skuCode, skuDetails   'Product Name', sku_code, sku_details
+ *   hsn                         hsn_sac_code
+ *   gstRate                     gstRateOf - IGST, else CGST + SGST
+ *   ratePaise, amountPaise      'Selling Rate', product_amount
+ *   cgstRate, cgstPaise         cgst, cgst_amount
+ *   sgstRate, sgstPaise         sgst, sgst_amount
+ */
+export const readChildProducts = (value) =>
+  listOf(value)
+    .filter((line) => line && typeof line === 'object')
+    .map((line, index) => ({
+      key: `${index}-${text(line['Product Name'])}`,
+      name: text(line['Product Name']),
+      skuCode: text(line.sku_code),
+      skuDetails: objectOf(line.sku_details),
+      hsn: text(line.hsn_sac_code),
+      gstRate: gstRateOf(line),
+      ratePaise: toPaise(line['Selling Rate']),
+      amountPaise: toPaise(line.product_amount),
+      cgstRate: numberOf(line.cgst),
+      cgstPaise: toPaise(line.cgst_amount),
+      sgstRate: numberOf(line.sgst),
+      sgstPaise: toPaise(line.sgst_amount),
+    }))
+
+/**
+ * The documents made from this one - child_documents, { <document type>:
+ * [documents] }, whatever types it names - each on its own:
+ *
+ *   key            its type and document_id
+ *   documentType   document_type, else the type it is listed under
+ *   documentNo, documentDate   as readHistoryRow reads them
+ *   products       readChildProducts(product_data) - its lines only
+ *   totals         { amountPaise, cgstPaise, sgstPaise } - its lines' product_amount,
+ *                  cgst_amount and sgst_amount added up (null when no line has one)
+ */
+export const readChildDocuments = (value) =>
+  Object.entries(objectOf(value)).flatMap(([type, documents]) =>
+    listOf(documents)
+      .filter((document) => document && typeof document === 'object')
+      .map((document, index) => {
+        const master = objectOf(document.invoice_master_details)
+        const products = readChildProducts(document.product_data)
+        return {
+          key: `${type}:${document.document_id ?? `#${index}`}`,
+          documentType: text(document.document_type) || text(type),
+          documentNo: text(document.document_no ?? master.document_no),
+          documentDate: text(document.document_date ?? master.document_date),
+          products,
+          totals: { amountPaise: sumPaise(products, 'amountPaise'), cgstPaise: sumPaise(products, 'cgstPaise'), sgstPaise: sumPaise(products, 'sgstPaise') },
+        }
+      }),
+  )
+
 /** "15/10/2026" (the history's document_date) or an ISO date, as YYYY-MM-DD - '' for none. */
 export const isoDateOf = (value) => {
   const raw = text(value)
@@ -194,7 +271,8 @@ export const isoDateOf = (value) => {
  *   taxablePaise  total_taxable_amount - the document's taxable value (what
  *               GST is charged on), in paise; null when it is not a number
  *   products    readHistoryProducts(product_data) - its lines
- *   fromTally   past_tally_invoice is true - a document fetched from Tally;
+ *   children    readChildDocuments(child_documents) - the documents made from it
+ *   fromTally  past_tally_invoice is true - a document fetched from Tally;
  *               anything else was made in Intelligere (the rule the earlier
  *               history screens filtered by). Such a document is not edited.
  *   pdfUrl      doc_pdf - the document's saved PDF - as a URL the browser
@@ -218,6 +296,7 @@ export const readHistoryRow = (row) => {
     totalPaise: toPaise(row.total_amount),
     taxablePaise: toPaise(row.total_taxable_amount),
     products: readHistoryProducts(row.product_data),
+    children: readChildDocuments(row.child_documents),
     fromTally: row.past_tally_invoice === true || text(row.past_tally_invoice).toLowerCase() === 'true',
     pdfUrl: fileUrlOf(row.doc_pdf ?? row.doc_PDF),
     ewayBillPdfUrl: fileUrlOf(row.e_way_bill_pdf),

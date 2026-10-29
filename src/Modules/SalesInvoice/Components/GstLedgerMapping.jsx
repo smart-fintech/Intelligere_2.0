@@ -5,11 +5,9 @@ import { RetryButton } from '@/Components/Common/DataList'
 import { SelectField } from '@/Components/Common/FormFields'
 import { Button } from '@/Components/ui/button'
 import { GST_RATES } from '@/Constants/gst'
-import { cn } from '@/Library/utils'
 import { toast } from '@/Library/toast'
 import { InvoiceGrid } from '@/Modules/SalesInvoice/Components/InvoiceGrid'
 import { rateText } from '@/Modules/SalesInvoice/salesInvoiceForm'
-import { MAPPING_KIND } from '@/Services/salesInvoiceService'
 import { ledgerFitsGst, readGstLedgerName } from '@/Utils/gstLedgers'
 
 /**
@@ -25,8 +23,8 @@ import { ledgerFitsGst, readGstLedgerName } from '@/Utils/gstLedgers'
  *   ledger     one of the company's ledgers, sent by name
  *
  * The mapping key is the tax, with the rate after it when one is chosen:
- * "cgst", "sgst_6", "igst_18". OK saves it (invoice/document-mapping/) and
- * the table below is read again from the server.
+ * "cgst", "sgst_6", "igst_18". OK saves it (invoice/document-mapping/, as
+ * sales_mapping) and the table below is read again from the server.
  *
  *   mappings   useDocumentMappings(...)
  *   ledgers    { options, status } - the company's ledgers
@@ -41,7 +39,7 @@ const rateOptions = (tax) => {
   return [{ value: ANY_RATE, label: 'Any rate' }, ...rates.map((rate) => ({ value: rate, label: `${rate}%` }))]
 }
 
-const KIND_LABEL = { [MAPPING_KIND.LEDGER]: 'Ledger', [MAPPING_KIND.PRODUCT]: 'Product' }
+const GST_TAXES = TAX_OPTIONS.map((option) => option.value)
 
 export default function GstLedgerMapping({ mappings, ledgers, disabled }) {
   const [tax, setTax] = useState('')
@@ -78,7 +76,7 @@ export default function GstLedgerMapping({ mappings, ledgers, disabled }) {
   }
 
   const remove = async (row) => {
-    setRemoving(`${row.kind}|${row.key}`)
+    setRemoving(row.key)
     try {
       await mappings.remove(row)
     } catch (failure) {
@@ -164,7 +162,6 @@ export default function GstLedgerMapping({ mappings, ledgers, disabled }) {
             <table className="w-full text-sm">
               <thead className="bg-muted/50 text-left text-xs text-muted-foreground">
                 <tr>
-                  <th className="px-2 py-1.5 font-medium">Type</th>
                   <th className="px-2 py-1.5 font-medium">GST</th>
                   <th className="px-2 py-1.5 font-medium">Rate</th>
                   <th className="px-2 py-1.5 font-medium">Ledger</th>
@@ -174,53 +171,40 @@ export default function GstLedgerMapping({ mappings, ledgers, disabled }) {
                 </tr>
               </thead>
               <tbody>
-                {mappings.rows.map((row) => {
-                  const id = `${row.kind}|${row.key}`
-                  return (
-                    <tr key={id} className="border-t border-border">
-                      <td className="px-2 py-1.5">
-                        <span
-                          className={cn(
-                            'rounded-full px-1.5 py-0.5 text-[11px] font-medium',
-                            row.kind === MAPPING_KIND.LEDGER ? 'bg-brand-soft text-brand' : 'bg-muted text-muted-foreground',
-                          )}
-                        >
-                          {KIND_LABEL[row.kind]}
-                        </span>
-                      </td>
-                      <td className="px-2 py-1.5">{row.tax}</td>
-                      <td className="px-2 py-1.5">
-                        {row.rate ? `${row.rate}%` : 'Any'}
-                      </td>
-                      <td className="px-2 py-1.5">
-                        {row.ledger}
-                        {/* A mapping to a ledger the company no longer has is skipped (Utils/gstLedgers). */}
-                        {ledgers.status === 'succeeded' && row.ledger && !ledgerNames.has(row.ledger.trim().replace(/\s+/g, ' ').toLowerCase()) ? (
-                          <span className="block text-[11px] text-destructive">Not in this company&apos;s ledgers - not used</span>
-                        ) : null}
-                        {/* Nor one whose name says another tax or rate (IGST mapped to "CGST"). */}
-                        {row.kind === MAPPING_KIND.LEDGER &&
-                        row.ledger &&
-                        !ledgerFitsGst(row.ledger, row.tax, row.rate ? Number(row.rate) : (readGstLedgerName(row.ledger)?.rate ?? null)) ? (
-                          <span className="block text-[11px] text-destructive">A ledger for another tax or rate - not used</span>
-                        ) : null}
-                      </td>
-                      <td className="px-2 py-1.5 text-right">
-                        <Button
-                          type="button"
-                          variant="iconDelete"
-                          size="icon-xs"
-                          icon={Trash2}
-                          tooltip="Delete mapping"
-                          aria-label={`Delete ${KIND_LABEL[row.kind]} mapping ${row.key}`}
-                          loading={removing === id}
-                          disabled={busy}
-                          onClick={() => remove(row)}
-                        />
-                      </td>
-                    </tr>
-                  )
-                })}
+                {mappings.rows.map((row) => (
+                  <tr key={row.key} className="border-t border-border">
+                    <td className="px-2 py-1.5">{row.tax}</td>
+                    <td className="px-2 py-1.5">
+                      {row.rate ? `${row.rate}%` : 'Any'}
+                    </td>
+                    <td className="px-2 py-1.5">
+                      {row.value}
+                      {/* A mapping to a ledger the company no longer has is skipped (Utils/gstLedgers). */}
+                      {ledgers.status === 'succeeded' && row.value && !ledgerNames.has(row.value.trim().replace(/\s+/g, ' ').toLowerCase()) ? (
+                        <span className="block text-[11px] text-destructive">Not in this company&apos;s ledgers - not used</span>
+                      ) : null}
+                      {/* Nor one whose name says another tax or rate (IGST mapped to "CGST"). */}
+                      {GST_TAXES.includes(row.tax) &&
+                      row.value &&
+                      !ledgerFitsGst(row.value, row.tax, row.rate ? Number(row.rate) : (readGstLedgerName(row.value)?.rate ?? null)) ? (
+                        <span className="block text-[11px] text-destructive">A ledger for another tax or rate - not used</span>
+                      ) : null}
+                    </td>
+                    <td className="px-2 py-1.5 text-right">
+                      <Button
+                        type="button"
+                        variant="iconDelete"
+                        size="icon-xs"
+                        icon={Trash2}
+                        tooltip="Delete mapping"
+                        aria-label={`Delete mapping ${row.key}`}
+                        loading={removing === row.key}
+                        disabled={busy}
+                        onClick={() => remove(row)}
+                      />
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>

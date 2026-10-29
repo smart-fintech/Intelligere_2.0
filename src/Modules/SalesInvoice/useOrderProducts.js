@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 
 import { toast } from '@/Library/toast'
-import { orderSourceOf, readOrderRows } from '@/Modules/SalesInvoice/orderProducts'
+import { orderSourceChoicesOf, orderSourceOf, readOrderRows } from '@/Modules/SalesInvoice/orderProducts'
 import { getOrderNumbers, getOrderProducts } from '@/Services/orderProductService'
 
 const IDLE = Object.freeze({ status: 'idle', rows: [], error: null })
@@ -12,7 +12,12 @@ const IDLE = Object.freeze({ status: 'idle', rows: [], error: null })
  *   const orders = useOrderProducts({ companyId, documentType, partyKey, onCheckedChange })
  *
  *   orders.source      the type its products come from (orderSourceOf), or null - nothing to offer
- *   orders.numbers     { status, rows, error } - the party's order numbers
+ *   orders.choices     Prefill From's types, for a type that chooses (orderSourceChoicesOf) - [] otherwise
+ *   orders.choice      the one chosen ('' for none)
+ *   orders.chooseSource(type)   another Prefill From: nothing of the last one's is kept; once
+ *                      the party's Step 2 is done, its numbers are asked for at once
+ *   orders.clearSource()   back to none (a new document)
+ *   orders.numbers    { status, rows, error } - the party's order numbers
  *   orders.chosen      the numbers ticked
  *   orders.products    { status, rows, error } - readOrderRows of the chosen orders' products
  *   orders.checked     the product rows ticked (their keys)
@@ -27,30 +32,57 @@ const IDLE = Object.freeze({ status: 'idle', rows: [], error: null })
  * carries a ticket; an answer to one since replaced is dropped.
  */
 export default function useOrderProducts({ companyId, documentType, partyKey, onCheckedChange }) {
-  const source = orderSourceOf(documentType)
-  const current = source && partyKey ? `${documentType}|${partyKey}` : null
-  // { key, buyerId, numbers, chosen, products, checked } - for one type and party.
+  const choices = orderSourceChoicesOf(documentType)
+  // { type, value } - the Prefill From chosen, for the type it was chosen on: another type starts at none.
+  const [picked, setPicked] = useState(null)
+  const choice = picked?.type === documentType && choices.includes(picked.value) ? picked.value : ''
+  const setChoice = (value) => setPicked({ type: documentType, value })
+  const source = orderSourceOf(documentType, choice)
+  const keyOf = (type) => (type && partyKey ? `${documentType}|${type}|${partyKey}` : null)
+  const current = keyOf(source)
+  // { key, buyerId, numbers, chosen, products, checked } - for one type, source and party.
   const [state, setState] = useState(null)
   const ticket = useRef(0)
+  // The buyer_id Step 2's Next asked with, for this type and party - so another Prefill From asks at once.
+  const asked = useRef(null)
   const own = state && state.key === current ? state : null
 
-  const request = (buyerId) => {
-    if (!current || !buyerId) return
-    // Already asked for (or on its way) for this type and party - not asked again.
-    if (own && own.numbers.status !== 'failed') return
+  /** The party's numbers of `type`, asked for now. */
+  const fetchNumbers = (type, buyerId) => {
     const mine = ++ticket.current
-    const key = current
+    const key = keyOf(type)
     setState({ key, buyerId, numbers: { status: 'loading', rows: [], error: null }, chosen: [], products: IDLE, checked: [] })
-    getOrderNumbers({ buyerId, companyId, documentType: source })
+    getOrderNumbers({ buyerId, companyId, documentType: type })
       .then((rows) => {
         if (mine === ticket.current) setState((previous) => (previous?.key === key ? { ...previous, numbers: { status: 'ready', rows, error: null } } : previous))
       })
       .catch((failure) => {
         if (mine !== ticket.current) return
-        const message = failure.message || `The ${source} numbers could not be loaded.`
+        const message = failure.message || `The ${type} numbers could not be loaded.`
         setState((previous) => (previous?.key === key ? { ...previous, numbers: { status: 'failed', rows: [], error: message } } : previous))
         toast.error(message)
       })
+  }
+
+  const request = (buyerId) => {
+    if (!partyKey || !buyerId) return
+    asked.current = { party: `${documentType}|${partyKey}`, buyerId }
+    if (!current) return
+    // Already asked for (or on its way) for this type and party - not asked again.
+    if (own && own.numbers.status !== 'failed') return
+    fetchNumbers(source, buyerId)
+  }
+
+  const chooseSource = (next) => {
+    const type = choices.includes(next) ? next : ''
+    if (type === choice) return
+    setChoice(type)
+    ticket.current += 1
+    setState(null)
+    onCheckedChange?.([])
+    // Step 2 already done for this party: the new type's numbers now, not at another Next.
+    const known = asked.current?.party === `${documentType}|${partyKey}` ? asked.current.buyerId : null
+    if (type && known) fetchNumbers(type, known)
   }
 
   const choose = (numbers) => {
@@ -91,6 +123,13 @@ export default function useOrderProducts({ companyId, documentType, partyKey, on
 
   return {
     source,
+    choices,
+    choice,
+    chooseSource,
+    clearSource: () => {
+      setChoice('')
+      asked.current = null
+    },
     numbers: own?.numbers ?? IDLE,
     chosen: own?.chosen ?? [],
     products: own?.products ?? IDLE,

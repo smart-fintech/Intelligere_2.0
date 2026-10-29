@@ -187,6 +187,10 @@ export function toInvoiceModel({ form, figures, gst, productsByKey, ledgersById,
 
   const anyIgst = figures.igstPaise > 0
   const anySplit = figures.cgstPaise > 0 || figures.sgstPaise > 0
+  // The summary's tax columns follow where the sale is, not whether any tax came
+  // to more than 0 - a 0% line still shows its rate and amount.
+  const hsnIgst = anyIgst || interState
+  const hsnSplit = anySplit || !interState
 
   const model = {
     seller: {
@@ -284,8 +288,8 @@ export function toInvoiceModel({ form, figures, gst, productsByKey, ledgersById,
     hsn: {
       rows: hsnRows,
       totals: { taxable: total('taxable'), cgst: total('cgst'), sgst: total('sgst'), igst: total('igst'), total: total('total') },
-      anyIgst,
-      anySplit,
+      anyIgst: hsnIgst,
+      anySplit: hsnSplit,
     },
   }
 

@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useMemo, useState } from 'react'
 import { AlertCircle, ChevronRight, Eye, FileText } from 'lucide-react'
 
 import { InlineAlert, ListSkeleton, RetryButton, StateMessage } from '@/Components/Common/DataList'
@@ -7,12 +7,13 @@ import { Button } from '@/Components/ui/button'
 import { Card, CardContent } from '@/Components/ui/card'
 import { TableCell, TableRow } from '@/Components/ui/table'
 import { useListView } from '@/Hooks/useListView'
+import useWarehouses from '@/Hooks/useWarehouses'
 import { cn } from '@/Library/utils'
 import { SkuCode } from '@/Modules/SalesInvoice/Components/RequestQuotation'
 import HistoryPdfModal from '@/Modules/SalesInvoice/History/HistoryPdfModal'
 import { statusText } from '@/Modules/SalesInvoice/History/inventorySalesOrders'
 import useInventorySalesOrders from '@/Modules/SalesInvoice/History/useInventorySalesOrders'
-import { getWarehouseId, getWarehouses } from '@/Services/inventoryService'
+import { getWarehouseId } from '@/Services/inventoryService'
 import { formatIndianCurrency } from '@/Utils/currency'
 import { formatDate } from '@/Utils/date'
 
@@ -283,27 +284,16 @@ export default function InventorySalesOrderHistory({ company }) {
    * The warehouses' names. A booking names its warehouses by id only
    * (booked_inventory's warehouse: [{ warehouse_id, book_qty }]), so their
    * names come from the company's warehouse list (inventory/warehouse_create/
-   * with { company_id } - the list, nothing is created). Asked once, and only
-   * when an opened order books from a warehouse the history does not name;
+   * with { company_id } - the list, nothing is created). The shared list
+   * (useWarehouses): asked only when an opened order books from a warehouse
+   * the history does not name, and not at all when another screen has it;
    * without it (or refused), the ids show.
    */
   const needsNames = orders.rows.some((order) => openRows.has(order.key) && order.booked.some((item) => item.warehouses.some((warehouse) => warehouse.id && !warehouse.name)))
-  const [names, setNames] = useState({ companyId: null, byId: new Map() })
-  const askedFor = useRef(null)
-  useEffect(() => {
-    const companyId = company.company_id
-    if (!needsNames || !companyId || askedFor.current === companyId) return
-    askedFor.current = companyId
-    getWarehouses(companyId)
-      .then((list) => {
-        // Kept only for the company it was asked for.
-        if (askedFor.current === companyId) setNames({ companyId, byId: new Map(list.map((record) => [String(getWarehouseId(record) ?? record.id ?? ''), String(record.name ?? record.warehouse_name ?? '').trim()])) })
-      })
-      .catch(() => {
-        // Only the names are missing - the booking still shows, by warehouse id.
-      })
-  }, [needsNames, company.company_id])
-  const warehouseName = (id) => (names.companyId === company.company_id && names.byId.get(String(id))) || (id ? `Warehouse ${id}` : 'Warehouse')
+  // Only this company's list (useWarehouses keeps each company's apart); refused, only the names are missing.
+  const { warehouses } = useWarehouses(needsNames, company.company_id)
+  const namesById = useMemo(() => new Map(warehouses.map((record) => [String(getWarehouseId(record) ?? record.id ?? ''), String(record.name ?? record.warehouse_name ?? '').trim()])), [warehouses])
+  const warehouseName = (id) => namesById.get(String(id)) || (id ? `Warehouse ${id}` : 'Warehouse')
 
   // The table's visible width: an opened row's details are kept to it, however far the table is scrolled.
   const [visibleWidth, setVisibleWidth] = useState(null)

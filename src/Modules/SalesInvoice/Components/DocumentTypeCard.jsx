@@ -22,13 +22,21 @@ const labelOf = (type) => findDocumentType(type)?.label ?? type
  *   prefill         useDocumentPrefill(...) - Prefill From and Document No.,
  *                   shown only for a type that has sources (none: Debit Note,
  *                   the purchase types; nor while editing or once saved)
+ *   orderSource     useOrderProducts(...) - for a type that chooses where its
+ *                   products come from, its Prefill From - only what that type
+ *                   takes (Purchase Invoice: Inbound Challan; Inbound Challan:
+ *                   Outbound Purchase Order); the documents themselves are
+ *                   chosen on Step 3 (OrderProducts)
  *
  * A type the company's plan does not include is listed but cannot be
  * chosen, and choosing it any other way is refused here too.
  */
-export default function DocumentTypeCard({ invoice, documentTypes, locked, disabled, prefill = null }) {
+export default function DocumentTypeCard({ invoice, documentTypes, locked, disabled, prefill = null, orderSource = null }) {
   const { form, errors, setField } = invoice
   const offersPrefill = Boolean(prefill) && prefill.sources.length > 0 && !locked
+  const offersOrderSource = Boolean(orderSource) && orderSource.choices.length > 0 && !locked
+  const orderChoices = offersOrderSource ? orderSource.choices : []
+  const prefillChoices = offersPrefill ? prefill.sources : []
   const list = prefill?.list
   const sourceLabel = prefill?.sourceType ? labelOf(prefill.sourceType) : ''
 
@@ -53,17 +61,26 @@ export default function DocumentTypeCard({ invoice, documentTypes, locked, disab
             if (documentTypes.some((type) => type.value === next && type.enabled)) setField('documentType', next)
           }}
         />
+        {offersOrderSource || offersPrefill ? (
+          // ONE Prefill From: the order types (their documents chosen on Step 3), then the
+          // types that fill the whole form (a Document No. beside it) - choosing one clears the other.
+          <SelectField
+            id="prefill-source"
+            label="Prefill From"
+            placeholder="Select source document"
+            options={[{ value: NO_SOURCE, label: 'None' }, ...[...orderChoices, ...prefillChoices].map((type) => ({ value: type, label: labelOf(type) }))]}
+            value={(offersOrderSource && orderSource.choice) || prefill?.sourceType || (offersOrderSource ? NO_SOURCE : '')}
+            disabled={disabled}
+            onValueChange={(next) => {
+              if (!next) return
+              const type = next === NO_SOURCE ? '' : next
+              if (offersOrderSource) orderSource.chooseSource(orderChoices.includes(type) ? type : '')
+              if (offersPrefill && (prefillChoices.includes(type) || prefill.sourceType)) prefill.chooseSource(prefillChoices.includes(type) ? type : '')
+            }}
+          />
+        ) : null}
         {offersPrefill ? (
           <>
-            <SelectField
-              id="prefill-source"
-              label="Prefill From"
-              placeholder="Select source document"
-              options={[{ value: NO_SOURCE, label: 'None' }, ...prefill.sources.map((type) => ({ value: type, label: labelOf(type) }))]}
-              value={prefill.sourceType}
-              disabled={disabled}
-              onValueChange={(next) => next && prefill.chooseSource(next === NO_SOURCE ? '' : next)}
-            />
             {prefill.sourceType ? (
               <SelectField
                 id="prefill-document"

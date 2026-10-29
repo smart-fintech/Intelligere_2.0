@@ -4,7 +4,7 @@
  * orders' products listed, and a product's + fills the entry form with it -
  * Add Product then makes it a line, as for any product.
  *
- *   orderSourceOf(documentType)   the type its products come from, or null
+ *   orderSourceOf(documentType, choice)   the type its products come from (Prefill From), or null
  *   readOrderRows(reply)          invoice/order-product-details/'s rows, as the table lists them
  *   entryFromOrderRow(row, ...)   the entry form filled with one - null when its
  *                                 product (or service ledger) is not in the lists
@@ -26,14 +26,24 @@ import {
 import { lineFromSavedProduct } from '@/Modules/SalesInvoice/documentPrefill'
 import { isServiceLine, textOf } from '@/Modules/SalesInvoice/salesInvoiceForm'
 
-/** The type each document's products come from - any type not here (Outbound Purchase Order) takes none. */
-export const ORDER_PRODUCT_SOURCES = Object.freeze({
-  [DOCUMENT_TYPE_CHALLAN]: 'Sales Order',
-  [PURCHASE_DOCUMENT_TYPE_INVOICE]: PURCHASE_DOCUMENT_TYPE_INBOUND_CHALLAN,
-  [PURCHASE_DOCUMENT_TYPE_INBOUND_CHALLAN]: PURCHASE_DOCUMENT_TYPE_OUTBOUND_ORDER,
+/**
+ * PREFILL FROM - the user chooses where a document's products come from
+ * (none at first), from these alone: Challan from a Sales Order (beside its
+ * Proforma, which fills the whole form - PREFILL_SOURCES), Purchase Invoice
+ * from an Inbound Challan, Inbound Challan from an Outbound Purchase Order.
+ * Any type not here (Outbound Purchase Order) takes none.
+ */
+export const ORDER_SOURCE_CHOICES = Object.freeze({
+  [DOCUMENT_TYPE_CHALLAN]: Object.freeze(['Sales Order']),
+  [PURCHASE_DOCUMENT_TYPE_INVOICE]: Object.freeze([PURCHASE_DOCUMENT_TYPE_INBOUND_CHALLAN]),
+  [PURCHASE_DOCUMENT_TYPE_INBOUND_CHALLAN]: Object.freeze([PURCHASE_DOCUMENT_TYPE_OUTBOUND_ORDER]),
 })
 
-export const orderSourceOf = (documentType) => ORDER_PRODUCT_SOURCES[documentType] ?? null
+/** The types a document may choose its products from - [] for none. */
+export const orderSourceChoicesOf = (documentType) => ORDER_SOURCE_CHOICES[documentType] ?? []
+
+/** The type its products come from - the one chosen (`choice`), or null for none. */
+export const orderSourceOf = (documentType, choice = '') => (orderSourceChoicesOf(documentType).includes(choice) ? choice : null)
 
 /** A quantity as a number - null when the row has none. */
 const quantityOf = (value) => {

@@ -42,6 +42,8 @@ import {
   PREMIUM_MODULE_INVENTORY_MANAGEMENT,
   perSkuFieldRank,
 } from '@/Constants/inventory'
+import { QUERY } from '@/Constants/queryKeys'
+import { invalidateQueries } from '@/Library/queryCache'
 import { api } from '@/Services/authService'
 import { changesProducts, markProductsChanged } from '@/Services/productCache'
 
@@ -126,8 +128,20 @@ export const updateMasterDetails = (payload) => api.put(MASTER_DETAILS_URL, payl
  *     "is_active": true, ... }
  *
  * Saving and deleting answer { msg, data? }; only `msg` is ever shown.
+ *
+ * The list is kept in the shared cache and read through useWarehouses, so
+ * every screen shares one answer per company. A create, change or delete
+ * that succeeded reads it again (changesWarehouses) - once, for every screen
+ * showing it, and on next use for the rest. A failed one changes nothing.
  */
 const WAREHOUSE_URL = 'inventory/warehouse_create/'
+
+/** Passes `request`'s answer on unchanged, reading the warehouse lists again once it succeeded. */
+const changesWarehouses = (request) =>
+  request.then((reply) => {
+    invalidateQueries(QUERY.WAREHOUSES, { refetchActive: true })
+    return reply
+  })
 
 /** A warehouse's identifier - its row key, and what update and delete name. */
 export const getWarehouseId = (warehouse) => warehouse?.warehouse_obj_id ?? null
@@ -163,7 +177,8 @@ const toList = (response) => {
 /**
  * The warehouses of one company. The id comes from the caller, which reads
  * it from the active company in the store - never from a form. Without one
- * there is nothing to ask for.
+ * there is nothing to ask for. Screens read it through useWarehouses, never
+ * directly, so it is asked once and shared.
  */
 export const getWarehouses = async (companyId) => {
   if (!companyId) return []
@@ -172,17 +187,17 @@ export const getWarehouses = async (companyId) => {
 }
 
 /** Adds a warehouse. `payload` is the form plus the active company's `company_id`. */
-export const createWarehouse = (payload) => api.post(WAREHOUSE_URL, payload)
+export const createWarehouse = (payload) => changesWarehouses(api.post(WAREHOUSE_URL, payload))
 
 /** Changes a warehouse. `payload` is the form plus its `warehouse_obj_id`. */
-export const updateWarehouse = (payload) => api.put(WAREHOUSE_URL, payload)
+export const updateWarehouse = (payload) => changesWarehouses(api.put(WAREHOUSE_URL, payload))
 
 /**
  * Removes a warehouse - only its id goes up. A DELETE with a body has to be
  * put under `data` for axios to send it, hence the wrapper here.
  */
 export const deleteWarehouse = (warehouseId) =>
-  api.delete(WAREHOUSE_URL, { data: { warehouse_obj_id: warehouseId } })
+  changesWarehouses(api.delete(WAREHOUSE_URL, { data: { warehouse_obj_id: warehouseId } }))
 
 /* ------------------------------------------------------------------ */
 /* Vendors                                                            */

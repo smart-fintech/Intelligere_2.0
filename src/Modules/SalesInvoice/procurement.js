@@ -7,9 +7,8 @@
  *   INITIAL                    the order is being made (or edited)
  *     | the order is saved
  *   ORDER_SAVED                its document_id and number are known
- *     | booking opened                       (closed unbooked - back here)
- *   WAREHOUSE_BOOKING          its stock booked from the warehouses
- *     | booking confirmed (or skipped)
+ *     | its stock booked (or the booking skipped) - the quantities were
+ *     | chosen before the order was saved (the workspace's booking modal)
  *   INVENTORY_DETAILS          its stock, as the PDF save answers it
  *     | Request for Quotation
  *   REQUIREMENTS_LOADING       order_requirement/ (failed - Retry from here)
@@ -29,9 +28,7 @@
  * Quantity allocation is part of the review (each vendor's products, with
  * their quantities), so it is not a state of its own. Back goes one step
  * back - from the review (sent or not) to the vendors, or to the selection
- * when there were no raw materials to choose vendors for. The booking can
- * be opened again until a vendor's request is sent: confirmed, the
- * requirements (and every choice made on them) are dropped.
+ * when there were no raw materials to choose vendors for.
  *
  * WHAT IS KEPT WHERE. The machine (procurementReducer) holds the state and
  * what the workflow itself knows - the saved order, its stock, the
@@ -69,7 +66,6 @@ import { getVendorId } from '@/Services/inventoryService'
 export const PROCUREMENT_STATE = Object.freeze({
   INITIAL: 'INITIAL',
   ORDER_SAVED: 'ORDER_SAVED',
-  WAREHOUSE_BOOKING: 'WAREHOUSE_BOOKING',
   INVENTORY_DETAILS: 'INVENTORY_DETAILS',
   REQUIREMENTS_LOADING: 'REQUIREMENTS_LOADING',
   NO_PURCHASE_REQUIRED: 'NO_PURCHASE_REQUIRED',
@@ -85,9 +81,6 @@ const S = PROCUREMENT_STATE
 export const PROCUREMENT_EVENT = Object.freeze({
   RESET: 'reset',
   ORDER_SAVED: 'orderSaved',
-  OPEN_BOOKING: 'openBooking',
-  EDIT_BOOKING: 'editBooking',
-  BOOKING_CLOSED: 'bookingClosed',
   BOOKING_CONFIRMED: 'bookingConfirmed',
   BOOKING_SKIPPED: 'bookingSkipped',
   STOCK_READY: 'stockReady',
@@ -108,9 +101,6 @@ export const QUOTATION_STATES = Object.freeze([S.PURCHASE_METHOD_SELECTION, S.VE
 /** The review, sent or not - where a vendor's request can be sent. */
 const REVIEW_STATES = [S.PURCHASE_REVIEW, S.QUOTATION_SUCCESS, S.QUOTATION_ERROR]
 
-/** Where the booking can be opened again: nothing being calculated or sent. */
-const REBOOKABLE = [S.INVENTORY_DETAILS, S.NO_PURCHASE_REQUIRED, S.PURCHASE_METHOD_SELECTION, S.VENDOR_SELECTION, S.PURCHASE_REVIEW, S.QUOTATION_ERROR]
-
 export const initialProcurement = Object.freeze({
   state: S.INITIAL,
   // The saved order: { documentId, documentNo, companyName, lines, productsByKey, booked }.
@@ -123,10 +113,6 @@ export const initialProcurement = Object.freeze({
   attempt: 0,
   // { message } of the last failed request; `ambiguous` when a request for quotation got no answer at all.
   error: null,
-  // The state a booking opened again goes back to when it is closed unchanged.
-  resume: null,
-  // Each time the booking opens - it opens afresh.
-  bookingRound: 0,
   // The vendor's request being (or last) sent - { vendorKey, body }.
   submission: null,
   // The server's answer to it - { vendorKey, message }.
@@ -135,18 +121,12 @@ export const initialProcurement = Object.freeze({
   sent: {},
 })
 
-export const canEditBooking = (machine) =>
-  Boolean(machine.order) &&
-  Object.keys(machine.sent).length === 0 &&
-  (REBOOKABLE.includes(machine.state) || (machine.state === S.REQUIREMENTS_LOADING && Boolean(machine.error)))
-
 /** The booking is done with (or skipped): its stock is shown, and the requirements start afresh. */
 const booked = (machine) => ({
   ...machine,
   state: S.INVENTORY_DETAILS,
   requirement: null,
   error: null,
-  resume: null,
   submission: null,
   reply: null,
   sent: {},
@@ -161,14 +141,8 @@ export function procurementReducer(machine, event) {
     case E.ORDER_SAVED:
       // A saved order starts its own workflow - nothing of another order's is kept.
       return { ...initialProcurement, state: S.ORDER_SAVED, order: event.order }
-    case E.OPEN_BOOKING:
-      return state === S.ORDER_SAVED ? { ...machine, state: S.WAREHOUSE_BOOKING, bookingRound: machine.bookingRound + 1 } : machine
-    case E.EDIT_BOOKING:
-      return canEditBooking(machine) ? { ...machine, state: S.WAREHOUSE_BOOKING, resume: state, bookingRound: machine.bookingRound + 1 } : machine
-    case E.BOOKING_CLOSED:
-      return state === S.WAREHOUSE_BOOKING ? { ...machine, state: machine.resume ?? S.ORDER_SAVED, resume: null } : machine
     case E.BOOKING_CONFIRMED:
-      return state === S.WAREHOUSE_BOOKING ? booked({ ...machine, order: { ...machine.order, booked: event.booked ?? null } }) : machine
+      return state === S.ORDER_SAVED ? booked({ ...machine, order: { ...machine.order, booked: event.booked ?? null } }) : machine
     case E.BOOKING_SKIPPED:
       return state === S.ORDER_SAVED ? booked(machine) : machine
     case E.STOCK_READY:
@@ -229,7 +203,6 @@ export function procurementReducer(machine, event) {
  * What can be done now - every button's enabled state, from the state and
  * the current step's checks, never from anything else:
  *
- *   confirmBooking      the booking is open (its own modal checks the quantities)
  *   requestQuotation    the Request for Quotation button - the stock is known and
  *                       nothing is being calculated, or a request is under way
  *   loading             the requirements are being calculated
@@ -240,19 +213,16 @@ export function procurementReducer(machine, event) {
  *   download            on the review, every quantity a number not below 0 (each
  *                       vendor's its own - never added up), nothing being sent
  *   back                a step to go back to
- *   editBooking         the booking can be opened again
  */
 export const procurementActions = (machine, checks = {}) => {
   const { state } = machine
   const loading = state === S.REQUIREMENTS_LOADING && !machine.error
   return {
-    confirmBooking: state === S.WAREHOUSE_BOOKING,
     requestQuotation: Boolean(machine.stock) && ((state === S.INVENTORY_DETAILS || (state === S.REQUIREMENTS_LOADING && Boolean(machine.error))) || QUOTATION_STATES.includes(state)),
     loading,
     continue: (state === S.PURCHASE_METHOD_SELECTION && Boolean(checks.methodsValid)) || (state === S.VENDOR_SELECTION && Boolean(checks.selectionValid)),
     download: REVIEW_STATES.includes(state) && Boolean(checks.selectionValid) && Boolean(checks.allocationsValid),
     back: state === S.VENDOR_SELECTION || REVIEW_STATES.includes(state),
-    editBooking: canEditBooking(machine),
   }
 }
 

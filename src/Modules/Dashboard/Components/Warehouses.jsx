@@ -5,7 +5,8 @@
  * ------------------------------------------------------------------
  * WHAT REACHES THE NETWORK
  * ------------------------------------------------------------------
- *   opening the tab / company change   the list   POST { company_id }
+ *   opening the tab / company change   the list   POST { company_id }, unless
+ *                                      another screen has it already (useWarehouses)
  *                                      the Master Details, unless the store
  *                                      already has them (see useMasterDetails)
  *   Refresh / Retry                    the list
@@ -13,15 +14,17 @@
  *   Delete, confirmed in its popover   DELETE { warehouse_obj_id }, then the list
  *
  * After every change the list is read again from the backend rather than
- * patched by hand, so the table always shows what is really saved.
+ * patched by hand, so the table always shows what is really saved. The save
+ * and the delete do that themselves (inventoryService), once for every
+ * screen showing the list - so it is never asked for twice here.
  * Searching, filtering, sorting and paging work on the rows already loaded
  * (Hooks/useListView) and cost no request.
  *
  * `company_id` is the company the header is working in, from the store -
  * the same source every other dashboard list uses (useActiveCompany).
  *
- * The rows are this tab's alone, so they are kept here rather than in the
- * store.
+ * The rows are the shared list (useWarehouses) - the same one the Product
+ * form's and the Sub User screens' warehouse dropdowns read.
  *
  * ------------------------------------------------------------------
  * A PLAN WITH ONE WAREHOUSE
@@ -52,12 +55,12 @@ import { TableCell, TableRow } from '@/Components/ui/table'
 import { useActiveCompany } from '@/Hooks/useActiveCompany'
 import { useListView } from '@/Hooks/useListView'
 import useMasterDetails from '@/Hooks/useMasterDetails'
+import useWarehouses from '@/Hooks/useWarehouses'
 import { toast } from '@/Library/toast'
 import { cn } from '@/Library/utils'
 import {
   deleteWarehouse,
   getWarehouseId,
-  getWarehouses,
   hasSingleWarehouseLimit,
 } from '@/Services/inventoryService'
 import { selectCompanyStatus } from '@/Store/Slices/companySlice'
@@ -70,9 +73,6 @@ const FILTER_FIELDS = {
   // status_label: 'Status',
 }
 
-/** What a company whose list has not arrived yet shows - one object, so the memos below hold. */
-const NOT_LOADED = { status: 'loading', rows: [], error: null }
-
 export default function Warehouses() {
   const { activeCompany, activeCompanyId: companyId } = useActiveCompany()
   const companyStatus = useSelector(selectCompanyStatus)
@@ -84,45 +84,24 @@ export default function Warehouses() {
   const masterDetails = useMasterDetails()
 
   /* ---------------- The list ----------------
-     Kept with the company it belongs to: a result for an older company (the
-     header changed while it was on its way) is not shown. A reload keeps the
-     rows on screen until the new ones arrive. */
-  const [state, setState] = useState({ status: 'loading', rows: [], error: null, forKey: null })
-  const [attempt, setAttempt] = useState(0)
-  const request = useRef(null)
+     The shared one, kept with the company it belongs to: another company's
+     rows are never shown. A reload keeps the rows on screen until the new
+     ones arrive. */
+  const list = useWarehouses()
+  const current = { status: list.status, rows: list.warehouses, error: list.error }
+  const loading = current.status === 'loading'
 
-  useEffect(() => {
-    if (!companyId) return
-
-    const requestKey = `${companyId}#${attempt}`
-    if (request.current === requestKey) return
-    request.current = requestKey
-
-    getWarehouses(companyId)
-      .then((rows) => {
-        if (request.current === requestKey) setState({ status: 'ready', rows, error: null, forKey: companyId })
-      })
-      .catch((failure) => {
-        if (request.current !== requestKey) return
-        toast.error(failure.message)
-        setState((previous) => ({
-          status: 'failed',
-          // The rows already on screen stay if they are this company's.
-          rows: previous.forKey === companyId ? previous.rows : [],
-          error: failure.message,
-          forKey: companyId,
-        }))
-      })
-  }, [companyId, attempt])
-
-  /** One controlled reload - Refresh, Retry, and after every change. */
+  /** Refresh and Retry - a save or a delete reads the list again by itself. */
   const reload = () => {
-    setState((previous) => ({ ...previous, status: 'loading' }))
-    setAttempt((count) => count + 1)
+    list.reload()
   }
 
-  const current = state.forKey === companyId ? state : NOT_LOADED
-  const loading = current.status === 'loading'
+  // A failed read says so once, as it fails - the same toast as before.
+  const lastStatus = useRef(null)
+  useEffect(() => {
+    if (lastStatus.current === 'loading' && list.status === 'failed') toast.error(list.error)
+    lastStatus.current = list.status
+  }, [list.status, list.error])
 
   /* Each row with its two flags worked out once as text, so the Status
      filter, the sort and the column all read the same value. */
@@ -149,9 +128,9 @@ export default function Warehouses() {
 
   const closeDialog = () => setDialog((previous) => ({ ...previous, open: false }))
 
+  // The list is read again by the save itself (see the note at the top).
   const handleSaved = () => {
     closeDialog()
-    reload()
   }
 
   /* ---------------- Delete ----------------
@@ -172,9 +151,9 @@ export default function Warehouses() {
       const response = await deleteWarehouse(getWarehouseId(confirming))
       toast.success(response?.msg || 'Warehouse deleted successfully')
       setConfirming(null)
+      // The delete reads the list again by itself (see the note at the top).
       // The pager moves back a page by itself when this was the last row
       // of the last page (see useListView).
-      reload()
     } catch (failure) {
       toast.error(failure.message)
       // A 404 means it is already gone, so the list is stale either way.

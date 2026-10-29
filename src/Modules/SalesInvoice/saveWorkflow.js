@@ -5,8 +5,10 @@
  *   1. create the document           POST invoice/business-documents/
  *   2. read its document_id          from the reply - never assumed
  *   2b. book its stock (`book`)      a new Sales Order with Inventory Management only -
- *                                    never before step 2, and once: a booking done
- *                                    (or skipped) is kept in `saved.booked`
+ *                                    the quantities chosen before step 1 (the
+ *                                    booking modal), sent with the document_id of
+ *                                    step 2, and once: a booking done (or skipped)
+ *                                    is kept in `saved.booked`
  *   3. make the PDF                  from the preview's sheets
  *   4. upload that PDF               POST invoice/save-document-pdf/ { id, file }
  *
@@ -19,7 +21,7 @@
  *                   rather than made again.
  *   createDocument()          -> the create reply
  *   book(documentId)          optional -> 'booked' | 'skipped' to go on to the PDF; anything
- *                             else ('paused' - the booking closed) stops here, the document
+ *                             else ('paused' - the booking refused) stops here, the document
  *                             kept (BOOKING_PAUSED; saved.booked false) for a later try
  *   makePdf()                 -> the PDF bytes (with E-Way Bill: { invoice, ewayBill }, both
  *                             made before anything is sent) - or the file the user chose; null

@@ -10,12 +10,14 @@ import { formatINR } from '@/Modules/Payment/pricing'
 import ChargeLedgerSac from '@/Modules/SalesInvoice/Components/ChargeLedgerSac'
 import { InvoiceCard, InvoiceGrid, WIDE_FIELD } from '@/Modules/SalesInvoice/Components/InvoiceGrid'
 import GstLedgerMapping from '@/Modules/SalesInvoice/Components/GstLedgerMapping'
+import PurchaseLedgerMapping from '@/Modules/SalesInvoice/Components/PurchaseLedgerMapping'
 import OrderProducts from '@/Modules/SalesInvoice/Components/OrderProducts'
 import { entryFromOrderRow } from '@/Modules/SalesInvoice/orderProducts'
 import ProductEntry from '@/Modules/SalesInvoice/Components/ProductEntry'
 import { AddedProducts, BuyerProducts } from '@/Modules/SalesInvoice/Components/ProductLists'
 import { toast } from '@/Library/toast'
 import { getLedgerSac } from '@/Services/ledgerService'
+import { MAPPING_DOCUMENT_TYPE } from '@/Services/salesInvoiceService'
 import {
   LINE_KIND,
   entryModeOf,
@@ -40,8 +42,8 @@ const ENTRY_MODES = [
 ]
 
 /**
- * Step 4 - Product Details (or, for Sales Invoice with its box ticked, GST
- * Ledger Mapping in its place), and Other Details under it.
+ * Step 4 - Product Details (or, with its box ticked, GST Ledger Mapping in
+ * its place), and Other Details under it.
  *
  * Products are typed into ONE entry form; Add Product makes it a line of the
  * invoice and empties the form for the next. The lines are what the preview,
@@ -58,6 +60,9 @@ const ENTRY_MODES = [
  *              Other Details with the ledger each is posted to
  *   buyerProducts   useBuyerProducts(...) - the buyer's earlier products
  *   showMapping     the document charges GST (every type but Challan) - the mapping box is offered
+ *   mappingType     whose mappings they are (MAPPING_DOCUMENT_TYPE): Sales Invoice's are
+ *                   GST tax + rate -> ledger (GstLedgerMapping); Purchase Invoice's a
+ *                   keyword -> product or ledger (PurchaseLedgerMapping)
  *   chargeSac       Sales Invoice only - an Other Charges ledger without a SAC
  *                   number is marked under its row (ChargeLedgerSac), with Add
  *                   SAC on Intelligere and what to do in Tally on Tally
@@ -175,6 +180,7 @@ export default function ProductsStep({
   gstCheck,
   buyerProducts,
   showMapping,
+  mappingType = MAPPING_DOCUMENT_TYPE.SALES,
   // Sales Invoice: { erp, companyId, onSaved(chargeId) } - each charge's ledger needs a SAC; null elsewhere.
   chargeSac = null,
   orders = null,
@@ -292,7 +298,9 @@ export default function ProductsStep({
           </div>
         }
       >
-        {mappingOpen ? (
+        {mappingOpen && mappingType === MAPPING_DOCUMENT_TYPE.PURCHASE ? (
+          <PurchaseLedgerMapping mappings={mappings} ledgers={ledgers} products={products} disabled={disabled} />
+        ) : mappingOpen ? (
           <GstLedgerMapping mappings={mappings} ledgers={ledgers} disabled={disabled} />
         ) : (
           <div className="space-y-3">

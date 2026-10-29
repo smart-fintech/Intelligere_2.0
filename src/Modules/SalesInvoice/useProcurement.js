@@ -13,8 +13,8 @@
  *                                   their vendors on a step of their own
  *
  * The workspace tells it what happened to the order - orderSaved(order),
- * openBooking(), bookingClosed(), bookingConfirmed(booked), bookingSkipped(),
- * stockArrived(documentId, stock) - and each only dispatches, so a call made
+ * bookingConfirmed(booked), bookingSkipped(), stockArrived(documentId, stock) -
+ * and each only dispatches, so a call made
  * from inside a save that started renders ago still lands on the current
  * state. The requirements are asked for once Request for Quotation is
  * pressed (an effect, keyed by the machine's `attempt`, whose late answers
@@ -152,15 +152,12 @@ export default function useProcurement({ companyId }) {
 
     // What happened to the order - each only dispatches.
     orderSaved: (savedOrder) => dispatch({ type: EVENT.ORDER_SAVED, order: savedOrder }),
-    openBooking: () => dispatch({ type: EVENT.OPEN_BOOKING }),
-    bookingClosed: () => dispatch({ type: EVENT.BOOKING_CLOSED }),
     bookingConfirmed: (booked) => dispatch({ type: EVENT.BOOKING_CONFIRMED, booked }),
     bookingSkipped: () => dispatch({ type: EVENT.BOOKING_SKIPPED }),
     stockArrived: (documentId, orderStock) => dispatch({ type: EVENT.STOCK_READY, documentId, stock: orderStock }),
     reset: () => dispatch({ type: EVENT.RESET }),
 
     // What the user does.
-    editBooking: () => actions.editBooking && dispatch({ type: EVENT.EDIT_BOOKING }),
     loadRequirements: () => dispatch({ type: EVENT.LOAD_REQUIREMENTS }),
     setDirect: (nodeId, on) => setChoices((current) => setDirect(current, tree, nodeId, on, vendorsOf)),
     togglePick: (nodeId) => setChoices((current) => togglePick(current, tree, nodeId)),
