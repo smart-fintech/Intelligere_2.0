@@ -3,10 +3,11 @@
  * `booking`) filled for one line of a saved Purchase Invoice or Inbound Challan,
  * with no screen attached:
  *
- *   prefillStockBooking(steps, { product, variant, quantity, rate })
+ *   prefillStockBooking(steps, { product, variant, quantity, rate, category })
  *       the form as Add Existing Product fills it for that product and SKU
  *       (prefillProductForm - the same fields, the same values), except:
  *         Quantity, Unit Rate   the purchase line's - the stock received
+ *         Category              `category`, only where the product has none
  *         warehouse lines       none of the product's saved ones: the warehouse
  *                               is always the user's to choose
  *       -> { values, skuValues, hasSkus }
@@ -20,13 +21,13 @@
 
 import { perSkuFieldRank } from '@/Constants/inventory'
 import { allocatedQuantity, prefillProductForm, PRODUCT_GROUP, productFieldName, skuGroupOf, tidyQuantity } from './productForm'
-import { productEditSource } from './productList'
+import { PRODUCT_FIELD, productEditSource } from './productList'
 
 // Their places in PRODUCT_PER_SKU_FIELDS - Quantity, Expiry Date, Unit Rate.
 const QUANTITY_RANK = 0
 const UNIT_RATE_RANK = 2
 
-export const prefillStockBooking = (steps, { product, variant, quantity, rate }) => {
+export const prefillStockBooking = (steps, { product, variant, quantity, rate, category = '' }) => {
   const filled = prefillProductForm(steps, productEditSource(product, variant))
   const values = { ...filled.values }
   const skuValues = { ...filled.skuValues }
@@ -37,6 +38,11 @@ export const prefillStockBooking = (steps, { product, variant, quantity, rate })
       const sku = group.key === PRODUCT_GROUP.SKU
       ;(sku ? group.detailFields : group.fields).forEach((field) => {
         const name = productFieldName(field)
+        // The line's category only where the product has none - never in place of its own.
+        if (!sku && name === PRODUCT_FIELD.CATEGORY && String(category ?? '').trim() && !String(values[name] ?? '').trim()) {
+          values[name] = String(category).trim()
+          return
+        }
         const value = fromLine[perSkuFieldRank(name)]
         if (value === undefined || String(value).trim() === '') return
         if (sku) skuValues[name] = String(value).trim()

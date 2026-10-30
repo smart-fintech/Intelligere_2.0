@@ -80,8 +80,14 @@ export function SkuCode({ code, details }) {
   )
 }
 
-/** A product's name and SKU, its Required (to buy - `qty` when merged), Available and Minimum Quantity. */
-function NodeHeading({ node, qty = purchaseQty(node) }) {
+/** One product needed in several places: their order_qty added up - null when none has one. */
+const mergedOrderQty = (nodes) => {
+  const known = nodes.map((entry) => entry.orderQty).filter((value) => value !== null && value !== undefined)
+  return known.length === 0 ? null : known.reduce((total, value) => total + value, 0)
+}
+
+/** A product's name and SKU, and its Order Qty (order_qty - `orderQty` added up when merged); display only. */
+function NodeHeading({ node, orderQty = node.orderQty }) {
   return (
     <div className="min-w-0 flex-1 space-y-0.5">
       <p className="text-sm font-semibold break-words text-brand">
@@ -97,13 +103,7 @@ function NodeHeading({ node, qty = purchaseQty(node) }) {
       </p>
       <p className="flex flex-wrap gap-x-3 text-xs text-muted-foreground">
         <span>
-          Required <span className="font-semibold text-foreground tabular-nums" data-testid="rfq-required">{quantityText(qty)}</span>
-        </span>
-        <span>
-          Available <span className="tabular-nums">{quantityText(node.availableQty)}</span>
-        </span>
-        <span>
-          Minimum <span className="tabular-nums">{quantityText(node.minQty)}</span>
+          Order Qty <span className="font-semibold text-foreground tabular-nums" data-testid="rfq-order-qty">{quantityText(orderQty)}</span>
         </span>
       </p>
     </div>
@@ -320,9 +320,9 @@ function VendorStep({ procurement }) {
       {/* One product needed in two places is one line, for both quantities. */}
       {procurement.lines
         .filter(({ raw }) => raw)
-        .map(({ key, node, qty }) => (
+        .map(({ key, node, nodes }) => (
           <section key={key} className="space-y-2 rounded-md border border-border p-3" aria-label={`Vendors for ${node.name}`} data-testid="rfq-vendor-product">
-            <NodeHeading node={node} qty={qty} />
+            <NodeHeading node={node} orderQty={mergedOrderQty(nodes)} />
             <VendorTable node={node} procurement={procurement} />
           </section>
         ))}

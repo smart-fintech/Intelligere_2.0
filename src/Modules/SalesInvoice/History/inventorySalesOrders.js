@@ -3,8 +3,11 @@
  * for the History's Inventory Sales Order view (InventorySalesOrderHistory).
  *
  *   readInventorySalesOrder(record, index) ->
- *     { key, soNo, soDate, buyerName, bookedStatus, process, processDone,
+ *     { key, soNo, soDate, buyerName, bookedStatus, process, hasProcess, processDone,
  *       pdfUrl, booked: [bookedItem], opo: [linkedDocument], ic: [linkedDocument] }
+ *
+ *   hasProcess       the order's `process` holds anything (soProcess - hasProcess):
+ *                    Show Process; else Book Process
  *
  *   bookedItem       { key, name, skuCode, skuDetails: [[name, value]], category,
  *                      orderQty, bookedQty, requiredQty, minQty,
@@ -16,6 +19,8 @@
  * number), a missing list as []. A product's name comes as "Product Name" or
  * product_name - both are read. The PDF URLs are the server's, as sent.
  */
+
+import { hasProcess } from '@/Modules/SalesInvoice/History/soProcess'
 
 const textOf = (value) => (value === null || value === undefined ? '' : String(value).trim())
 const numberOf = (value) => {
@@ -73,7 +78,9 @@ export const readInventorySalesOrder = (record, index) => {
     soDate: textOf(record.so_date),
     buyerName: textOf(record.buyer_name),
     bookedStatus: textOf(record.booked_status),
-    process: textOf(record.process),
+    // The status as text ("ongoing"); a list or an object holds no status of its own.
+    process: typeof record.process === 'object' ? '' : textOf(record.process),
+    hasProcess: hasProcess(record.process),
     processDone: numberOf(record.total_process_done),
     pdfUrl: textOf(record.so_pdf),
     booked: listOf(record.booked_inventory).map(readBookedItem),

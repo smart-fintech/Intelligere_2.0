@@ -156,7 +156,10 @@
  *                - `versioning` is whether Add Version is offered
  *   fromExisting   Add Existing Product - see above
  *   booking      null, or { productKey, skuIndex, quantity, rate, extra, title,
- *                submitLabel } - see "Booking a purchase's stock" above
+ *                submitLabel, warehouseId?, category? } - see "Booking a
+ *                purchase's stock" above; `warehouseId` starts the line on that
+ *                warehouse (still the user's to change), `category` fills the
+ *                product's Category where it has none
  *   onSaved(response)   after a successful save
  */
 
@@ -277,8 +280,9 @@ export default function ProductFormModal({
       const product = readProducts(products?.rows).find((entry) => String(entry.key) === String(booking.productKey))
       const variant = product?.variants[booking.skuIndex] ?? null
       if (!product || !variant) return null
-      const filled = prefillStockBooking(formSteps, { product, variant, quantity: booking.quantity, rate: booking.rate })
-      const line = { ...emptyAllocation('booking-0'), warehouse_quantity: String(booking.quantity ?? '').trim() }
+      const filled = prefillStockBooking(formSteps, { product, variant, quantity: booking.quantity, rate: booking.rate, category: booking.category })
+      // The warehouse named with the line (a Sales Order's process stock), else the user's to choose.
+      const line = { ...emptyAllocation('booking-0'), warehouse: String(booking.warehouseId ?? '').trim(), warehouse_quantity: String(booking.quantity ?? '').trim() }
       return {
         values: filled.values,
         skuSet: { id: 1, values: filled.skuValues, allocations: filled.hasSkus ? [line] : [] },

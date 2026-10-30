@@ -186,7 +186,11 @@ const typeOfRow = (row, listedType) => documentTypeOfRecord(String(row.source?.d
 /** What a Tally document's disabled Edit says on hover. */
 const TALLY_EDIT_BLOCKED = 'Tally invoice will not edit'
 
-/** A row's Show products (the arrow), Regenerate Voucher (the types that have vouchers), PDF, Edit (the document opens in Create Document, filled in) and Delete. */
+/**
+ * A row's Show products (the arrow), Regenerate Voucher (the types that have
+ * vouchers), PDF, Edit (the document opens in Create Document, filled in) and
+ * Delete - or, for a deleted document (x_deleted), the arrow and "Deleted" only.
+ */
 function RowActions({ row, rowKey, open, actions }) {
   const { confirming, setConfirming, deleting, remove, onEdit, regenerating, regenerate, listedType, previewPdf, gst, toggleProducts } = actions
   const canRegenerate = REGENERATE_VOUCHER_TYPES.includes(typeOfRow(row, listedType))
@@ -198,20 +202,36 @@ function RowActions({ row, rowKey, open, actions }) {
         ['einvoice', 'E-Invoice', FileX, details.einvoice],
         ['ewaybill', 'E-Way Bill', Truck, details.ewaybill],
       ].filter(([, , , state]) => state.generated && !state.cancelled && hasDocumentId(row))
+  // One arrow, turning as the row opens and closes.
+  const arrow = (
+    <Button
+      type="button"
+      variant="iconEdit"
+      size="icon-sm"
+      icon={ChevronRight}
+      className={cn('[&_svg]:transition-transform [&_svg]:duration-200', open && '[&_svg]:rotate-90')}
+      tooltip={open ? 'Hide products' : 'Show products'}
+      aria-label={`${open ? 'Hide' : 'Show'} products of ${row.documentNo || 'this document'}`}
+      aria-expanded={open}
+      onClick={() => toggleProducts(rowKey)}
+    />
+  )
+
+  // A deleted document keeps only the arrow - its details stay, nothing more can be done to it.
+  if (row.deleted) {
+    return (
+      <span className="inline-flex items-center justify-end gap-1">
+        {arrow}
+        <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive" data-testid="history-deleted">
+          Deleted
+        </span>
+      </span>
+    )
+  }
+
   return (
     <span className="inline-flex items-center justify-end gap-1">
-      {/* One arrow, turning as the row opens and closes. */}
-      <Button
-        type="button"
-        variant="iconEdit"
-        size="icon-sm"
-        icon={ChevronRight}
-        className={cn('[&_svg]:transition-transform [&_svg]:duration-200', open && '[&_svg]:rotate-90')}
-        tooltip={open ? 'Hide products' : 'Show products'}
-        aria-label={`${open ? 'Hide' : 'Show'} products of ${row.documentNo || 'this document'}`}
-        aria-expanded={open}
-        onClick={() => toggleProducts(rowKey)}
-      />
+      {arrow}
       {cancels.map(([kind, label, Icon]) => {
         const key = `cancel-${kind}:${rowKey}`
         const busy = gst.cancelling === `${kind}:${row.id}`

@@ -275,6 +275,8 @@ export const isoDateOf = (value) => {
  *   fromTally  past_tally_invoice is true - a document fetched from Tally;
  *               anything else was made in Intelligere (the rule the earlier
  *               history screens filtered by). Such a document is not edited.
+ *   deleted     x_deleted is true - a deleted document: still listed, with
+ *               its details, but nothing can be done to it
  *   pdfUrl      doc_pdf - the document's saved PDF - as a URL the browser
  *               opens; null when it has none
  *   ewayBillPdfUrl  e_way_bill_pdf - its E-Way Bill PDF, the same way; null
@@ -298,6 +300,7 @@ export const readHistoryRow = (row) => {
     products: readHistoryProducts(row.product_data),
     children: readChildDocuments(row.child_documents),
     fromTally: row.past_tally_invoice === true || text(row.past_tally_invoice).toLowerCase() === 'true',
+    deleted: row.x_deleted === true || text(row.x_deleted).toLowerCase() === 'true',
     pdfUrl: fileUrlOf(row.doc_pdf ?? row.doc_PDF),
     ewayBillPdfUrl: fileUrlOf(row.e_way_bill_pdf),
     source: row,

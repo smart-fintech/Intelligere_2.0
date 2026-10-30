@@ -66,7 +66,8 @@ export default function useGstDocumentActions({ pdfs, reload, documentType }) {
 
   const eligible = useCallback(
     (row, kind = mode) => {
-      if (!kind || documentIdOf(row) === null) return false
+      // A deleted document (x_deleted) is not generated for.
+      if (!kind || row.deleted || documentIdOf(row) === null) return false
       const state = readEinvoiceDetails(row.source)[kind]
       return !state.generated && !state.cancelled
     },

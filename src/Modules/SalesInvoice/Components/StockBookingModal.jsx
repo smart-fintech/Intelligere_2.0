@@ -25,12 +25,18 @@ import { hasSingleWarehouseLimit, isSkuManagementEnabled } from '@/Services/inve
  * then the next opens; after the last, onDone(). It cannot be closed: every
  * line's stock goes into a warehouse before the document's file is saved.
  *
- *   items         stockBookingItems(...).items - never empty
+ *   items         stockBookingItems(...).items - never empty; a line may also
+ *                 name its `warehouseId` (started on it, when the company has
+ *                 that warehouse) and `category` (where the product has none) -
+ *                 a Sales Order's process stock (soProcess - inventoryAddItems)
  *   documentId    the saved document's - sent with every product
  *   documentNo    for the title
+ *   extra         what each product POST carries besides the product -
+ *                 { document_id: documentId } unless given (a Sales Order's
+ *                 process stock: { so_no } - SalesOrderProcessModal)
  *   onDone()      every line booked
  */
-export default function StockBookingModal({ items, documentId, documentNo, onDone }) {
+export default function StockBookingModal({ items, documentId, documentNo, extra = null, onDone }) {
   const { activeCompany, activeCompanyName: companyName } = useActiveCompany()
   const customFields = useCustomFields()
   const masterDetails = useMasterDetails()
@@ -47,12 +53,14 @@ export default function StockBookingModal({ items, documentId, documentNo, onDon
   const [kept, setKept] = useState(null)
   if (readyNow && kept !== steps) setKept(steps)
   const formSteps = readyNow ? steps : kept
-  const ready = Boolean(formSteps) && products.rows.length > 0
-  const failed = [masterDetails, customFields, products].find((entry) => entry.status === 'failed') ?? null
-
   // The line being booked - each saved one is never shown again.
   const [index, setIndex] = useState(0)
   const item = items[index]
+  // A line that names its warehouse waits for the list, to start on it - one the company has; refused, it is the user's to choose.
+  const warehousesIn = !item?.warehouseId || warehouses.status === 'ready' || warehouses.status === 'failed'
+  const ready = Boolean(formSteps) && products.rows.length > 0 && warehousesIn
+  const failed = [masterDetails, customFields, products].find((entry) => entry.status === 'failed') ?? null
+  const warehouseId = item?.warehouseId && warehouses.options.some((option) => option.value === String(item.warehouseId)) ? String(item.warehouseId) : ''
 
   if (!ready) {
     // Not closable either: nothing can be booked until the form is in.
@@ -88,7 +96,9 @@ export default function StockBookingModal({ items, documentId, documentNo, onDon
         skuIndex: item.skuIndex,
         quantity: item.quantity,
         rate: item.rate,
-        extra: { document_id: documentId },
+        warehouseId,
+        category: item.category ?? '',
+        extra: extra ?? { document_id: documentId },
         title: `Book stock - ${documentNo || 'document'} (${index + 1} of ${items.length})`,
         submitLabel: last ? 'Save Stock' : 'Save & Next',
       }}

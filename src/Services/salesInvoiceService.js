@@ -35,6 +35,8 @@
  * ------------------------------------------------------------------
  *   POST   invoice/business-document-history/   saved documents, by type and financial year
  *   POST   inventory/sales_order_history/       inventory-managed Sales Orders (the Inventory Sales Order view)
+ *   POST   inventory/progress_report/           { company_name, document_no } -> a booked Sales Order's processes
+ *   PUT    inventory/progress_report/           the processes saved (Book / Show Process)
  *   DELETE invoice/document-delete/             remove one
  *   POST   tally/voucher-list/                  the Tally voucher types a fetch can ask for
  *   WS     tally_invoice_fetch                  fetch documents from Tally (the app's WebSocket)
@@ -945,6 +947,27 @@ export const getInventorySalesOrderHistory = async (companyName) => {
   const list = Array.isArray(reply) ? reply : reply && typeof reply === 'object' && 'so_no' in reply ? [reply] : []
   return list.filter((row) => row && typeof row === 'object')
 }
+
+const PROGRESS_REPORT_URL = 'inventory/progress_report/'
+
+/**
+ * POST inventory/progress_report/  { company_name, document_no }  - a booked Sales
+ * Order's processes: [{ pid, name, sku_code, sku_details, product_details,
+ * warehouse, colour_code, percentage, total, totalDone, ... }] (read by
+ * History/soProcess - readProcessItems). The reply as it came.
+ */
+export const getProgressReport = ({ companyName, soNo }) => {
+  const body = { company_name: companyName, document_no : soNo }
+  return sharedRequest(PROGRESS_REPORT_URL, body, () => api.post(PROGRESS_REPORT_URL, body))
+}
+
+/**
+ * PUT inventory/progress_report/  { company_name, document_no, total_process_done,
+ * process: [...], inventory_add }  (buildProgressBody) -> { inventory_add: [...]? }
+ * - the products whose stock is still to be added, when there are any:
+ * [{ name, sku_code, warehouse_id, add_qty, category }].
+ */
+export const saveProgressReport = (body) => api.put(PROGRESS_REPORT_URL, body)
 
 /**
  * DELETE invoice/document-delete/  { id, x_deleted: "true", y_deleted: "false" }

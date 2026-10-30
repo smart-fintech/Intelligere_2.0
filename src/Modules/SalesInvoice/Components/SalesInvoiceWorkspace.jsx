@@ -58,6 +58,7 @@ import {
   effectiveShipping,
   errorStep,
   gstByRate,
+  activeOrderOf,
   applicableForm,
   createInvoiceForm,
   documentProfile,
@@ -227,7 +228,9 @@ const STEP_OF_PARTY = { seller: INVOICE_STEP.SELLER, buyer: INVOICE_STEP.BUYER }
  * lists are in, put into the form (formPrefilledFrom): the new document keeps
  * its own type, number, date and company side. It is saved with
  *   prefill_from   { document_from, document_id: [...] }
- * - only while that source is still one its type allows; otherwise {}.
+ * - only while that source is still one its type allows; otherwise {}. An
+ * order source (ORDER PRODUCTS, below) is recorded the same way: its type,
+ * and the document_id of each of its documents the lines were taken from.
  * Not offered while editing (an update keeps the record's own prefill_from)
  * or once the document is saved.
  *
@@ -640,6 +643,23 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
   })
   // A NEW Purchase Invoice / Inbound Challan books its stock after it is created - not one prefilled from an Inbound Challan (needsStockBooking).
   const booksStock = needsStockBooking({ documentType: documentTypeValue, orderSource: orders.source, inventory: inventoryAccess.full, editing: Boolean(editing) })
+  /**
+   * Prefill From's order source (Challan from a Sales Order, Purchase Invoice
+   * from an Inbound Challan, Inbound Challan from an Outbound Purchase Order)
+   * as prefill_from records it: the source type, and the document_id of each
+   * of its documents a line was taken from (each line's `order`) - null when
+   * none is chosen or no line came from one.
+   */
+  const orderPrefillFrom = () => {
+    if (!orders.source) return null
+    const documentIds = []
+    applicable.lines.forEach((line) => {
+      const id = activeOrderOf(line)?.documentId
+      if (id === null || id === undefined || String(id).trim() === '') return
+      if (!documentIds.some((known) => String(known) === String(id))) documentIds.push(id)
+    })
+    return documentIds.length > 0 ? { documentFrom: orders.source, documentIds } : null
+  }
   // A NEW Challan with nothing in Prefill From takes its stock out before it is created (needsChallanStock).
   const takesChallanStock = needsChallanStock({
     documentType: documentTypeValue,
@@ -1018,7 +1038,7 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
           chargeLedgerSac: Boolean(flow.chargeLedgerSac),
           prefillFrom: editing
             ? editing.prefillFrom
-            : buildPrefillFrom(prefilledFrom && prefill.sources.includes(prefilledFrom.documentFrom) ? prefilledFrom : null),
+            : buildPrefillFrom(prefilledFrom && prefill.sources.includes(prefilledFrom.documentFrom) ? prefilledFrom : orderPrefillFrom()),
         })
       }
 

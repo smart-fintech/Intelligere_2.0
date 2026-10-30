@@ -11,6 +11,7 @@ import useWarehouses from '@/Hooks/useWarehouses'
 import { cn } from '@/Library/utils'
 import { SkuCode } from '@/Modules/SalesInvoice/Components/RequestQuotation'
 import HistoryPdfModal from '@/Modules/SalesInvoice/History/HistoryPdfModal'
+import SalesOrderProcessModal from '@/Modules/SalesInvoice/History/SalesOrderProcessModal'
 import { statusText } from '@/Modules/SalesInvoice/History/inventorySalesOrders'
 import useInventorySalesOrders from '@/Modules/SalesInvoice/History/useInventorySalesOrders'
 import { getWarehouseId } from '@/Services/inventoryService'
@@ -23,8 +24,10 @@ import { formatDate } from '@/Utils/date'
  * inventory/sales_order_history/, asked once this view is chosen.
  *
  *   table     S.No., Buyer Name, SO Number, SO Date, Booking Status, Process
- *             (with its share done), PDF (the order's so_pdf, as sent, in the
- *             History's PDF modal), Details (the arrow)
+ *             (a booked order: Book Process - none yet - or Show Process, with
+ *             its share done; it opens SalesOrderProcessModal), PDF (the
+ *             order's so_pdf, as sent, in the History's PDF modal), Details
+ *             (the arrow)
  *   details   what a row opens out into, three sections:
  *               Booked Product Details    booked_inventory - Product, SKU Code
  *                                         (its SKU Details on hover), Category,
@@ -248,10 +251,22 @@ const COLUMNS = [
   },
   {
     key: 'process',
-    width: 150,
+    width: 160,
     head: 'Process',
-    cell: (order) => (order.process ? `${statusText(order.process)}${order.processDone !== null ? ` (${quantity(order.processDone)}%)` : ''}` : '--'),
-    cellClass: 'truncate',
+    // A booked order: Book Process (none yet) or Show Process - with its share done once it has one.
+    cell: (order, ctx) =>
+      order.bookedStatus.toLowerCase() === 'booked' ? (
+        <span className="inline-flex flex-col items-start gap-0.5">
+          <Button type="button" size="xs" onClick={() => ctx.openProcess(order)} aria-label={`${order.hasProcess ? 'Show' : 'Book'} process of ${order.soNo || 'this Sales Order'}`}>
+            {order.hasProcess ? 'Show Process' : 'Book Process'}
+          </Button>
+          {order.hasProcess && order.processDone !== null ? <span className="text-[11px] text-muted-foreground tabular-nums">{quantity(order.processDone)}% done</span> : null}
+        </span>
+      ) : order.process ? (
+        `${statusText(order.process)}${order.processDone !== null ? ` (${quantity(order.processDone)}%)` : ''}`
+      ) : (
+        '--'
+      ),
   },
   { key: 'pdf', width: 70, head: 'PDF', align: 'center', cell: (order, ctx) => <PdfButton label={order.soNo || 'the Sales Order'} onClick={() => ctx.viewPdf(order)} /> },
   {
@@ -304,8 +319,12 @@ export default function InventorySalesOrderHistory({ company }) {
     return () => observer.disconnect()
   }, [])
 
+  // The order whose process is open (SalesOrderProcessModal) - one at a time.
+  const [processOrder, setProcessOrder] = useState(null)
+
   const context = {
     toggle,
+    openProcess: setProcessOrder,
     viewPdf: (order) => setPdf({ documentNo: order.soNo || 'Sales Order', pdfUrl: order.pdfUrl, buyerName: order.buyerName, documentDate: order.soDate }),
   }
 
@@ -365,6 +384,16 @@ export default function InventorySalesOrderHistory({ company }) {
         )}
       </CardContent>
       <HistoryPdfModal row={pdf} onClose={() => setPdf(null)} />
+      {processOrder ? (
+        <SalesOrderProcessModal
+          key={processOrder.key}
+          companyName={company.comp_name}
+          order={processOrder}
+          onClose={() => setProcessOrder(null)}
+          // Its process status and share done change - the list is read again.
+          onSaved={orders.reload}
+        />
+      ) : null}
     </Card>
   )
 }
