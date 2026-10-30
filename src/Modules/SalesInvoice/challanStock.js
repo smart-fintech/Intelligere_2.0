@@ -4,9 +4,10 @@
  * (inventory/SKUWarehouseSummaryAPI/ - Services/inventoryBookingService), with
  * no screen attached:
  *
- *   needsChallanStock({ documentType, inventory, editing, prefilled })
+ *   needsChallanStock({ documentType, inventory, editing, prefilled, savedStock })
  *       a NEW Challan, Inventory Management, nothing in Prefill From (neither a
- *       Sales Order - its booking is the order's - nor a Proforma)
+ *       Sales Order - its booking is the order's - nor a Proforma); or a saved
+ *       Challan being edited whose record has a skuWarehouseSummary (savedStock)
  *   buildStockSummaryRequest({ companyName, lines, productsByKey })
  *       -> { body, items }   the POST - each product line under the backend's
  *       names: SKU-managed `quantity`, otherwise `order_qty` with sku_code "";
@@ -15,6 +16,8 @@
  *       -> [{ key, productId, productName, skuCode, skuDetails, orderQty, warehouses:
  *            [{ id, name, qty, booked, free, bookings: [{ soNo, qty, buyerName, date }] }] }]
  *       - [] when the reply has nothing to take ({ msg })
+ *   readSavedStockSummary(value), withSavedStock(rows, saved)   editing - the
+ *       saved skuWarehouseSummary, and the summary with it counted back in
  *   checkStockRemoval(rows, entered)   what is wrong - { cells, items }
  *   buildStockUpdateBody({ companyName, rows, entered })   what is taken out - the body once PUT
  *       to inventory/SKUWarehouseSummaryAPI/, now sent whole as the Challan's skuWarehouseSummary
@@ -40,8 +43,8 @@ const listOf = (value) => (Array.isArray(value) ? value : [])
 // The backend sends some keys with a space after them ("document_no ") - read either way.
 const field = (object, name) => object?.[name] ?? object?.[`${name} `]
 
-export const needsChallanStock = ({ documentType, inventory, editing, prefilled }) =>
-  documentType === DOCUMENT_TYPE_CHALLAN && Boolean(inventory) && !editing && !prefilled
+export const needsChallanStock = ({ documentType, inventory, editing, prefilled, savedStock = null }) =>
+  documentType === DOCUMENT_TYPE_CHALLAN && Boolean(inventory) && (editing ? Boolean(savedStock) : !prefilled)
 
 export const buildStockSummaryRequest = ({ companyName, lines, productsByKey }) => {
   const items = []
@@ -160,6 +163,69 @@ export const checkStockRemoval = (rows, entered) => {
 }
 
 export const hasStockProblems = (problems) => Object.keys(problems.cells).length > 0 || Object.keys(problems.items).length > 0
+
+/** A saved Challan's skuWarehouseSummary (JSON text or the object) - null when it has none. */
+export const readSavedStockSummary = (value) => {
+  let summary = value
+  if (typeof value === 'string') {
+    if (!value.trim()) return null
+    try {
+      summary = JSON.parse(value)
+    } catch {
+      return null
+    }
+  }
+  return summary && typeof summary === 'object' && Array.isArray(summary.product) ? summary : null
+}
+
+/**
+ * EDITING A SAVED CHALLAN - the stock summary with what the Challan already took
+ * out (its saved skuWarehouseSummary) counted as there again: each warehouse's
+ * free stock and each order's booking get its remove_qty back (the summary no
+ * longer has them), and `entered` starts with those quantities - so the same
+ * allocation, or less of it, is always allowed. A warehouse or booking the
+ * summary no longer lists comes back with just what the Challan took. Each
+ * saved product goes to the first row of the same product_id.
+ *
+ *   withSavedStock(rows, saved) -> { rows, entered }
+ */
+export const withSavedStock = (rows, saved) => {
+  const next = rows.map((row) => ({ ...row, warehouses: row.warehouses.map((warehouse) => ({ ...warehouse, bookings: warehouse.bookings.map((booking) => ({ ...booking })) })) }))
+  const entered = {}
+  const used = new Set()
+  listOf(saved?.product).forEach((product) => {
+    const row = next.find((candidate) => !used.has(candidate.key) && candidate.productId !== null && String(candidate.productId) === textOf(product?.document_id))
+    if (!row) return
+    used.add(row.key)
+    listOf(product.warehouse).forEach((savedWarehouse) => {
+      const id = textOf(savedWarehouse?.id)
+      if (!id) return
+      let warehouse = row.warehouses.find((candidate) => candidate.id === id)
+      if (!warehouse) {
+        warehouse = { id, name: `Warehouse ${id}`, qty: 0, booked: 0, free: 0, bookings: [] }
+        row.warehouses.push(warehouse)
+      }
+      const direct = Math.max(0, numberOf(savedWarehouse.remove_qty) ?? 0)
+      if (direct > 0) {
+        warehouse.free += direct
+        entered[warehouseKey(row, warehouse)] = tidy(direct)
+      }
+      listOf(savedWarehouse.so_booked_qty).forEach((savedBooking) => {
+        const soNo = textOf(savedBooking?.so_no)
+        const taken = Math.max(0, numberOf(savedBooking?.remove_qty) ?? 0)
+        if (!soNo || taken <= 0) return
+        let booking = warehouse.bookings.find((candidate) => candidate.soNo === soNo)
+        if (!booking) {
+          booking = { soNo, qty: 0, buyerName: '', date: '' }
+          warehouse.bookings.push(booking)
+        }
+        booking.qty += taken
+        entered[bookingKey(row, warehouse, booking)] = tidy(taken)
+      })
+    })
+  })
+  return { rows: next, entered }
+}
 
 /** The PUT - each product's warehouses it takes from, an order's booking only when something comes out of it. */
 export const buildStockUpdateBody = ({ companyName, rows, entered }) => ({

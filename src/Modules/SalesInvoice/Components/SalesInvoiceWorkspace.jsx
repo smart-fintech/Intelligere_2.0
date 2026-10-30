@@ -42,7 +42,7 @@ import OrderProducts from '@/Modules/SalesInvoice/Components/OrderProducts'
 import InventoryBookingModal from '@/Modules/SalesInvoice/Components/InventoryBookingModal'
 import StockBookingModal from '@/Modules/SalesInvoice/Components/StockBookingModal'
 import ChallanStockModal from '@/Modules/SalesInvoice/Components/ChallanStockModal'
-import { buildStockSummaryRequest, needsChallanStock, readStockSummary } from '@/Modules/SalesInvoice/challanStock'
+import { buildStockSummaryRequest, needsChallanStock, readSavedStockSummary, readStockSummary, withSavedStock } from '@/Modules/SalesInvoice/challanStock'
 import InventoryDetailsModal from '@/Modules/SalesInvoice/Components/InventoryDetailsModal'
 import { buildBookingBody } from '@/Modules/SalesInvoice/inventoryBooking'
 import { needsStockBooking, stockBookingItems } from '@/Modules/SalesInvoice/stockBooking'
@@ -284,7 +284,11 @@ const STEP_OF_PARTY = { seller: INVOICE_STEP.SELLER, buyer: INVOICE_STEP.BUYER }
  * what it takes out (the body once PUT to that API, whole) goes with the
  * Challan as its `skuWarehouseSummary`: no PUT of its own. Closed, nothing is
  * saved. Chosen once for the same lines (a create that fails is sent again
- * with the same skuWarehouseSummary, not asked for again). Not with a
+ * with the same skuWarehouseSummary, not asked for again). EDITING a saved
+ * Challan whose record has a skuWarehouseSummary: the same on Update - the
+ * POST for its lines now, the modal starting with the saved quantities
+ * (counted back into the stock), the update carrying the new
+ * skuWarehouseSummary; one without it is edited as before. Not with a
  * Prefill From - a Sales Order's stock is that order's booking; a Proforma's
  * as it always was (needsChallanStock).
  *
@@ -676,22 +680,26 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
     })
     return documentIds.length > 0 ? { documentFrom: orders.source, documentIds } : null
   }
-  // A NEW Challan with nothing in Prefill From takes its stock out before it is created (needsChallanStock).
+  // A NEW Challan with nothing in Prefill From takes its stock out before it is created - and a saved one
+  // being edited, when its record has a skuWarehouseSummary, before it is updated (needsChallanStock).
   const takesChallanStock = needsChallanStock({
     documentType: documentTypeValue,
     inventory: inventoryAccess.full,
     editing: Boolean(editing),
     prefilled: Boolean(orders.source || prefill.sourceType || prefilledFrom),
+    savedStock: editing?.stockSummary ?? null,
   })
-  // { rows, documentNo } while the modal is open; challanStockAnswer settles the save's wait for it;
+  // { rows, entered, documentNo } while the modal is open; challanStockAnswer settles the save's wait for it;
   // challanStockFor - { lines, body }: the lines whose stock was chosen, and what is taken out (null - nothing to take).
   const [challanStockAsk, setChallanStockAsk] = useState(null)
   const challanStockAnswer = useRef(null)
   const challanStockFor = useRef(null)
-  const linesTaken = JSON.stringify(applicable.lines.map((line) => [line.productKey, line.skuValue, line.quantity]))
+  // The lines - and, editing, which document - the stock is chosen for.
+  const linesTaken = JSON.stringify([editing?.documentId ?? null, applicable.lines.map((line) => [line.productKey, line.skuValue, line.quantity])])
   /**
    * The Challan's stock to take out (POST, the modal) - the body of what is taken out (sent as the
-   * document's skuWarehouseSummary); null - nothing to take; false - not saved.
+   * document's skuWarehouseSummary); null - nothing to take; false - not saved. Editing: the modal
+   * starts with the saved skuWarehouseSummary's quantities, counted back into the stock (withSavedStock).
    */
   const takeChallanStock = async (documentNo) => {
     const { body, items } = buildStockSummaryRequest({ companyName: company.comp_name, lines: applicable.lines, productsByKey: products.byKey })
@@ -705,9 +713,10 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
     }
     const rows = readStockSummary(reply, items)
     if (rows.length === 0) return null
+    const ask = editing?.stockSummary ? withSavedStock(rows, editing.stockSummary) : { rows, entered: {} }
     return new Promise((resolve) => {
       challanStockAnswer.current = resolve
-      setChallanStockAsk({ rows, documentNo })
+      setChallanStockAsk({ ...ask, documentNo })
     })
   }
   const settleChallanStock = (taken) => {
@@ -775,6 +784,8 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
       documentNo: String(record.document_no ?? '').trim() || String(objectDocumentNo(record) ?? ''),
       // Where it was prefilled from, as saved - an update keeps it.
       prefillFrom: readPrefillFrom(record.prefill_from),
+      // A Challan's stock taken out, as saved - null when it has none (edited as before).
+      stockSummary: readSavedStockSummary(record.skuWarehouseSummary),
     })
     setPendingEdit(null)
     setConfirmedLedgerId(null)
@@ -1103,8 +1114,9 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
         if (!booking) return
         bookedRef.current = booking.booked
       }
-      // A new Challan with no Prefill From: its stock out of the warehouses chosen first - once for these lines -
-      // and sent with it (skuWarehouseSummary), also when a create that failed is tried again.
+      // A new Challan with no Prefill From (or one edited that has a skuWarehouseSummary): its stock out of the
+      // warehouses chosen first - once for these lines - and sent with it (skuWarehouseSummary), also when a
+      // create or update that failed is tried again.
       if (!saved && takesChallanStock) {
         if (challanStockFor.current?.lines !== linesTaken) {
           setPhase('booking')
@@ -1444,6 +1456,7 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
       {challanStockAsk ? (
         <ChallanStockModal
           rows={challanStockAsk.rows}
+          initialEntered={challanStockAsk.entered}
           companyName={company.comp_name}
           documentNo={challanStockAsk.documentNo}
           onDone={(body) => settleChallanStock(body)}

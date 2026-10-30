@@ -26,11 +26,12 @@ const inputClass =
  * `skuWarehouseSummary`). Close takes nothing out and saves nothing (onClose).
  *
  *   rows          readStockSummary(...) - never empty
+ *   initialEntered   the quantities it starts with - editing, the saved ones (withSavedStock); none by default
  *   companyName   the active company's
  *   documentNo    the Challan's number, for the title
  */
-export default function ChallanStockModal({ rows, companyName, documentNo, onDone, onClose }) {
-  const [entered, setEntered] = useState({})
+export default function ChallanStockModal({ rows, initialEntered, companyName, documentNo, onDone, onClose }) {
+  const [entered, setEntered] = useState(() => initialEntered ?? {})
   const problems = checkStockRemoval(rows, entered)
   const valid = !hasStockProblems(problems)
   // A product's total error shows once something is typed for it.
