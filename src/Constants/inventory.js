@@ -22,6 +22,7 @@ import {
   Scale,
   Settings2,
   SlidersHorizontal,
+  TrendingUp,
   Truck,
   Warehouse,
 } from 'lucide-react'
@@ -53,6 +54,10 @@ import {
  *   requiresInventory   optional. true = part of Inventory Management, and
  *          shown only to a user who has it (see useInventoryAccess). Everyone
  *          else never sees the tab - or the section - at all.
+ *   requiresModule      optional. The `active_modules` entry the active
+ *          company must have (matched as accessService's listsModule does -
+ *          case, spaces and punctuation aside). Without it the section is
+ *          still shown, disabled, and cannot be opened.
  *
  * The order here IS the order on screen. A plain
  * /dashboard/inventory-details opens the default section (below), and a
@@ -120,6 +125,9 @@ export const INVENTORY_SECTIONS = [
   // The requests for quotation a Sales Order sent its vendors, and their
   // quotations - Inventory Management's, like the procurement that sends them.
   { key: 'compare-quotation', label: 'Compare Quotation', icon: GitCompareArrows, ready: true, requiresInventory: true },
+  // Sales or purchase forecasts of chosen products - for a company whose
+  // plan has Forecasting, with Inventory Management or without.
+  { key: 'ai-forecasting', label: 'AI Forecasting', icon: TrendingUp, ready: true, requiresModule: 'Forecasting' },
 ]
 
 /**
@@ -320,6 +328,34 @@ export const ADJUSTMENT_VOUCHER_TYPES = [
 
 /** How a stored doc_type / voucher_type reads - as it came when the list does not know it. */
 export const labelOf = (options, value) => options.find((option) => option.value === value)?.label ?? String(value ?? '')
+
+/* ------------------------------------------------------------------ */
+/* AI Forecasting                                                     */
+/* ------------------------------------------------------------------ */
+
+/** Why AI Forecasting is shown disabled - the company's plan does not have it. */
+export const FORECASTING_UNAVAILABLE_MESSAGE = "AI Forecasting is not part of this company's plan."
+
+/**
+ * The vouchers a forecast can be made from - `value` is EXACTLY what
+ * inventory/forecast/ receives as `voucherType`; `rules` the group of
+ * inventory/forecastRules/'s answer that says whether there is enough of
+ * them ("sales", "purchase").
+ */
+export const FORECAST_VOUCHER_TYPES = [
+  { value: 'Sales Invoice', label: 'Sales', rules: 'sales' },
+  { value: 'Purchase Invoice', label: 'Purchase', rules: 'purchase' },
+]
+
+/** `metric` - what is forecast. Sent as written. */
+export const FORECAST_METRICS = ['Quantity', 'Amount']
+
+/** The months, 1 - 12 as `fromMonth` / `toMonth` are sent. */
+export const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+
+/** How many years either side of this one the From / To Year lists offer. */
+export const FORECAST_YEARS_BACK = 5
+export const FORECAST_YEARS_AHEAD = 2
 
 /* ------------------------------------------------------------------ */
 /* Product                                                            */

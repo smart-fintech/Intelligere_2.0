@@ -177,6 +177,12 @@ const taxFields = (figures, interState, rate) => ({
  *   prefill_from           where it was prefilled from - { document_from,
  *                          document_id: [...] } (documentPrefillService's
  *                          buildPrefillFrom), {} when it was not
+ *   skuWarehouseSummary    JSON text - only a new Challan whose stock was taken
+ *                          out (ChallanStockModal): the whole body that was
+ *                          PUT to inventory/SKUWarehouseSummaryAPI/, as built
+ *                          (challanStock's buildStockUpdateBody) - { company_name,
+ *                          product: [{ document_id, warehouse: [{ id, remove_qty,
+ *                          so_booked_qty? }] }] }. Not there for anything else
  */
 export const buildBusinessDocumentPayload = (request) => {
   const { document, figures, interState } = request
@@ -356,6 +362,8 @@ export const buildBusinessDocumentPayload = (request) => {
     product_data: JSON.stringify(productData),
     other_details: JSON.stringify(otherDetails),
     gst_charges: JSON.stringify(gstCharges),
+    // The stock taken out goes with the document - no PUT of its own.
+    ...(request.skuWarehouseSummary ? { skuWarehouseSummary: JSON.stringify(request.skuWarehouseSummary) } : {}),
   }
 }
 

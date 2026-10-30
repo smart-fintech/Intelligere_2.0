@@ -1,14 +1,12 @@
-import { Fragment, useRef, useState } from 'react'
+import { Fragment, useState } from 'react'
 import { Check, PackageX } from 'lucide-react'
 
 import { Modal } from '@/Components/Common/Modal'
 import { Button } from '@/Components/ui/button'
-import { toast } from '@/Library/toast'
 import { cn } from '@/Library/utils'
 import { SkuCode } from '@/Modules/SalesInvoice/Components/RequestQuotation'
 import { bookingKey, buildStockUpdateBody, checkStockRemoval, hasStockProblems, totalRemoved, warehouseKey } from '@/Modules/SalesInvoice/challanStock'
 import { toDecimalInput } from '@/Modules/SalesInvoice/salesInvoiceForm'
-import { updateStockSummary } from '@/Services/inventoryBookingService'
 
 const cell = 'px-2 py-1.5'
 const quantity = (value) => String(Number(Number(value).toFixed(3)))
@@ -23,10 +21,9 @@ const inputClass =
  * - Qty, Total Booked, Free (Qty - booked) and Take from free stock - and, under
  * it, the Sales Orders booked there: SO No., Buyer, Date, Booked and Take from
  * this booking. OK works once every product adds up to its order quantity
- * (checkStockRemoval) and sends the PUT once, however often pressed: done -
- * the server's message, onDone(reply); refused, or answered with `errors` -
- * its message, the modal stays open with every quantity. Close takes nothing
- * out and saves nothing (onClose).
+ * (checkStockRemoval) and sends nothing: onDone(body) - the body of what is
+ * taken out (buildStockUpdateBody), which the Challan is created with (its
+ * `skuWarehouseSummary`). Close takes nothing out and saves nothing (onClose).
  *
  *   rows          readStockSummary(...) - never empty
  *   companyName   the active company's
@@ -34,8 +31,6 @@ const inputClass =
  */
 export default function ChallanStockModal({ rows, companyName, documentNo, onDone, onClose }) {
   const [entered, setEntered] = useState({})
-  const [sending, setSending] = useState(false)
-  const busy = useRef(false)
   const problems = checkStockRemoval(rows, entered)
   const valid = !hasStockProblems(problems)
   // A product's total error shows once something is typed for it.
@@ -43,20 +38,9 @@ export default function ChallanStockModal({ rows, companyName, documentNo, onDon
 
   const type = (key, text) => setEntered((current) => ({ ...current, [key]: toDecimalInput(text) }))
 
-  const confirm = async () => {
-    if (busy.current || !valid) return
-    busy.current = true
-    setSending(true)
-    try {
-      const reply = await updateStockSummary(buildStockUpdateBody({ companyName, rows, entered }))
-      toast.success(reply?.msg || 'The stock was updated.')
-      onDone(reply)
-    } catch (failure) {
-      toast.error(failure.message || 'The stock could not be updated.')
-    } finally {
-      busy.current = false
-      setSending(false)
-    }
+  const confirm = () => {
+    if (!valid) return
+    onDone(buildStockUpdateBody({ companyName, rows, entered }))
   }
 
   const input = (key, label, { disabled = false } = {}) => (
@@ -68,7 +52,7 @@ export default function ChallanStockModal({ rows, companyName, documentNo, onDon
         aria-invalid={Boolean(problems.cells[key])}
         className={inputClass}
         value={entered[key] ?? ''}
-        disabled={sending || disabled}
+        disabled={disabled}
         onChange={(event) => type(key, event.target.value)}
       />
       {problems.cells[key] ? <p className="mt-0.5 text-[11px] text-destructive">{problems.cells[key]}</p> : null}
@@ -78,7 +62,7 @@ export default function ChallanStockModal({ rows, companyName, documentNo, onDon
   return (
     <Modal
       open
-      onOpenChange={(next) => !next && !busy.current && onClose()}
+      onOpenChange={(next) => !next && onClose()}
       title={`Take stock out - ${documentNo || 'Challan'}`}
       description="Take each product's order quantity from a warehouse's free stock, or from a Sales Order booked there."
       size="xl"
@@ -86,10 +70,10 @@ export default function ChallanStockModal({ rows, companyName, documentNo, onDon
       footer={
         <div className="flex flex-wrap items-center justify-end gap-2">
           {valid ? null : <p className="mr-auto text-xs text-muted-foreground">Take out each product&apos;s whole order quantity to continue.</p>}
-          <Button type="button" variant="outline" disabled={sending} onClick={onClose}>
+          <Button type="button" variant="outline" onClick={onClose}>
             Close
           </Button>
-          <Button type="button" icon={Check} loading={sending} disabled={sending || !valid} onClick={confirm}>
+          <Button type="button" icon={Check} disabled={!valid} onClick={confirm}>
             OK
           </Button>
         </div>

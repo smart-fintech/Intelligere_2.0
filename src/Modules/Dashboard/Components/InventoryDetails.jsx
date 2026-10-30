@@ -67,14 +67,17 @@ import { ListSkeleton } from '@/Components/Common/DataList'
 import { Card, CardContent } from '@/Components/ui/card'
 import { Tooltip } from '@/Components/ui/tooltip'
 import {
+  FORECASTING_UNAVAILABLE_MESSAGE,
   INVENTORY_DEFAULT_SECTION,
   INVENTORY_DEFAULT_SECTION_WITHOUT_INVENTORY,
   INVENTORY_SECTIONS,
 } from '@/Constants/inventory'
+import { useActiveCompany } from '@/Hooks/useActiveCompany'
 import useInventoryAccess from '@/Hooks/useInventoryAccess'
 import useSectionAccess from '@/Hooks/useSectionAccess'
 import { cn } from '@/Library/utils'
-import { ACCESS_SECTIONS, NO_VIEW_MESSAGE } from '@/Services/accessService'
+import { ACCESS_SECTIONS, NO_VIEW_MESSAGE, listsModule } from '@/Services/accessService'
+import AIForecasting from './AIForecasting'
 import BasicProducts from './BasicProducts'
 import CompareQuotation from './CompareQuotation'
 import CustomFields from './CustomFields'
@@ -106,11 +109,13 @@ const PAGES_WITH_INVENTORY = {
   'inventory-master/customised-fields': CustomFields,
   'inventory-master/opening-stock': OpeningStock,
   'compare-quotation': CompareQuotation,
+  'ai-forecasting': AIForecasting,
 }
 
 const PAGES_WITHOUT_INVENTORY = {
   product: BasicProducts,
   'inventory-master/vendor': Vendors,
+  'ai-forecasting': AIForecasting,
 }
 
 /** The one a list opens on: its first ready entry, else simply its first. */
@@ -128,11 +133,18 @@ const PRODUCT_SECTION = 'product'
  * goes with them - unless it is a page of its own for this user (Product:
  * the simple product list), which then simply has no tabs. A section that is
  * itself part of it (Compare Quotation) goes too. Without View on Product
- * Details (`canViewProduct`), Product is still listed, `disabled`.
+ * Details (`canViewProduct`), Product is still listed, `disabled` - and so
+ * is a section whose `requiresModule` the company's `active_modules` lacks
+ * (AI Forecasting), each with the reason it says on hover.
  */
-const sectionsFor = (full, pages, canViewProduct) =>
+const sectionsFor = (full, pages, canViewProduct, activeModules) =>
   INVENTORY_SECTIONS.map((section) => {
-    const entry = section.key === PRODUCT_SECTION && !canViewProduct ? { ...section, disabled: true } : section
+    const entry =
+      section.key === PRODUCT_SECTION && !canViewProduct
+        ? { ...section, disabled: true, disabledReason: NO_VIEW_MESSAGE }
+        : section.requiresModule && !listsModule(activeModules, [section.requiresModule])
+          ? { ...section, disabled: true, disabledReason: FORECASTING_UNAVAILABLE_MESSAGE }
+          : section
     if (full) return entry
     if (entry.requiresInventory) return null
     if (!entry.tabs) return entry
@@ -171,9 +183,12 @@ export default function InventoryDetails() {
 
 function InventoryNavigation({ full, canViewProduct }) {
   const [params, setParams] = useSearchParams()
+  // Read again whenever the header moves to another company.
+  const { activeCompany } = useActiveCompany()
+  const activeModules = activeCompany?.active_modules
 
   const pages = full ? PAGES_WITH_INVENTORY : PAGES_WITHOUT_INVENTORY
-  const sections = useMemo(() => sectionsFor(full, pages, canViewProduct), [full, pages, canViewProduct])
+  const sections = useMemo(() => sectionsFor(full, pages, canViewProduct, activeModules), [full, pages, canViewProduct, activeModules])
   // What can be opened - a disabled section is shown, never open.
   const openable = sections.filter((entry) => !entry.disabled)
 
@@ -243,7 +258,7 @@ function InventoryNavigation({ full, canViewProduct }) {
           // would take it out of the keyboard order and silence its tooltip.
           if (entry.disabled) {
             return (
-              <Tooltip key={entry.key} text={NO_VIEW_MESSAGE}>
+              <Tooltip key={entry.key} text={entry.disabledReason}>
                 <button
                   id={`inventory-section-${entry.key}`}
                   type="button"
@@ -320,7 +335,8 @@ function InventoryNavigation({ full, canViewProduct }) {
 
         return (
           <div key={id} role="tabpanel" hidden={!showing} aria-labelledby={showing ? labelledBy : undefined}>
-            <Page />
+            {/* `active`: whether it is the one showing - a page that asks only while seen (AI Forecasting) reads it. */}
+            <Page active={showing} />
           </div>
         )
       })}

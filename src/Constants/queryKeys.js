@@ -22,6 +22,8 @@
  *                       again after a note is created, changed or deleted (useTransferNotes)
  *   INVENTORY_ADJUSTMENTS POST inventory/update_inventory/ [INVENTORY_ADJUSTMENTS, companyName] - the
  *                       history, read again after an adjustment is saved (useInventoryAdjustments)
+ *   FORECAST_RULES      POST inventory/forecastRules/    [FORECAST_RULES, companyName] - read once
+ *                       a session per company (useForecastRules)
  *
  * How long an answer is used before it is asked for again, even with no
  * change seen here: what another user, another tab or Tally may have
@@ -39,6 +41,7 @@ export const QUERY = Object.freeze({
   QUOTATION_REQUESTS: 'quotationRequests',
   TRANSFER_NOTES: 'transferNotes',
   INVENTORY_ADJUSTMENTS: 'inventoryAdjustments',
+  FORECAST_RULES: 'forecastRules',
 })
 
 export const MASTER_DATA_STALE_MS = 5 * 60 * 1000

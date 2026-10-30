@@ -10,13 +10,14 @@
  *   buildStockSummaryRequest({ companyName, lines, productsByKey })
  *       -> { body, items }   the POST - each product line under the backend's
  *       names: SKU-managed `quantity`, otherwise `order_qty` with sku_code "";
- *       `items` each line's product and its SKU's product_id (what the PUT names)
+ *       `items` each line's product and its SKU's product_id (what the body taken out names)
  *   readStockSummary(reply, items)
  *       -> [{ key, productId, productName, skuCode, skuDetails, orderQty, warehouses:
  *            [{ id, name, qty, booked, free, bookings: [{ soNo, qty, buyerName, date }] }] }]
  *       - [] when the reply has nothing to take ({ msg })
  *   checkStockRemoval(rows, entered)   what is wrong - { cells, items }
- *   buildStockUpdateBody({ companyName, rows, entered })   the PUT
+ *   buildStockUpdateBody({ companyName, rows, entered })   what is taken out - the body once PUT
+ *       to inventory/SKUWarehouseSummaryAPI/, now sent whole as the Challan's skuWarehouseSummary
  *
  * `entered`: { "<row>|<warehouse id>": "3", "<row>|<warehouse id>|<so no>": "5" } - as typed.
  *

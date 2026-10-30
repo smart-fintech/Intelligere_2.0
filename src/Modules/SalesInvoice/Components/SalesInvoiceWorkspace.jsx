@@ -280,10 +280,11 @@ const STEP_OF_PARTY = { seller: INVOICE_STEP.SELLER, buyer: INVOICE_STEP.BUYER }
  * ------------------------------------------------------------------
  * Before a NEW one is created: its products' stock summary (POST
  * inventory/SKUWarehouseSummaryAPI/), ChallanStockModal to take each one's
- * quantity out of a warehouse's free stock or a Sales Order's booking, the
- * PUT - and only once that succeeds, the Challan is created and its PDF made.
- * Closed, or refused, nothing is saved. Done once for the same lines (a create
- * that fails is saved again without taking the stock out twice). Not with a
+ * quantity out of a warehouse's free stock or a Sales Order's booking - and
+ * what it takes out (the body once PUT to that API, whole) goes with the
+ * Challan as its `skuWarehouseSummary`: no PUT of its own. Closed, nothing is
+ * saved. Chosen once for the same lines (a create that fails is sent again
+ * with the same skuWarehouseSummary, not asked for again). Not with a
  * Prefill From - a Sales Order's stock is that order's booking; a Proforma's
  * as it always was (needsChallanStock).
  *
@@ -683,15 +684,18 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
     prefilled: Boolean(orders.source || prefill.sourceType || prefilledFrom),
   })
   // { rows, documentNo } while the modal is open; challanStockAnswer settles the save's wait for it;
-  // challanStockFor - the lines whose stock is already out (never taken out twice).
+  // challanStockFor - { lines, body }: the lines whose stock was chosen, and what is taken out (null - nothing to take).
   const [challanStockAsk, setChallanStockAsk] = useState(null)
   const challanStockAnswer = useRef(null)
   const challanStockFor = useRef(null)
   const linesTaken = JSON.stringify(applicable.lines.map((line) => [line.productKey, line.skuValue, line.quantity]))
-  /** The Challan's stock taken out (POST, the modal, PUT) - true once it is, or there is nothing to take; false - not saved. */
+  /**
+   * The Challan's stock to take out (POST, the modal) - the body of what is taken out (sent as the
+   * document's skuWarehouseSummary); null - nothing to take; false - not saved.
+   */
   const takeChallanStock = async (documentNo) => {
     const { body, items } = buildStockSummaryRequest({ companyName: company.comp_name, lines: applicable.lines, productsByKey: products.byKey })
-    if (body.length === 0) return true
+    if (body.length === 0) return null
     let reply
     try {
       reply = await getStockSummary(body)
@@ -700,17 +704,17 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
       return false
     }
     const rows = readStockSummary(reply, items)
-    if (rows.length === 0) return true
+    if (rows.length === 0) return null
     return new Promise((resolve) => {
       challanStockAnswer.current = resolve
       setChallanStockAsk({ rows, documentNo })
     })
   }
-  const settleChallanStock = (done) => {
+  const settleChallanStock = (taken) => {
     const resolve = challanStockAnswer.current
     challanStockAnswer.current = null
     setChallanStockAsk(null)
-    resolve?.(done)
+    resolve?.(taken)
   }
   // Nor does a Challan's wait for its stock.
   useEffect(
@@ -1099,11 +1103,16 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
         if (!booking) return
         bookedRef.current = booking.booked
       }
-      // A new Challan with no Prefill From: its stock out of the warehouses first - once for these lines.
-      if (!saved && takesChallanStock && challanStockFor.current !== linesTaken) {
-        setPhase('booking')
-        if (!(await takeChallanStock(invoiceNo))) return
-        challanStockFor.current = linesTaken
+      // A new Challan with no Prefill From: its stock out of the warehouses chosen first - once for these lines -
+      // and sent with it (skuWarehouseSummary), also when a create that failed is tried again.
+      if (!saved && takesChallanStock) {
+        if (challanStockFor.current?.lines !== linesTaken) {
+          setPhase('booking')
+          const taken = await takeChallanStock(invoiceNo)
+          if (taken === false) return
+          challanStockFor.current = { lines: linesTaken, body: taken }
+        }
+        if (challanStockFor.current.body) request = { ...request, skuWarehouseSummary: challanStockFor.current.body }
       }
       const result = await runSaveWorkflow({
         // A retry of a type that uploads its own file sends the file chosen NOW (it may have been replaced).
@@ -1437,7 +1446,7 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
           rows={challanStockAsk.rows}
           companyName={company.comp_name}
           documentNo={challanStockAsk.documentNo}
-          onDone={() => settleChallanStock(true)}
+          onDone={(body) => settleChallanStock(body)}
           onClose={() => settleChallanStock(false)}
         />
       ) : null}
