@@ -269,6 +269,8 @@ export const OPTIONS_PAGE = 100
  * inputClassName="h-8" in a form that has to stay short.
  * With no `label` there is no <label> at all (as with Field) - pass
  * `ariaLabel` then, for a dropdown whose purpose is given by its place.
+ * `onClear` adds an x inside the box while something is chosen; pressing it
+ * calls onClear() - the caller empties its value - and never opens the list.
  */
 export function SelectField({
   id,
@@ -286,7 +288,10 @@ export function SelectField({
   size,
   ariaLabel,
   className,
+  onClear,
 }) {
+  const clearable = Boolean(onClear && value && !disabled)
+
   /* What is typed in the search box, and the options left after it.
      ----------------------------------------------------------------
      The filtering is done HERE, on `options`, because this is where the
@@ -385,17 +390,37 @@ export function SelectField({
         {/* The icon goes INSIDE the trigger rather than absolutely on top of
             it, so the chosen value is laid out beside it and never sits
             underneath. */}
-        <SelectTrigger
-          id={id}
-          size={size}
-          className="w-full"
-          aria-label={label ? undefined : ariaLabel}
-          {...controlAria(id, { error, required })}
-        >
-          {/* Brand blue, matching the icon in a Field. */}
-          {Icon ? <Icon className="size-4 shrink-0 text-brand" /> : null}
-          <SelectValue placeholder={placeholder} />
-        </SelectTrigger>
+        <div className="relative">
+          <SelectTrigger
+            id={id}
+            size={size}
+            className={cn('w-full', clearable && 'pr-14')}
+            aria-label={label ? undefined : ariaLabel}
+            {...controlAria(id, { error, required })}
+          >
+            {/* Brand blue, matching the icon in a Field. */}
+            {Icon ? <Icon className="size-4 shrink-0 text-brand" /> : null}
+            <SelectValue placeholder={placeholder} />
+          </SelectTrigger>
+
+          {/* Beside the trigger, not in it: a press here must not open the list. */}
+          {clearable ? (
+            <button
+              type="button"
+              aria-label={`Clear ${label || ariaLabel || 'selection'}`}
+              title="Clear"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                onClear()
+              }}
+              className="absolute inset-y-0 right-8 my-auto flex size-5 cursor-pointer items-center justify-center rounded-sm text-muted-foreground transition-colors outline-none hover:bg-muted hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50"
+            >
+              <X className="size-3.5" />
+            </button>
+          ) : null}
+        </div>
 
         <SelectContent
           searchable={searchable}

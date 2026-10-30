@@ -8,6 +8,7 @@ import { Button } from '@/Components/ui/button'
 import { Label } from '@/Components/ui/label'
 import { Switch } from '@/Components/ui/switch'
 import useProducts from '@/Hooks/useProducts'
+import useReorderAnimation from '@/Hooks/useReorderAnimation'
 import { toast } from '@/Library/toast'
 import { cn } from '@/Library/utils'
 import { readProducts } from '@/Modules/Dashboard/productList'
@@ -35,7 +36,9 @@ import { getProgressReport, saveProgressReport } from '@/Services/salesInvoiceSe
  *   1. its processes are asked for (POST inventory/progress_report/
  *      { company_name, document_no }) as it opens, and listed one card each - its
  *      colour, name and SKU code (its details on hover), % Weightage, Color
- *      (typed or picked), Total and Done; dragged (or the arrows) into order
+ *      (typed or picked), Total and Done; dragged (or the arrows) into order -
+ *      the dragged card lifted and outlined where it will land, the others
+ *      sliding to their new places (useReorderAnimation)
  *   2. Custom Weightage off: every process the equal share; on: each its own,
  *      adding up to 100%. Loaded weightages that are not all the equal share
  *      open with it on - a saved process is never put back to the defaults
@@ -87,14 +90,19 @@ const moved = (rows, key, toIndex) => {
 /** One process - its card in the list. */
 function ProcessCard({ row, index, count, custom, errors, disabled, dragging, onEdit, onMove, dragProps }) {
   const { item } = row
-  const name = String(item.name ?? '').trim() || `Process ${index + 1}`
+  const name = String(item.product_name ?? '').trim() || `Process ${index + 1}`
   const colour = drawableColour(item.colour_code)
   const { onHandleDragStart, ...dropProps } = dragProps
   return (
     <li
       {...dropProps}
-      className={cn('rounded-md border border-border bg-card p-3 shadow-xs transition-colors', dragging && 'border-brand bg-brand-soft opacity-70')}
+      data-reorder-key={row.key}
+      className={cn(
+        'relative rounded-md border border-border bg-card p-3 shadow-xs transition-[scale,box-shadow,border-color,background-color] duration-200 ease-out',
+        dragging && 'z-10 scale-[1.02] border-dashed border-brand bg-brand-soft shadow-lg ring-2 ring-brand/30 dark:bg-brand/15',
+      )}
       data-testid="process-card"
+      data-dragging={dragging || undefined}
     >
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <span
@@ -161,7 +169,7 @@ function ProcessCard({ row, index, count, custom, errors, disabled, dragging, on
           label="Total"
           inputMode="decimal"
           value={String(item.total ?? '')}
-          disabled={disabled}
+          disabled={true}
           error={errors?.total}
           onChange={(event) => onEdit('total', event.target.value)}
         />
@@ -261,7 +269,7 @@ function ProcessStock({ soNo, entries, onDone, onCancel }) {
     return <StockBookingModal items={matched.items} documentId={soNo} documentNo={soNo} extra={{ so_no: soNo }} onDone={onDone} />
   }
   return (
-    <Modal open onOpenChange={() => {}} title={`Add stock - ${soNo}`} size="md" closeOnBackdropClick={false} closeOnEsc={false} showCloseButton={false}>
+    <Modal open onOpenChange={() => { }} title={`Add stock - ${soNo}`} size="md" closeOnBackdropClick={false} closeOnEsc={false} showCloseButton={false}>
       {products.status === 'failed' ? (
         <StateMessage icon={AlertCircle} tone="error" title="The product list could not be loaded" action={<RetryButton onClick={products.reload} />}>
           {products.error}
@@ -309,6 +317,7 @@ export default function SalesOrderProcessModal({ companyName, order, onClose, on
   const [downloading, setDownloading] = useState(false)
   const busy = useRef(false)
   const chartRef = useRef(null)
+  const { listRef, capture: captureOrder } = useReorderAnimation()
 
   useEffect(() => {
     let current = true
@@ -337,6 +346,12 @@ export default function SalesOrderProcessModal({ companyName, order, onClose, on
   const changed = (next) => {
     setRows(next)
     setChart(null)
+  }
+
+  /** A process moved - the cards slide to their new places. */
+  const move = (key, toIndex) => {
+    captureOrder()
+    changed(moved(rows, key, toIndex))
   }
 
   const edit = (index, field, value) => {
@@ -441,13 +456,24 @@ export default function SalesOrderProcessModal({ companyName, order, onClose, on
       event.dataTransfer.effectAllowed = 'move'
       // Some browsers start no drag without data.
       event.dataTransfer.setData('text/plain', row.key)
+      // The whole card follows the pointer, held where it was picked up.
       const card = event.currentTarget.closest('li')
-      if (card) event.dataTransfer.setDragImage(card, 24, 24)
+      if (card) {
+        const box = card.getBoundingClientRect()
+        event.dataTransfer.setDragImage(card, event.clientX - box.left, event.clientY - box.top)
+      }
     },
     onDragOver: (event) => {
       if (!dragging) return
       event.preventDefault()
-      if (dragging !== row.key) changed(moved(rows, dragging, index))
+      if (dragging === row.key) return
+      // Moved once the pointer is past the card's middle, the way it is going - a card still sliding
+      // away under the pointer never sends the dragged one back (no flicker).
+      const from = rows.findIndex((entry) => entry.key === dragging)
+      const box = event.currentTarget.getBoundingClientRect()
+      const middle = box.top + box.height / 2
+      if ((index > from && event.clientY < middle) || (index < from && event.clientY > middle)) return
+      move(dragging, index)
     },
     onDrop: (event) => event.preventDefault(),
     onDragEnd: () => setDragging(null),
@@ -506,7 +532,7 @@ export default function SalesOrderProcessModal({ companyName, order, onClose, on
               </p>
             ) : null}
             <p className="text-xs text-muted-foreground">Drag the cards, or use the arrows, to set the order of the processes.</p>
-            <ol className="space-y-2">
+            <ol ref={listRef}className="space-y-2">
               {rows.map((row, index) => (
                 <ProcessCard
                   key={row.key}
@@ -518,7 +544,7 @@ export default function SalesOrderProcessModal({ companyName, order, onClose, on
                   disabled={locked}
                   dragging={dragging === row.key}
                   onEdit={(field, value) => edit(index, field, value)}
-                  onMove={(toIndex) => changed(moved(rows, row.key, toIndex))}
+                  onMove={(toIndex) => move(row.key, toIndex)}
                   dragProps={dragPropsOf(row, index)}
                 />
               ))}

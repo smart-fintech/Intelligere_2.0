@@ -16,6 +16,12 @@
  *                       the ledgers and products the Voucher view's Mapping lists
  *   WAREHOUSES          POST inventory/warehouse_create/  [WAREHOUSES, companyId] - the list, read
  *                       again after a warehouse is created, changed or deleted (useWarehouses)
+ *   QUOTATION_REQUESTS  POST inventory/AllRequestSO/      [QUOTATION_REQUESTS, companyName] - read
+ *                       once a session, and again after a quotation is uploaded (useQuotationRequests)
+ *   TRANSFER_NOTES      POST inventory/transfer_notes/    [TRANSFER_NOTES, companyName, warehouseId] - read
+ *                       again after a note is created, changed or deleted (useTransferNotes)
+ *   INVENTORY_ADJUSTMENTS POST inventory/update_inventory/ [INVENTORY_ADJUSTMENTS, companyName] - the
+ *                       history, read again after an adjustment is saved (useInventoryAdjustments)
  *
  * How long an answer is used before it is asked for again, even with no
  * change seen here: what another user, another tab or Tally may have
@@ -30,6 +36,9 @@ export const QUERY = Object.freeze({
   TALLY_VOUCHER_TYPES: 'tallyVoucherTypes',
   APP_LEDGER_PRODUCTS: 'appLedgerProducts',
   WAREHOUSES: 'warehouses',
+  QUOTATION_REQUESTS: 'quotationRequests',
+  TRANSFER_NOTES: 'transferNotes',
+  INVENTORY_ADJUSTMENTS: 'inventoryAdjustments',
 })
 
 export const MASTER_DATA_STALE_MS = 5 * 60 * 1000

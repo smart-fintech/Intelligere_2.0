@@ -304,8 +304,20 @@ const STEP_OF_PARTY = { seller: INVOICE_STEP.SELLER, buyer: INVOICE_STEP.BUYER }
  * The PDF is then made and uploaded under the same id, as on a save, with
  * the same Retry PDF if that fails. Cancel edit, or a finished update, goes
  * back to a new, empty document.
+ *
+ * ------------------------------------------------------------------
+ * A NEW DOCUMENT FILLED FROM ELSEWHERE (Compare Quotation's Raise a PO)
+ * ------------------------------------------------------------------
+ *   prefillRequest   { documentType, build({ ledgers, products }) -> { record, warnings } }
+ *                    - a new object each time; `record` in the shape of a saved
+ *                    document (see quotationPurchaseOrder)
+ *
+ * Once the ledger, product and bank lists are in, the form becomes a NEW
+ * document of that type filled from the record - exactly as Prefill From
+ * fills one (formPrefilledFrom) - and each warning is shown. A type this
+ * company may not make is refused, and nothing is filled.
  */
-export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, editRequest = null, onDocumentSaved }) {
+export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, editRequest = null, prefillRequest = null, onDocumentSaved }) {
   const invoice = useSalesInvoiceForm(company, flow.createForm)
   const { form, setErrors, reset } = invoice
   const { ledgers, banks, countries, products } = useInvoiceReferenceData(company.company_id)
@@ -526,6 +538,9 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
      for the lists it is read against, as an Edit's does. */
   const [prefilledFrom, setPrefilledFrom] = useState(null)
   const [pendingPrefill, setPendingPrefill] = useState(null)
+  // A prefillRequest waiting for the lists it is read against (see the note at the top).
+  const [pendingRequest, setPendingRequest] = useState(null)
+  const [seenPrefillRequest, setSeenPrefillRequest] = useState(null)
   const prefill = useDocumentPrefill({
     companyId,
     documentType: documentTypeValue,
@@ -760,6 +775,37 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
     setPendingEdit(null)
     setConfirmedLedgerId(null)
     setDocumentFile(null)
+  }
+  if (prefillRequest && prefillRequest !== seenPrefillRequest) {
+    setSeenPrefillRequest(prefillRequest)
+    setPendingRequest(prefillRequest)
+    setStepIndex(0)
+  }
+  if (pendingRequest && listsSettled && !pendingEdit && !editing && !saved) {
+    const { documentType, build } = pendingRequest
+    setPendingRequest(null)
+    if (!allowedTypes.includes(documentType)) {
+      toast.error(`${documentType} is not available for this company.`)
+    } else {
+      const { record, warnings = [] } = build({ ledgers, products: products.list })
+      setPendingPrefill(null)
+      setPrefilledFrom(null)
+      clearPrefill()
+      invoice.prefill(
+        formPrefilledFrom(record, { ...form, documentType }, {
+          createForm: flow.createForm,
+          company,
+          parties,
+          ledgers,
+          products: products.list,
+          banks: banks.list,
+          countries: { countryNames: getCountries(countries.data), stateNamesOf: (country) => getStates(countries.data, country) },
+        }),
+      )
+      setConfirmedLedgerId(null)
+      setDocumentFile(null)
+      warnings.forEach((warning) => toast.warning(warning))
+    }
   }
 
   /**

@@ -17,6 +17,7 @@ import {
   Boxes,
   ClipboardList,
   FileSpreadsheet,
+  GitCompareArrows,
   Package,
   Scale,
   Settings2,
@@ -35,6 +36,7 @@ import {
  *   Product               (no tabs - one page)
  *   Inventory Master
  *     Master Details | Warehouse | Vendor | Customised Fields
+ *   Compare Quotation     (no tabs - one page)
  *
  * A section, and a tab, is:
  *   key    unique id - the React key, and its value in the address
@@ -48,9 +50,9 @@ import {
  *          built.
  *   tabs   sections only, optional - the tabs inside it. A section with
  *          tabs has no page of its own; opening it opens a tab.
- *   requiresInventory   tabs only, optional. true = part of Inventory
- *          Management, and shown only to a user who has it (see
- *          useInventoryAccess). Everyone else never sees the tab at all.
+ *   requiresInventory   optional. true = part of Inventory Management, and
+ *          shown only to a user who has it (see useInventoryAccess). Everyone
+ *          else never sees the tab - or the section - at all.
  *
  * The order here IS the order on screen. A plain
  * /dashboard/inventory-details opens the default section (below), and a
@@ -62,7 +64,9 @@ import {
  *                                  tabs - Inventory (the SKU-based products,
  *                                  their Custom Report and Expired Products),
  *                                  Inventory Adjustments and Transfer Note -
- *                                  and Inventory Master has all four
+ *                                  and Inventory Master has all four, and
+ *                                  Compare Quotation (the vendors' replies to
+ *                                  a Sales Order's request for quotation)
  *   without                        Product (the simple product list, with no
  *                                  tabs - all three are Inventory Management's) and
  *                                  Vendor - the one tab left of Inventory
@@ -86,10 +90,10 @@ export const INVENTORY_SECTIONS = [
         key: 'inventory-adjustments',
         label: 'Inventory Adjustments',
         icon: Scale,
-        ready: false,
+        ready: true,
         requiresInventory: true,
       },
-      { key: 'transfer-note', label: 'Transfer Note', icon: ArrowLeftRight, ready: false, requiresInventory: true },
+      { key: 'transfer-note', label: 'Transfer Note', icon: ArrowLeftRight, ready: true, requiresInventory: true },
     ],
   },
   {
@@ -113,6 +117,9 @@ export const INVENTORY_SECTIONS = [
       { key: 'opening-stock', label: 'Add Opening Stock', icon: FileSpreadsheet, ready: true, requiresInventory: true },
     ],
   },
+  // The requests for quotation a Sales Order sent its vendors, and their
+  // quotations - Inventory Management's, like the procurement that sends them.
+  { key: 'compare-quotation', label: 'Compare Quotation', icon: GitCompareArrows, ready: true, requiresInventory: true },
 ]
 
 /**
@@ -286,6 +293,33 @@ export const CUSTOM_FIELD_SIZES = ['1', '2', '4', '6']
  * Only for `field_type: "dropdown"`; every other type sends "".
  */
 export const CUSTOM_FIELD_OPTION_TYPES = [{ value: 'single', label: 'Single' }]
+
+/* ------------------------------------------------------------------ */
+/* Inventory Adjustments                                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The lists of the Adjust Inventory form - `value` is EXACTLY what the
+ * backend stores and receives (master.action, master.doc_type,
+ * master.voucher_type), `label` how it reads on screen. The actions are the
+ * history's Action filter too.
+ */
+export const ADJUSTMENT_ACTIONS = ['Damage', 'Reject', 'Expiry', 'Warranty', 'Other']
+
+export const ADJUSTMENT_DOC_TYPES = [
+  { value: 'challan', label: 'Challan' },
+  { value: 'invoice', label: 'Invoice' },
+  { value: 'credit_note', label: 'Credit Note' },
+  { value: 'debit_note', label: 'Debit Note' },
+]
+
+export const ADJUSTMENT_VOUCHER_TYPES = [
+  { value: 'purchase', label: 'Purchase' },
+  { value: 'sales', label: 'Sales' },
+]
+
+/** How a stored doc_type / voucher_type reads - as it came when the list does not know it. */
+export const labelOf = (options, value) => options.find((option) => option.value === value)?.label ?? String(value ?? '')
 
 /* ------------------------------------------------------------------ */
 /* Product                                                            */

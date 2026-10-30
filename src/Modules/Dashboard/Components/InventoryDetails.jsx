@@ -2,7 +2,7 @@
  * Inventory Details: the sections across the top, the open section's tabs
  * under them, and the open page underneath.
  *
- *   Product | Inventory Master                       <- sections
+ *   Product | Inventory Master | Compare Quotation   <- sections
  *   Master Details  Warehouse  Vendor  Customised Fields   <- its tabs
  *   ...the page...
  *
@@ -19,13 +19,15 @@
  * are, and their company's plan) decides what is here at all:
  *
  *   with it      everything above. Product has its tabs - Inventory (the
- *                full, SKU-based products: see InventoryOverview), and
- *                Inventory Adjustments and Transfer Note, Coming Soon.
+ *                full, SKU-based products: see InventoryOverview), Inventory
+ *                Adjustments (InventoryAdjustments) and Transfer Note
+ *                (TransferNotes) - and Compare Quotation is there (CompareQuotation).
  *   without      Product | Vendor. Product is the simple product list, with
  *                none of Product's tabs (all Inventory Management's), and
  *                the tabs that are part of Inventory Management (Master
  *                Details, Warehouse, Customised Fields) are not offered -
- *                nor reachable by typing their address. Vendor, the one tab
+ *                nor reachable by typing their address, and neither is
+ *                Compare Quotation. Vendor, the one tab
  *                left, is shown as a section under its own name rather than
  *                as a lone tab under "Inventory Master".
  *
@@ -74,10 +76,13 @@ import useSectionAccess from '@/Hooks/useSectionAccess'
 import { cn } from '@/Library/utils'
 import { ACCESS_SECTIONS, NO_VIEW_MESSAGE } from '@/Services/accessService'
 import BasicProducts from './BasicProducts'
+import CompareQuotation from './CompareQuotation'
 import CustomFields from './CustomFields'
+import InventoryAdjustments from './InventoryAdjustments'
 import InventoryOverview from './InventoryOverview'
 import MasterDetails from './MasterDetails'
 import OpeningStock from './OpeningStock'
+import TransferNotes from './TransferNotes'
 import Vendors from './Vendors'
 import Warehouses from './Warehouses'
 
@@ -93,11 +98,14 @@ import Warehouses from './Warehouses'
  */
 const PAGES_WITH_INVENTORY = {
   'product/inventory': InventoryOverview,
+  'product/inventory-adjustments': InventoryAdjustments,
+  'product/transfer-note': TransferNotes,
   'inventory-master/master-details': MasterDetails,
   'inventory-master/warehouse': Warehouses,
   'inventory-master/vendor': Vendors,
   'inventory-master/customised-fields': CustomFields,
   'inventory-master/opening-stock': OpeningStock,
+  'compare-quotation': CompareQuotation,
 }
 
 const PAGES_WITHOUT_INVENTORY = {
@@ -118,13 +126,16 @@ const PRODUCT_SECTION = 'product'
  * The sections a user is offered. Without Inventory Management the tabs
  * that are part of it are taken out. A section left with no tabs at all
  * goes with them - unless it is a page of its own for this user (Product:
- * the simple product list), which then simply has no tabs. Without View on
- * Product Details (`canViewProduct`), Product is still listed, `disabled`.
+ * the simple product list), which then simply has no tabs. A section that is
+ * itself part of it (Compare Quotation) goes too. Without View on Product
+ * Details (`canViewProduct`), Product is still listed, `disabled`.
  */
 const sectionsFor = (full, pages, canViewProduct) =>
   INVENTORY_SECTIONS.map((section) => {
     const entry = section.key === PRODUCT_SECTION && !canViewProduct ? { ...section, disabled: true } : section
-    if (!entry.tabs || full) return entry
+    if (full) return entry
+    if (entry.requiresInventory) return null
+    if (!entry.tabs) return entry
 
     const tabs = entry.tabs.filter((tab) => !tab.requiresInventory)
     if (tabs.length > 0) return { ...entry, tabs }

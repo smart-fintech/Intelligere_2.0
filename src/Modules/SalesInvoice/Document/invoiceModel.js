@@ -35,7 +35,7 @@ import {
   stateCodeOf,
   supplyTypesOf,
 } from '@/Modules/SalesInvoice/salesInvoiceForm'
-import { gstChargesBySlab } from '@/Utils/gstLedgers'
+import { gstChargesByLedger } from '@/Utils/gstLedgers'
 
 const rupees = (paise) => Math.round(paise || 0) / 100
 const labelOf = (options, value) => options.find((option) => option.value === value)?.label ?? value ?? ''
@@ -45,8 +45,8 @@ const labelOf = (options, value) => options.find((option) => option.value === va
  *                       the type does not show is empty, so it is not printed
  * @param figures        invoiceFigures(form)
  * @param gst            gstByRate(figures) with each entry's `ledger`
- *                       (resolveGstLedgers, Utils/gstLedgers) - printed as the
- *                       saved gst_charges are (gstChargesBySlab)
+ *                       (resolveGstLedgers, Utils/gstLedgers) - printed one row
+ *                       per ledger (gstChargesByLedger)
  * @param productsByKey  Map of the products (readProducts)
  * @param ledgersById    Map of the ledgers, for charge names and SAC codes
  * @param bank           the chosen bank account record, or null
@@ -126,20 +126,21 @@ export function toInvoiceModel({ form, figures, gst, productsByKey, ledgersById,
   if (figures.discountPaise) {
     rows.push({ type: 'meta', key: 'discount', label: ledgerName('discount', 'Discount'), amount: -rupees(figures.discountPaise) })
   }
-  // The GST rows ARE the saved gst_charges (gstChargesBySlab - the one
-  // grouping the payload uses): one row per slab and real ledger, named
-  // exactly as the ledger is, with the amount saved under it. A tax with no ledger (none
+  // The GST rows: one row per real ledger, named exactly as the ledger is -
+  // every rate posted to it added up (CGST 2.5% and 6% both on a common "CGST"
+  // -> one "CGST" row; rate-wise ledgers stay rows of their own; CGST, SGST and
+  // IGST never share one). The same amounts the saved gst_charges holds, there
+  // split by slab (gstChargesBySlab). A tax with no ledger (none
   // mapped, none for the rate, no basic one) is never given a made-up ledger
   // name: its row is the tax and rate ("IGST 12%") with `missingLedger` set,
   // which the sheet and the PDF mark "No Ledger" in red - and such a
   // document cannot be saved.
-  gstChargesBySlab(gst).forEach((charge) => {
+  gstChargesByLedger(gst).forEach((charge) => {
     const taxes = charge.entries.map((entry) => `${entry.tax} ${rateText(entry.rate)}%`).join(', ')
     rows.push({
       type: 'meta',
-      key: charge.ledger ? `gst-ledger-${charge.slab}-${charge.ledger}` : `gst-missing-${taxes}`,
+      key: charge.ledger ? `gst-ledger-${charge.tax}-${charge.ledger}` : `gst-missing-${taxes}`,
       label: charge.ledger ?? taxes,
-      slab: charge.slab,
       missingLedger: !charge.ledger,
       amount: rupees(charge.paise),
     })

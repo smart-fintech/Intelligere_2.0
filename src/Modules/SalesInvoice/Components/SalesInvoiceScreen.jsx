@@ -34,6 +34,8 @@ import { selectIsTallyErp } from '@/Store/Slices/profileSlice'
  *             adds Add Voucher (Purchase Invoice) and `aiVoucher` - the
  *             document_type the AI reads for - AI Voucher, beside View Voucher
  *             (VoucherModes)
+ *   prefillRequest   optional - a new document filled from elsewhere (Raise a
+ *             PO): handed to the workspace (see its note), on Create Document
  */
 const VIEWS = [
   { value: 'create', label: 'Create Document' },
@@ -42,8 +44,14 @@ const VIEWS = [
   { value: 'voucher', label: 'Voucher' },
 ]
 
-export default function SalesInvoiceScreen({ company, title = 'Sales Invoice', flow, history = {}, vouchers = {} }) {
+export default function SalesInvoiceScreen({ company, title = 'Sales Invoice', flow, history = {}, vouchers = {}, prefillRequest = null }) {
   const [view, setView] = useState('create')
+  // A document filled from elsewhere is shown where it is filled in.
+  const [seenPrefill, setSeenPrefill] = useState(null)
+  if (prefillRequest && prefillRequest !== seenPrefill) {
+    setSeenPrefill(prefillRequest)
+    setView('create')
+  }
   const [historyOpened, setHistoryOpened] = useState(false)
   // Mounted - and so asked for - only once opened; kept mounted after, like History.
   const [voucherOpened, setVoucherOpened] = useState(false)
@@ -92,6 +100,7 @@ export default function SalesInvoiceScreen({ company, title = 'Sales Invoice', f
             company={company}
             {...(flow ? { flow } : null)}
             editRequest={editRequest}
+            prefillRequest={prefillRequest}
             onDocumentSaved={() => setHistoryRefresh((count) => count + 1)}
           />
         ) : (

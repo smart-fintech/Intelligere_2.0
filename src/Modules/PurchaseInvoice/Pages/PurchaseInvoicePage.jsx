@@ -1,14 +1,16 @@
+import { useEffect, useState } from 'react'
 import { AlertCircle, Building2, Lock } from 'lucide-react'
 import { useDispatch, useSelector } from 'react-redux'
-import { Link } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 
 import { ListSkeleton, RetryButton, StateMessage } from '@/Components/Common/DataList'
 import { Button } from '@/Components/ui/button'
 import { Card, CardContent } from '@/Components/ui/card'
 import { ROUTES } from '@/Constants/routes'
-import { PURCHASE_DOCUMENT_TYPE_INVOICE } from '@/Constants/purchaseInvoice'
+import { PURCHASE_DOCUMENT_TYPE_INVOICE, PURCHASE_DOCUMENT_TYPE_OUTBOUND_ORDER } from '@/Constants/purchaseInvoice'
 import { useActiveCompany } from '@/Hooks/useActiveCompany'
 import { PURCHASE_FLOW } from '@/Modules/PurchaseInvoice/purchaseFlow'
+import { purchaseOrderFromQuotation } from '@/Modules/PurchaseInvoice/quotationPurchaseOrder'
 import SalesInvoiceScreen from '@/Modules/SalesInvoice/Components/SalesInvoiceScreen'
 import { getPurchaseDocumentTypeAccess, hasPurchaseInvoiceModule } from '@/Services/purchaseInvoiceService'
 import { fetchCompanies, selectCompanyError, selectCompanyStatus } from '@/Store/Slices/companySlice'
@@ -29,6 +31,13 @@ import { fetchCompanies, selectCompanyError, selectCompanyStatus } from '@/Store
  *
  * Which purchase types the company may make (premium_modules) is decided per
  * type - see getPurchaseDocumentTypeAccess.
+ *
+ * RAISE A PO (Inventory Details > Compare Quotation) arrives here with the
+ * router state { raisePurchaseOrder: { companyId, documentNo, quotation } }:
+ * Create Document opens on a new Outbound Purchase Order filled from that
+ * quotation (purchaseOrderFromQuotation). Taken once, and only for the
+ * company it was raised in; the state is then cleared, so a reload or Back
+ * does not fill the form again.
  *
  * The screen is Sales Invoice's - Create Document or History - with the
  * purchase flow, and a history of the purchase types: on a purchase the
@@ -68,9 +77,34 @@ function Frame({ children }) {
   )
 }
 
+/** Raise a PO's quotation as the workspace's prefillRequest - see the note at the top. */
+const purchaseOrderRequest = ({ documentNo, quotation }) => ({
+  documentType: PURCHASE_DOCUMENT_TYPE_OUTBOUND_ORDER,
+  build: (lists) => {
+    const { record, vendorName, ledgerFound, unmatched } = purchaseOrderFromQuotation({ documentNo, quotation }, lists)
+    const warnings = []
+    if (!ledgerFound) warnings.push(vendorName ? `No ledger is named "${vendorName}" - choose the seller.` : 'The quotation names no vendor - choose the seller.')
+    if (unmatched.length > 0) warnings.push(`Not in the product list - choose each product again: ${unmatched.join(', ')}.`)
+    return { record, warnings }
+  },
+})
+
 export default function PurchaseInvoicePage() {
   const dispatch = useDispatch()
   const { activeCompany, activeCompanyId } = useActiveCompany()
+  const location = useLocation()
+  const navigate = useNavigate()
+
+  // Raise a PO's quotation, taken once as the page opens - see the note at the top.
+  const [raised] = useState(() => {
+    const raise = location.state?.raisePurchaseOrder
+    return raise?.quotation ? { companyId: raise.companyId, request: purchaseOrderRequest(raise) } : null
+  })
+  const hasRouterState = Boolean(location.state?.raisePurchaseOrder)
+  useEffect(() => {
+    if (hasRouterState) navigate(`${location.pathname}${location.search}`, { replace: true, state: null })
+  }, [hasRouterState, navigate, location.pathname, location.search])
+  const prefillRequest = raised && String(raised.companyId) === String(activeCompanyId) ? raised.request : null
   const status = useSelector(selectCompanyStatus)
   const error = useSelector(selectCompanyError)
 
@@ -135,6 +169,7 @@ export default function PurchaseInvoicePage() {
       flow={PURCHASE_FLOW}
       history={PURCHASE_HISTORY}
       vouchers={PURCHASE_VOUCHERS}
+      prefillRequest={prefillRequest}
     />
   )
 }

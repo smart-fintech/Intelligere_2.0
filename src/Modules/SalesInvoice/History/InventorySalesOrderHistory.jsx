@@ -55,7 +55,7 @@ const money = (value) => (value === null ? '--' : formatIndianCurrency(value))
 const filled = (value) => value !== null && value !== '' && !(Array.isArray(value) && value.length === 0)
 
 /** One arrow, turning as what it opens opens and closes. */
-function ExpandButton({ open, label, onClick }) {
+export function ExpandButton({ open, label, onClick }) {
   return (
     <Button
       type="button"
@@ -80,7 +80,7 @@ function PdfButton({ label, onClick }) {
  * up. `columns`: [{ key, label, min (rem), fr, right, value(item), show(item)?,
  * optional }]; an optional column is shown only when a line has a value for it.
  */
-function LineGrid({ columns, items, label, testId }) {
+export function LineGrid({ columns, items, label, testId }) {
   const shown = columns.filter((column) => !column.optional || items.some((item) => filled(column.value(item))))
   const gridTemplateColumns = shown.map((column) => `minmax(${column.min}rem,${column.fr ?? 1}fr)`).join(' ')
   const minWidth = `${shown.reduce((total, column) => total + column.min, 0) + (shown.length - 1) * 0.75 + 1.5}rem`

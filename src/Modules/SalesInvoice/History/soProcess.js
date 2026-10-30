@@ -161,7 +161,7 @@ export const totalProcessDone = (items) => round2(clamp(items.reduce((sum, item)
 export const processChart = (rows, title) => {
   const processes = rows.map(({ key, item }, index) => ({
     key,
-    name: textOf(item.name) || `Process ${index + 1}`,
+    name: textOf(item.product_name) || `Process ${index + 1}`,
     colour: drawableColour(item.colour_code),
     ...figuresOf(item),
   }))

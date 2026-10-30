@@ -848,3 +848,86 @@ export const toInvoiceFormats = (samples) =>
   (samples?.images ?? [])
     .map((src, index) => ({ value: String(index + 1), src }))
     .filter(({ src }) => typeof src === 'string' && src.trim())
+
+/* ------------------------------------------------------------------ */
+/* Transfer Notes                                                     */
+/* ------------------------------------------------------------------ */
+
+/*
+ * ONE URL, FOUR JOBS - AND THE LIST IS A **POST**:
+ *
+ *   POST    inventory/transfer_notes/   list them   { company_name, warehouse_id? }
+ *   POST    inventory/transfer_notes/   add one     { company_name, transfer_no, transfer_date (DD-MM-YYYY),
+ *                                                     vehicle_no, declaration, from_warehouse_id,
+ *                                                     to_warehouse_id, products: [{ product_id, quantity, remark }] }
+ *           -> { msg, id, transfer_note_file }
+ *   PUT     inventory/transfer_notes/   change one  the same body with the note's `id`
+ *           -> { msg, transfer_note_file }
+ *   DELETE  inventory/transfer_notes/   remove one  { company_name, id }  -> { msg }
+ *
+ * The list answers with [{ id, transfer_no, transfer_date (DD/MM/YYYY), vehicle_no,
+ * declaration, from_warehouse: {...}, to_warehouse: {...}, products: [{ product_id,
+ * "Product Name", sku_code, sku_details, "HSN Code", "Per Unit", quantity, remark,
+ * moved: [{ sr_no, quantity }] }], transfer_note_file, created_at }] (see transferNotes).
+ *
+ * A note moves stock between warehouses, so a create, change or delete that
+ * succeeded reads the transfer notes again - at once where they are on
+ * screen - and marks the product list stale (its warehouse quantities moved).
+ */
+const TRANSFER_NOTE_URL = 'inventory/transfer_notes/'
+
+const changesTransferNotes = (request) =>
+  changesProducts(request).then((reply) => {
+    invalidateQueries(QUERY.TRANSFER_NOTES, { refetchActive: true })
+    return reply
+  })
+
+/** The company's notes - one warehouse's (`warehouseId`), or all of them when it is not given. */
+export const getTransferNotes = ({ companyName, warehouseId }) =>
+  api.post(TRANSFER_NOTE_URL, { company_name: companyName, ...(warehouseId ? { warehouse_id: warehouseId } : null) })
+
+export const createTransferNote = (body) => changesTransferNotes(api.post(TRANSFER_NOTE_URL, body))
+
+export const updateTransferNote = (body) => changesTransferNotes(api.put(TRANSFER_NOTE_URL, body))
+
+/** A DELETE with a body has to be put under `data` for axios to send it. */
+export const deleteTransferNote = ({ companyName, id }) =>
+  changesTransferNotes(api.delete(TRANSFER_NOTE_URL, { data: { company_name: companyName, id } }))
+
+/* ------------------------------------------------------------------ */
+/* Inventory Adjustments                                              */
+/* ------------------------------------------------------------------ */
+
+/*
+ * TWO URLS - AND THE HISTORY IS A **POST** ON THE SAME URL AS THE SAVE:
+ *
+ *   POST  inventory/update_inventory/       the history   { company_name }
+ *         -> [{ id, company, inventory_adjustments: { master, payload, removed }, created_at }]
+ *   POST  inventory/inventory_adjustments/  a product's stock   { company_name, product_name, sku_code }
+ *         -> [{ "Product Name", ..., sku_variants: [{ product_id, sku_code,
+ *              product_details: [{ sr_no, Quantity, "Unit Rate", "Expiry Date", sku_details,
+ *              warehouse: [{ id, name, level, shelf, rack_no, warehouse_quantity }] }] }] }]
+ *   POST  inventory/update_inventory/       remove stock  { company_name, warehouse: [{ product_id,
+ *                                           warehouse: [{ id, sku_code, ..., remove_qty, qty }] }], master }
+ *         -> { msg, inventory_master_id, updated: [{ product_id, sku_code, warehouse_id,
+ *              old_qty, removed_qty, new_qty }], created_at }
+ *
+ * (see inventoryAdjustments). A save removes stock, so one that succeeded
+ * reads the history again - at once where it is on screen - and marks the
+ * product list stale.
+ */
+const UPDATE_INVENTORY_URL = 'inventory/update_inventory/'
+const ADJUSTMENT_STOCK_URL = 'inventory/inventory_adjustments/'
+
+/** The company's adjustments so far. */
+export const getInventoryAdjustments = ({ companyName }) => api.post(UPDATE_INVENTORY_URL, { company_name: companyName })
+
+/** A product's SKUs and the stock each holds, per warehouse - `skuCode` '' for all of them. */
+export const getAdjustmentStock = ({ companyName, productName, skuCode }) =>
+  api.post(ADJUSTMENT_STOCK_URL, { company_name: companyName, product_name: productName, sku_code: skuCode })
+
+export const saveInventoryAdjustment = (body) =>
+  changesProducts(api.post(UPDATE_INVENTORY_URL, body)).then((reply) => {
+    invalidateQueries(QUERY.INVENTORY_ADJUSTMENTS, { refetchActive: true })
+    return reply
+  })

@@ -18,6 +18,7 @@ import { AddedProducts, BuyerProducts } from '@/Modules/SalesInvoice/Components/
 import { toast } from '@/Library/toast'
 import { getLedgerSac } from '@/Services/ledgerService'
 import { MAPPING_DOCUMENT_TYPE } from '@/Services/salesInvoiceService'
+import { gstChargesByLedger } from '@/Utils/gstLedgers'
 import {
   LINE_KIND,
   entryModeOf,
@@ -108,12 +109,13 @@ const SOURCE_LABEL = { mapping: 'GST mapping', matched: 'matched by rate', basic
 const sourceOf = (entry) => (entry.source === 'mapping' ? 'mapping' : entry.basic ? 'basic' : 'matched')
 
 /**
- * The GST this invoice charges, one row per tax and rate, and the ledger
- * each is posted to - worked out by the one rule in Utils/gstLedgers (GST
- * mapping, else the ledger for that rate, else the tax's basic ledger), never
- * chosen here, so it is the same ledger the preview names. A row with none is
- * marked; the box under this card says what to create, and Save is refused
- * until it exists.
+ * The GST this invoice charges, one row per ledger it is posted to - worked
+ * out by the one rule in Utils/gstLedgers (GST mapping, else the ledger for
+ * that rate, else the tax's basic ledger), never chosen here, so it is the
+ * same ledger the preview names. Rates on one ledger are one row, their
+ * amounts added (CGST 2.5% and 6% on a common "CGST"); a tax and rate with
+ * no ledger is a row of its own, marked - the box under this card says what
+ * to create, and Save is refused until it exists.
  *
  *   entries   resolveGstLedgers(...) - [] while nothing is charged
  *   check     the workspace's gstCheck - { status } of the two lists it needs
@@ -135,17 +137,17 @@ function GstLedgers({ entries, check, showMapping, onOpenMapping, disabled }) {
             </tr>
           </thead>
           <tbody>
-            {entries.map((entry) => (
-              <tr key={`${entry.tax}|${entry.rate}`} className="border-t border-border">
-                <td className="px-2 py-1.5 whitespace-nowrap">
-                  {entry.tax} {rateText(entry.rate)}%
-                </td>
-                <td className="px-2 py-1.5 text-right tabular-nums">{formatINR(entry.paise)}</td>
+            {gstChargesByLedger(entries).map((charge) => (
+              <tr key={charge.entries.map((entry) => `${entry.tax}|${entry.rate}`).join(',')} className="border-t border-border" data-testid="gst-ledger-row">
+                <td className="px-2 py-1.5">{charge.entries.map((entry) => `${entry.tax} ${rateText(entry.rate)}%`).join(', ')}</td>
+                <td className="px-2 py-1.5 text-right tabular-nums">{formatINR(charge.paise)}</td>
                 <td className="px-2 py-1.5">
-                  {entry.ledger ? (
+                  {charge.ledger ? (
                     <>
-                      {entry.ledger}{' '}
-                      <span className="text-[11px] text-muted-foreground">({SOURCE_LABEL[sourceOf(entry)]})</span>
+                      {charge.ledger}{' '}
+                      <span className="text-[11px] text-muted-foreground">
+                        ({[...new Set(charge.entries.map((entry) => SOURCE_LABEL[sourceOf(entry)]))].join(', ')})
+                      </span>
                     </>
                   ) : known ? (
                     <span className="text-xs font-medium text-destructive">No ledger - create it first</span>

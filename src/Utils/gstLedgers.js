@@ -172,15 +172,18 @@ export const resolveGstLedgers = (entries, { ledgerMapping, ledgers }) =>
   entries.map((entry) => ({ ...entry, ...resolveGstLedger({ tax: entry.tax, rate: entry.rate, ledgerMapping, ledgers }) }))
 
 /**
- * THE GST CHARGES - what the saved `gst_charges` holds and what the invoice
- * prints, worked out here once so the two can never differ: one charge per
- * real ledger, its amount the sum of every tax and rate posted to it (CGST
- * 2.5% and CGST 9% both on the basic "CGST" -> one "CGST" charge), in the
- * order the taxes first appear. An entry with no ledger stays a charge of
- * its own with `ledger` null - shown as missing, and never saved.
+ * THE GST CHARGES BY LEDGER - what the invoice shows and prints (its GST
+ * rows, the GST ledgers table): one charge per real ledger, its amount the
+ * sum of every tax and rate posted to it (CGST 2.5% and CGST 9% both on the
+ * basic "CGST" -> one "CGST" charge; "CGST @ 2.5%" and "CGST @ 9%" stay two),
+ * in the order the taxes first appear. Taxes never merge: CGST, SGST and
+ * IGST are charges of their own even on one ledger (one mapped for both).
+ * The saved `gst_charges` holds the same amounts split by slab
+ * (gstChargesBySlab). An entry with no ledger stays a charge of its own with
+ * `ledger` null - shown as missing, and never saved.
  *
  *   gstChargesByLedger(resolveGstLedgers(...))
- *   -> [{ ledger: 'CGST', paise: 2509, entries: [...] }, { ledger: null, paise: 7200, entries: [IGST 12%] }]
+ *   -> [{ tax: 'CGST', ledger: 'CGST', paise: 2509, entries: [...] }, { tax: 'IGST', ledger: null, paise: 7200, entries: [IGST 12%] }]
  */
 export const gstChargesByLedger = (resolved) => {
   const charges = []
@@ -188,13 +191,14 @@ export const gstChargesByLedger = (resolved) => {
   resolved.forEach((entry) => {
     const name = String(entry.ledger ?? '').trim()
     if (!name) {
-      charges.push({ ledger: null, paise: entry.paise, entries: [entry] })
+      charges.push({ tax: entry.tax, ledger: null, paise: entry.paise, entries: [entry] })
       return
     }
-    let charge = byLedger.get(name)
+    const key = `${entry.tax}|${name}`
+    let charge = byLedger.get(key)
     if (!charge) {
-      charge = { ledger: name, paise: 0, entries: [] }
-      byLedger.set(name, charge)
+      charge = { tax: entry.tax, ledger: name, paise: 0, entries: [] }
+      byLedger.set(key, charge)
       charges.push(charge)
     }
     charge.paise += entry.paise
