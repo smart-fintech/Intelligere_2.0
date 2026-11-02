@@ -70,6 +70,7 @@ import {
   settingsFromCompany,
   showsDocumentField,
   stateCodeOf,
+  textOf,
   validateInvoice,
 } from '@/Modules/SalesInvoice/salesInvoiceForm'
 import {
@@ -285,10 +286,13 @@ const STEP_OF_PARTY = { seller: INVOICE_STEP.SELLER, buyer: INVOICE_STEP.BUYER }
  * Challan as its `skuWarehouseSummary`: no PUT of its own. Closed, nothing is
  * saved. Chosen once for the same lines (a create that fails is sent again
  * with the same skuWarehouseSummary, not asked for again). EDITING a saved
- * Challan whose record has a skuWarehouseSummary: the same on Update - the
- * POST for its lines now, the modal starting with the saved quantities
- * (counted back into the stock), the update carrying the new
- * skuWarehouseSummary; one without it is edited as before. Not with a
+ * Challan from History: the POST for its lines as it opens, and nothing else;
+ * the modal only on Update Challan - from that answer (a new POST only if the
+ * lines changed), starting with its saved skuWarehouseSummary's quantities
+ * (counted back into the stock), or empty when it has none - then, on OK, the
+ * PUT carrying what OK gave. Closed, nothing is sent. One with no saved
+ * skuWarehouseSummary can also go on without taking stock: the PUT as before,
+ * without the key. Not with a
  * Prefill From - a Sales Order's stock is that order's booking; a Proforma's
  * as it always was (needsChallanStock).
  *
@@ -681,12 +685,11 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
     return documentIds.length > 0 ? { documentFrom: orders.source, documentIds } : null
   }
   // A NEW Challan with nothing in Prefill From takes its stock out before it is created - and a saved one
-  // being edited, when its record has a skuWarehouseSummary, before it is updated (needsChallanStock).
+  // being edited as it opens: nothing in its own prefill_from, or a skuWarehouseSummary saved (needsChallanStock).
   const takesChallanStock = needsChallanStock({
     documentType: documentTypeValue,
     inventory: inventoryAccess.full,
-    editing: Boolean(editing),
-    prefilled: Boolean(orders.source || prefill.sourceType || prefilledFrom),
+    prefilled: editing ? Boolean(textOf(editing.prefillFrom?.document_from)) : Boolean(orders.source || prefill.sourceType || prefilledFrom),
     savedStock: editing?.stockSummary ?? null,
   })
   // { rows, entered, documentNo } while the modal is open; challanStockAnswer settles the save's wait for it;
@@ -694,29 +697,42 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
   const [challanStockAsk, setChallanStockAsk] = useState(null)
   const challanStockAnswer = useRef(null)
   const challanStockFor = useRef(null)
+  // Editing: { lines, answer } - the POST made as it opened (its promise), which Update Challan's modal reads
+  // - even while it is still on its way - with no second POST for the same lines.
+  const challanStockRows = useRef(null)
+  // The Edit press whose stock has been asked for - once each.
+  const challanStockOpened = useRef(null)
   // The lines - and, editing, which document - the stock is chosen for.
   const linesTaken = JSON.stringify([editing?.documentId ?? null, applicable.lines.map((line) => [line.productKey, line.skuValue, line.quantity])])
+  /** The stock summary of the lines as they are - the rows to take from. */
+  const readChallanStock = () => {
+    if (editing && challanStockRows.current?.lines === linesTaken) return challanStockRows.current.answer
+    const { body, items } = buildStockSummaryRequest({ companyName: company.comp_name, lines: applicable.lines, productsByKey: products.byKey })
+    if (body.length === 0) return Promise.resolve([])
+    const answer = getStockSummary(body).then((reply) => readStockSummary(reply, items))
+    if (editing) challanStockRows.current = { lines: linesTaken, answer }
+    return answer
+  }
   /**
    * The Challan's stock to take out (POST, the modal) - the body of what is taken out (sent as the
    * document's skuWarehouseSummary); null - nothing to take; false - not saved. Editing: the modal
    * starts with the saved skuWarehouseSummary's quantities, counted back into the stock (withSavedStock).
    */
   const takeChallanStock = async (documentNo) => {
-    const { body, items } = buildStockSummaryRequest({ companyName: company.comp_name, lines: applicable.lines, productsByKey: products.byKey })
-    if (body.length === 0) return null
-    let reply
+    let rows
     try {
-      reply = await getStockSummary(body)
+      rows = await readChallanStock()
     } catch (failure) {
+      // Refused - the next Update Challan asks again.
+      challanStockRows.current = null
       toast.error(failure.message || 'The stock could not be read.')
       return false
     }
-    const rows = readStockSummary(reply, items)
     if (rows.length === 0) return null
     const ask = editing?.stockSummary ? withSavedStock(rows, editing.stockSummary) : { rows, entered: {} }
     return new Promise((resolve) => {
       challanStockAnswer.current = resolve
-      setChallanStockAsk({ ...ask, documentNo })
+      setChallanStockAsk({ ...ask, documentNo, canSkip: Boolean(editing && !editing.stockSummary) })
     })
   }
   const settleChallanStock = (taken) => {
@@ -732,6 +748,17 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
     },
     [],
   )
+  // A Challan opened for editing: its stock summary at once - once per Edit press. The modal waits for Update Challan.
+  useEffect(() => {
+    if (!editing || !takesChallanStock || challanStockOpened.current === editing) return
+    challanStockOpened.current = editing
+    challanStockFor.current = null
+    challanStockRows.current = null
+    // Refused - said on Update Challan, which asks again.
+    readChallanStock().catch(() => {})
+    // Only the press matters - the lines are those it just loaded.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing, takesChallanStock])
 
   if (editRequest && editRequest !== seenEditRequest) {
     setSeenEditRequest(editRequest)
@@ -1114,9 +1141,9 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
         if (!booking) return
         bookedRef.current = booking.booked
       }
-      // A new Challan with no Prefill From (or one edited that has a skuWarehouseSummary): its stock out of the
-      // warehouses chosen first - once for these lines - and sent with it (skuWarehouseSummary), also when a
-      // create or update that failed is tried again.
+      // A new Challan with no Prefill From (or one being edited): its stock out of the warehouses chosen first -
+      // once for these lines - and sent with it (skuWarehouseSummary), also when a create or update that failed
+      // is tried again.
       if (!saved && takesChallanStock) {
         if (challanStockFor.current?.lines !== linesTaken) {
           setPhase('booking')
@@ -1124,7 +1151,7 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
           if (taken === false) return
           challanStockFor.current = { lines: linesTaken, body: taken }
         }
-        if (challanStockFor.current.body) request = { ...request, skuWarehouseSummary: challanStockFor.current.body }
+        if (challanStockFor.current?.body) request = { ...request, skuWarehouseSummary: challanStockFor.current.body }
       }
       const result = await runSaveWorkflow({
         // A retry of a type that uploads its own file sends the file chosen NOW (it may have been replaced).
@@ -1460,6 +1487,7 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
           companyName={company.comp_name}
           documentNo={challanStockAsk.documentNo}
           onDone={(body) => settleChallanStock(body)}
+          onSkip={challanStockAsk.canSkip ? () => settleChallanStock(null) : null}
           onClose={() => settleChallanStock(false)}
         />
       ) : null}

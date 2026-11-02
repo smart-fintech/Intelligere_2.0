@@ -29,8 +29,10 @@ const inputClass =
  *   initialEntered   the quantities it starts with - editing, the saved ones (withSavedStock); none by default
  *   companyName   the active company's
  *   documentNo    the Challan's number, for the title
+ *   onSkip()      go on without taking stock - only an edited Challan with no saved
+ *                 skuWarehouseSummary: its stock may have gone out before, and must not twice
  */
-export default function ChallanStockModal({ rows, initialEntered, companyName, documentNo, onDone, onClose }) {
+export default function ChallanStockModal({ rows, initialEntered, companyName, documentNo, onDone, onClose, onSkip = null }) {
   const [entered, setEntered] = useState(() => initialEntered ?? {})
   const problems = checkStockRemoval(rows, entered)
   const valid = !hasStockProblems(problems)
@@ -74,7 +76,13 @@ export default function ChallanStockModal({ rows, initialEntered, companyName, d
           <Button type="button" variant="outline" onClick={onClose}>
             Close
           </Button>
-          <Button type="button" icon={Check} disabled={!valid} onClick={confirm}>
+          {onSkip ? (
+            <Button type="button" variant="outline" onClick={onSkip}>
+              Update without taking stock
+            </Button>
+          ) : null}
+          <Button type="button" icon={Check}
+            disabled={!valid} onClick={confirm}>
             OK
           </Button>
         </div>
@@ -126,7 +134,9 @@ export default function ChallanStockModal({ rows, initialEntered, companyName, d
                             <td className={cn(cell, 'text-right tabular-nums')}>{quantity(warehouse.booked)}</td>
                             <td className={cn(cell, 'text-right font-semibold tabular-nums')}>{quantity(warehouse.free)}</td>
                             <td className={cell}>
-                              {input(warehouseKey(row, warehouse), `Take ${row.productName} from ${warehouse.name}'s free stock`, { disabled: warehouse.free <= 0 })}
+                              {input(warehouseKey(row, warehouse), `Take ${row.productName} from ${warehouse.name}'s free stock`,
+                                // { disabled: warehouse.free <= 0 }
+                              )}
                             </td>
                           </tr>
                           {warehouse.bookings.length > 0 ? (

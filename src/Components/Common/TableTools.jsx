@@ -543,8 +543,11 @@ const PAGE_SIZES = [
  *
  * It hides itself when everything fits on one page and the default page size
  * is in use - there is nothing to say about a list of four rows.
+ *
+ * `pageSizeChoice={false}` leaves the picker out, for a list held to its
+ * page size.
  */
-export function TablePager({ view }) {
+export function TablePager({ view, pageSizeChoice = true }) {
   // Check if "All" was explicitly chosen
   const isAll = view.pageSize === 'all' || view.pageSize >= 999999
 
@@ -558,28 +561,30 @@ export function TablePager({ view }) {
   return (
     <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
       <div className="flex items-center gap-2">
-        <Select
-          value={isAll ? 'all' : String(view.pageSize)}
-          onValueChange={(value) => {
-            if (value === 'all') {
-              // Set to sentinel value representing "All"
-              view.setPageSize(999999)
-            } else {
-              view.setPageSize(Number(value))
-            }
-          }}
-        >
-          <SelectTrigger size="sm" aria-label="Rows per page" className="w-20 text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {PAGE_SIZES.map((option) => (
-              <SelectItem key={String(option.value)} value={String(option.value)}>
-                {option.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {pageSizeChoice ? (
+          <Select
+            value={isAll ? 'all' : String(view.pageSize)}
+            onValueChange={(value) => {
+              if (value === 'all') {
+                // Set to sentinel value representing "All"
+                view.setPageSize(999999)
+              } else {
+                view.setPageSize(Number(value))
+              }
+            }}
+          >
+            <SelectTrigger size="sm" aria-label="Rows per page" className="w-20 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {PAGE_SIZES.map((option) => (
+                <SelectItem key={String(option.value)} value={String(option.value)}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : null}
 
         <span>
           {first}-{last} of {view.total}

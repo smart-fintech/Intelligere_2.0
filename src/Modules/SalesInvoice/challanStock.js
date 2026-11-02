@@ -4,10 +4,10 @@
  * (inventory/SKUWarehouseSummaryAPI/ - Services/inventoryBookingService), with
  * no screen attached:
  *
- *   needsChallanStock({ documentType, inventory, editing, prefilled, savedStock })
- *       a NEW Challan, Inventory Management, nothing in Prefill From (neither a
- *       Sales Order - its booking is the order's - nor a Proforma); or a saved
- *       Challan being edited whose record has a skuWarehouseSummary (savedStock)
+ *   needsChallanStock({ documentType, inventory, prefilled, savedStock })
+ *       a Challan, new or edited, Inventory Management, nothing in Prefill From
+ *       (neither a Sales Order - its booking is the order's - nor a Proforma);
+ *       or an edited one whose record has a skuWarehouseSummary (savedStock)
  *   buildStockSummaryRequest({ companyName, lines, productsByKey })
  *       -> { body, items }   the POST - each product line under the backend's
  *       names: SKU-managed `quantity`, otherwise `order_qty` with sku_code "";
@@ -43,8 +43,8 @@ const listOf = (value) => (Array.isArray(value) ? value : [])
 // The backend sends some keys with a space after them ("document_no ") - read either way.
 const field = (object, name) => object?.[name] ?? object?.[`${name} `]
 
-export const needsChallanStock = ({ documentType, inventory, editing, prefilled, savedStock = null }) =>
-  documentType === DOCUMENT_TYPE_CHALLAN && Boolean(inventory) && (editing ? Boolean(savedStock) : !prefilled)
+export const needsChallanStock = ({ documentType, inventory, prefilled, savedStock = null }) =>
+  documentType === DOCUMENT_TYPE_CHALLAN && Boolean(inventory) && (Boolean(savedStock) || !prefilled)
 
 export const buildStockSummaryRequest = ({ companyName, lines, productsByKey }) => {
   const items = []

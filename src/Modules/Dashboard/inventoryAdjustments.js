@@ -4,18 +4,20 @@
  *
  *   readAdjustments(reply)            the history, as the page shows it
  *   matchesAdjustmentFilters(...)     the history's Action / Reuse / date filters
- *   readAdjustmentStock(reply)        a product search - its SKUs, their entries
- *                                     (sr_no) and the stock in each warehouse
- *   lineKeyOf(productId, warehouseId) the one key a SKU's removal from a warehouse has
+ *   readStockRows(reply)              a product search, as the rows of its table - one
+ *                                     per warehouse of each entry (sr_no) of each SKU
+ *   removeQtyProblem(qty, available)  what is wrong with a Remove Qty - '' when nothing
+ *   lineKeyOf(productId, warehouseId) what the history and a save's answer name a removal by
  *   newAdjustmentForm() / checkAdjustmentForm(form)   the form, and what is wrong with it
  *   buildAdjustmentBody(form, ...)    the form as the save takes it
  *   readSaveSummary(reply, lines)     the save's `updated`, named by the lines it came from
  *
- * A REMOVAL IS ONE SKU FROM ONE WAREHOUSE - its `product_id` (sku_variants[].
- * product_id; a product without SKUs has one, with sku_code "") and the
- * warehouse's id. A SKU's entries can each hold stock in the same warehouse,
- * so what can be removed is their warehouse_quantity together; the backend
- * says which entries it took it from (`removed`: sr_no and quantity).
+ * ON SCREEN A ROW IS ONE WAREHOUSE OF ONE ENTRY - held to that record's own
+ * warehouse_quantity, and never added to another's. IN THE SAVE A REMOVAL IS
+ * ONE SKU FROM ONE WAREHOUSE - its `product_id` (sku_variants[].product_id; a
+ * product without SKUs has one, with sku_code "") and the warehouse's id, with
+ * no sr_no: rows of one SKU and warehouse go up as one entry, their quantities
+ * together, and the backend says which entries it took them from (`removed`).
  *
  * Anything missing is empty, never an error.
  */
@@ -41,7 +43,7 @@ const toList = (reply) => {
   return []
 }
 
-/** The one key a SKU's removal from a warehouse has - in the form, the history and the save's answer. */
+/** What a SKU's removal from a warehouse is named by - in the history and the save's answer. */
 export const lineKeyOf = (productId, warehouseId) => `${text(productId)}|${text(warehouseId)}`
 
 /* ------------------------------------------------------------------ */
@@ -128,80 +130,79 @@ export const matchesAdjustmentFilters = (adjustment, { action, reuse, fromDate, 
 /* A product search                                                   */
 /* ------------------------------------------------------------------ */
 
-const readStockWarehouse = (warehouse) => ({
-  id: text(warehouse.id),
-  name: text(warehouse.name),
-  shelf: text(warehouse.shelf),
-  level: text(warehouse.level),
-  rackNo: text(warehouse.rack_no),
-  quantity: numberOf(warehouse.warehouse_quantity ?? warehouse.qty),
-})
+/** A list, or - when it is empty - one empty place, so a record with nothing under it still has its row. */
+const orOneEmpty = (list) => (list.length > 0 ? list : [null])
 
-const readEntry = (entry) => ({
-  srNo: text(entry.sr_no),
-  quantity: text(entry.Quantity),
-  unitRate: text(entry['Unit Rate']),
-  expiryDate: text(entry['Expiry Date']),
-  skuDetails: isObject(entry.sku_details) ? entry.sku_details : {},
-  warehouses: listOf(entry.warehouse).filter(isObject).map(readStockWarehouse),
-})
+const hasValues = (details) => isObject(details) && Object.values(details).some((value) => text(value) !== '')
 
 /**
- * Each warehouse the SKU is in, once - its entries' stock there together.
- * Its place on the shelf and its rate are the first entry's that holds it.
+ * The search's table: every product, SKU, entry and warehouse, nothing added
+ * up - [{ key, productKey, productId, name, skuCode, skuDetails, hsn, unit,
+ * srNo, entryQuantity, expiryDate, createdAt, unitRate, warehouseId,
+ * warehouseName, quantity, available, shelf, level, rackNo, address, canRemove }].
+ *
+ * `key` is the row's own, the same for the same record in a later search: its
+ * product_id, sr_no and warehouse with its place in it (a warehouse can come
+ * twice in an entry, on two racks). `canRemove` needs a product_id, a
+ * warehouse and stock in it - what a save has to name. The reply is not changed.
  */
-const warehousesOf = (entries) => {
-  const found = new Map()
-  entries.forEach((entry) =>
-    entry.warehouses.forEach((warehouse) => {
-      if (!warehouse.id) return
-      const known = found.get(warehouse.id)
-      if (known) {
-        known.available += warehouse.quantity
-        known.srNos.push(entry.srNo)
-      } else {
-        found.set(warehouse.id, { ...warehouse, available: warehouse.quantity, unitRate: entry.unitRate, srNos: [entry.srNo] })
-      }
-    }),
-  )
-  return [...found.values()]
-}
+export const readStockRows = (reply) => {
+  const seen = new Map()
+  const uniqueKey = (key) => {
+    const times = seen.get(key) ?? 0
+    seen.set(key, times + 1)
+    return times === 0 ? key : `${key}#${times}`
+  }
 
-/**
- * The search's products: [{ key, name, hsn, unit, gstRate, totalQty, skus:
- * [{ productId, skuCode, skuDetails, totalQty, totalAmount, entries,
- * warehouses: [{ id, name, shelf, level, rackNo, available, unitRate }] }] }].
- * A SKU without a product_id cannot be named in a save, so it is left out.
- */
-export const readAdjustmentStock = (reply) =>
-  toList(reply)
+  return toList(reply)
     .filter(isObject)
-    .map((product, index) => {
-      const skus = listOf(product.sku_variants)
-        .filter((variant) => isObject(variant) && variant.deleted !== true && variant.product_id !== undefined && variant.product_id !== null)
-        .map((variant) => {
-          const entries = listOf(variant.product_details).filter((entry) => isObject(entry) && entry.deleted !== true).map(readEntry)
-          const own = isObject(variant.sku_details) && Object.keys(variant.sku_details).length > 0 ? variant.sku_details : null
-          return {
-            productId: variant.product_id,
-            skuCode: text(variant.sku_code),
-            skuDetails: own ?? entries.find((entry) => Object.keys(entry.skuDetails).length > 0)?.skuDetails ?? {},
-            totalQty: text(variant.total_qty),
-            totalAmount: text(variant.total_amount),
-            entries,
-            warehouses: warehousesOf(entries),
-          }
+    .flatMap((product, productIndex) => {
+      const name = text(product['Product Name'])
+      const variants = listOf(product.sku_variants).filter((variant) => isObject(variant) && variant.deleted !== true)
+      return orOneEmpty(variants).flatMap((variant) => {
+        const productId = variant?.product_id ?? null
+        const skuCode = text(variant?.sku_code)
+        const entries = listOf(variant?.product_details).filter((entry) => isObject(entry) && entry.deleted !== true)
+        return orOneEmpty(entries).flatMap((entry, entryIndex) => {
+          const srNo = text(entry?.sr_no)
+          const warehouses = listOf(entry?.warehouse).filter(isObject)
+          return orOneEmpty(warehouses).map((warehouse) => {
+            const warehouseId = text(warehouse?.id)
+            const shelf = text(warehouse?.shelf)
+            const level = text(warehouse?.level)
+            const rackNo = text(warehouse?.rack_no)
+            const quantity = text(warehouse?.warehouse_quantity)
+            const available = numberOf(warehouse?.warehouse_quantity)
+            const owner = productId ?? `${name}/${skuCode}`
+            return {
+              key: uniqueKey([owner, srNo || `entry-${entryIndex}`, warehouseId, shelf, level, rackNo].join('|')),
+              productKey: `${name}#${productIndex}`,
+              productId,
+              name,
+              skuCode,
+              skuDetails: hasValues(entry?.sku_details) ? entry.sku_details : hasValues(variant?.sku_details) ? variant.sku_details : {},
+              hsn: text(product['HSN Code']),
+              unit: text(product['Per Unit']),
+              srNo,
+              entryQuantity: text(entry?.Quantity),
+              expiryDate: text(entry?.['Expiry Date']),
+              createdAt: text(entry?.created_at),
+              unitRate: text(entry?.['Unit Rate']),
+              warehouseId,
+              warehouseName: text(warehouse?.name),
+              quantity,
+              available,
+              shelf,
+              level,
+              rackNo,
+              address: text(warehouse?.warehouse_address),
+              canRemove: productId !== null && warehouseId !== '' && available > 0,
+            }
+          })
         })
-      return {
-        key: `${text(product['Product Name']) || 'product'}#${index}`,
-        name: text(product['Product Name']),
-        hsn: text(product['HSN Code']),
-        unit: text(product['Per Unit']),
-        gstRate: text(product['GST Rate']),
-        totalQty: text(product.total_qty),
-        skus,
-      }
+      })
     })
+}
 
 /* ------------------------------------------------------------------ */
 /* The form                                                           */
@@ -215,26 +216,33 @@ export const newAdjustmentForm = () => ({
   docType: '',
   voucherType: '',
   reason: '',
-  // [{ key, productId, name, skuCode, skuDetails, hsn, unit, unitRate,
-  //    warehouseId, warehouseName, shelf, level, rackNo, available, removeQty }]
+  // The rows ticked (readStockRows), each with its removeQty.
   lines: [],
 })
 
+/** What is wrong with a Remove Qty against a row's stock - '' when nothing, and when it is empty (no removal). */
+export const removeQtyProblem = (removeQty, available) => {
+  if (text(removeQty) === '') return ''
+  const quantity = Number(removeQty)
+  if (!Number.isFinite(quantity) || quantity <= 0) return 'Enter a quantity above 0'
+  if (quantity > available) return `Only ${available} available`
+  return ''
+}
+
 /**
  * Everything wrong with the form, by field ('lines.<key>' for a line's
- * quantity) - {} when it can be saved. A quantity must be above 0 and no
- * more than the warehouse holds.
+ * quantity) - {} when it can be saved. A ticked row must have a quantity,
+ * above 0 and no more than that row's warehouse_quantity.
  */
 export const checkAdjustmentForm = (form, { product }) => {
   const found = {}
   if (!text(form.action)) found.action = 'Select the action'
   if (!text(product)) found.product = 'Select the product'
   if (form.reuse && text(form.totalPrice) && !(Number(form.totalPrice) >= 0)) found.totalPrice = 'Enter a valid total price'
-  if (form.lines.length === 0) found.lines = 'Enter the quantity to remove from at least one warehouse'
+  if (form.lines.length === 0) found.lines = 'Tick at least one row and enter its Remove Qty'
   form.lines.forEach((line) => {
-    const quantity = Number(line.removeQty)
-    if (!text(line.removeQty) || !Number.isFinite(quantity) || quantity <= 0) found[`lines.${line.key}`] = 'Enter a quantity above 0'
-    else if (quantity > line.available) found[`lines.${line.key}`] = `Only ${line.available} in this warehouse`
+    const problem = text(line.removeQty) === '' ? 'Enter a quantity above 0' : removeQtyProblem(line.removeQty, line.available)
+    if (problem) found[`lines.${line.key}`] = problem
   })
   return found
 }
@@ -244,9 +252,11 @@ const rateOf = (value) => (text(value) && Number.isFinite(Number(value)) ? Numbe
 
 /**
  * The form as POST inventory/update_inventory/ takes it: the lines grouped
- * by their SKU (product_id), one entry per warehouse - each once, as the
- * form keeps it - and the master. `product` / `skuCode` are what was
- * searched; `warehouseDetails(id)` the warehouse's own { address, email }.
+ * by their SKU (product_id), one entry per warehouse - rows of the same SKU
+ * and warehouse (two entries, two racks) as one, their quantities together,
+ * the first's rate and place standing for them - and the master. `product` /
+ * `skuCode` are what was searched; `warehouseDetails(id)` the warehouse's own
+ * { address, email }.
  */
 export const buildAdjustmentBody = (form, { companyName, product, skuCode, warehouseDetails }) => {
   const byProduct = new Map()
@@ -254,6 +264,13 @@ export const buildAdjustmentBody = (form, { companyName, product, skuCode, wareh
     const details = warehouseDetails(line.warehouseId)
     const quantity = Number(line.removeQty)
     const group = byProduct.get(String(line.productId)) ?? { product_id: line.productId, warehouse: [] }
+    byProduct.set(String(line.productId), group)
+    const known = group.warehouse.find((entry) => entry.id === line.warehouseId)
+    if (known) {
+      known.remove_qty += quantity
+      known.qty += quantity
+      return
+    }
     group.warehouse.push({
       id: line.warehouseId,
       sku_code: line.skuCode,
@@ -266,11 +283,10 @@ export const buildAdjustmentBody = (form, { companyName, product, skuCode, wareh
       shelf: line.shelf,
       level: line.level,
       rack_no: line.rackNo,
-      warehouse_address: details.address,
+      warehouse_address: line.address || details.address,
       email: details.email,
       qty: quantity,
     })
-    byProduct.set(String(line.productId), group)
   })
   return {
     company_name: companyName,

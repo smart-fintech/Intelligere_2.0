@@ -5,20 +5,21 @@
  *                          No., Doc Type, Voucher Type
  *   Find Stock             Product, then its SKU (optional - none for all its
  *                          SKUs; chosen with the product when it has one) and
- *                          Search: the product's SKUs, each with its entries
- *                          (sr_no, quantity, rate, expiry) and what each
- *                          warehouse holds of it - a Remove Qty per warehouse.
- *                          A sub user sees only the warehouses they were given.
- *   To Remove              every quantity entered, over every search - another
+ *                          Search: a table of one row per warehouse of each
+ *                          entry of each SKU (AdjustmentStockTable), each with
+ *                          its tick and Remove Qty. A sub user sees only the
+ *                          warehouses they were given.
+ *   To Remove              every row ticked, over every search - another
  *                          product searched keeps the ones before, so one save
  *                          can take several products out of several warehouses.
- *                          A SKU and warehouse is in it once; its quantity is
- *                          changed, or it is removed, here or in the search.
+ *                          Its quantity is changed, or it is removed, here or
+ *                          in the table. A Remove Qty on a row not ticked is
+ *                          kept, not saved - the table says so.
  *   Reason
  *
  * Save checks the whole form first (checkAdjustmentForm): an action, a
- * product searched, and each quantity above 0 and no more than the warehouse
- * holds. It sends POST inventory/update_inventory/ once, however often it is
+ * product searched, and each ticked row's quantity above 0 and no more than
+ * that row's warehouse_quantity. It sends POST inventory/update_inventory/ once, however often it is
  * pressed. Saved: the backend's message, and what it changed - each SKU and
  * warehouse's quantity before and after (`updated`) - then onSaved; the
  * history and the products are read again by the save itself. Refused: its
@@ -27,7 +28,7 @@
  *   companyName
  *   products            readProducts(...) of the product list, with its `status`
  *   allowedWarehouses   the warehouse ids (text) a sub user may take from - null for all
- *   warehouseDetails(id)   { address, email } of a warehouse, for the save
+ *   warehouseDetails(id)   { address, email } of a warehouse, for the table and the save
  */
 
 import { useMemo, useRef, useState } from 'react'
@@ -37,21 +38,20 @@ import { CheckboxField, Field, FieldLabel, SelectField, TextareaField } from '@/
 import { Modal } from '@/Components/Common/Modal'
 import { SkuSelector } from '@/Components/Common/SkuSelector'
 import { Button } from '@/Components/ui/button'
-import { Input } from '@/Components/ui/input'
 import { ADJUSTMENT_ACTIONS, ADJUSTMENT_DOC_TYPES, ADJUSTMENT_VOUCHER_TYPES, toOptions } from '@/Constants/inventory'
 import { toast } from '@/Library/toast'
 import { cn } from '@/Library/utils'
 import {
   buildAdjustmentBody,
   checkAdjustmentForm,
-  lineKeyOf,
   newAdjustmentForm,
-  readAdjustmentStock,
   readSaveSummary,
+  readStockRows,
+  removeQtyProblem,
 } from '@/Modules/Dashboard/inventoryAdjustments'
-import { SkuCode } from '@/Modules/SalesInvoice/Components/RequestQuotation'
 import { getAdjustmentStock, saveInventoryAdjustment } from '@/Services/inventoryService'
 import { orDash } from '@/Utils/display'
+import AdjustmentStockTable, { QuantityInput, RowSku } from './AdjustmentStockTable'
 
 /** One block of the form - a heading only where it says something the fields do not. */
 function FormSection({ title, meta, children }) {
@@ -73,33 +73,6 @@ const HEAD = 'bg-muted/50 text-[11px] font-semibold tracking-wide text-muted-for
 
 /** A SKU option's value - its code, what the search sends. Always passed (see TransferNoteFormModal). */
 const skuValueOf = (variant) => String(variant?.sku_code ?? '')
-
-// const skuText = (details) =>
-//   Object.entries(details)
-//     .filter(([, value]) => String(value ?? '').trim() !== '')
-//     .map(([name, value]) => `${name}: ${value}`)
-//     .join(', ')
-
-/** A Remove Qty box - the same in the search and in To Remove. */
-function QuantityInput({ value, error, label, onChange }) {
-  return (
-    <>
-      <Input
-        type="number"
-        min="0"
-        step="any"
-        inputMode="decimal"
-        placeholder="0"
-        className={cn('h-8 text-right tabular-nums', error && 'border-destructive')}
-        aria-label={label}
-        aria-invalid={Boolean(error) || undefined}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      />
-      {error ? <p className="mt-1 text-[11px] text-destructive">{error}</p> : null}
-    </>
-  )
-}
 
 /** What the save changed - each SKU and warehouse's quantity before and after. */
 function SaveSummary({ rows }) {
@@ -141,7 +114,7 @@ function SaveSummary({ rows }) {
   )
 }
 
-const NO_SEARCH = { status: 'idle', products: [], error: '', productName: '', skuCode: '' }
+const NO_SEARCH = { status: 'idle', rows: [], error: '', productName: '', skuCode: '' }
 
 export default function InventoryAdjustmentFormModal({ open, onOpenChange, companyName, products, allowedWarehouses, warehouseDetails, onSaved }) {
   const [form, setForm] = useState(newAdjustmentForm)
@@ -150,6 +123,8 @@ export default function InventoryAdjustmentFormModal({ open, onOpenChange, compa
   // The last search, and what it was for - the master names it.
   const [search, setSearch] = useState(NO_SEARCH)
   const searchCount = useRef(0)
+  // { [row.key]: { row, selected, removeQty } } - a row's tick and quantity, over pages and searches.
+  const [picks, setPicks] = useState({})
   const [saving, setSaving] = useState(false)
   const inFlight = useRef(false)
   // Once saved: what changed, shown until Done.
@@ -187,7 +162,16 @@ export default function InventoryAdjustmentFormModal({ open, onOpenChange, compa
       const reply = await getAdjustmentStock({ companyName, productName: pick.productName, skuCode: pick.skuCode })
       // Only the latest search is shown - one answered late is dropped.
       if (ticket !== searchCount.current) return
-      setSearch({ status: 'ready', products: readAdjustmentStock(reply), error: '', ...pick })
+      const rows = readStockRows(reply)
+      setSearch({ status: 'ready', rows, error: '', ...pick })
+      // A row searched again keeps its tick and quantity, against what it holds now.
+      setPicks((current) => {
+        const next = { ...current }
+        rows.forEach((row) => {
+          if (next[row.key]) next[row.key] = { ...next[row.key], row }
+        })
+        return next
+      })
       setErrors((current) => ({ ...current, product: undefined }))
     } catch (failure) {
       if (ticket !== searchCount.current) return
@@ -196,60 +180,29 @@ export default function InventoryAdjustmentFormModal({ open, onOpenChange, compa
   }
 
   /* ---------------- What is removed ---------------- */
-  const lineOf = (key) => form.lines.find((line) => line.key === key)
-  const allowed = (warehouse) => !allowedWarehouses || allowedWarehouses.includes(warehouse.id)
+  const shownRows = useMemo(
+    () => (allowedWarehouses ? search.rows.filter((row) => !row.warehouseId || allowedWarehouses.includes(row.warehouseId)) : search.rows),
+    [search.rows, allowedWarehouses],
+  )
+  const entries = Object.values(picks)
+  const lines = entries.filter((entry) => entry.selected).map((entry) => ({ ...entry.row, removeQty: entry.removeQty }))
+  const typedOnly = entries.filter((entry) => !entry.selected && entry.removeQty !== '').length
+  const savedForm = { ...form, lines }
 
-  /** A Remove Qty typed in the search: the line added, changed - or, emptied, taken out. */
-  const changeRemoval = (product, sku, warehouse, value) => {
-    const key = lineKeyOf(sku.productId, warehouse.id)
-    setForm((current) => {
-      const others = current.lines.filter((line) => line.key !== key)
-      if (value === '') return { ...current, lines: others }
-      const known = current.lines.find((line) => line.key === key)
-      const line = known
-        ? { ...known, removeQty: value }
-        : {
-            key,
-            productId: sku.productId,
-            name: product.name,
-            skuCode: sku.skuCode,
-            skuDetails: sku.skuDetails,
-            hsn: product.hsn,
-            unit: product.unit,
-            unitRate: warehouse.unitRate,
-            warehouseId: warehouse.id,
-            warehouseName: warehouse.name,
-            shelf: warehouse.shelf,
-            level: warehouse.level,
-            rackNo: warehouse.rackNo,
-            available: warehouse.available,
-            removeQty: value,
-          }
-      // Kept in the order they were first entered.
-      return { ...current, lines: known ? current.lines.map((entry) => (entry.key === key ? line : entry)) : [...current.lines, line] }
+  /** A row's tick or quantity changed - only that row's. One with neither is forgotten. */
+  const changePick = (row, change) => {
+    setPicks((current) => {
+      const next = { ...current, [row.key]: { row, selected: false, removeQty: '', ...current[row.key], ...change } }
+      if (!next[row.key].selected && next[row.key].removeQty === '') delete next[row.key]
+      return next
     })
-    setErrors((current) => ({ ...current, [`lines.${key}`]: undefined, lines: undefined }))
-  }
-
-  const changeLine = (key, value) => {
-    setForm((current) => ({ ...current, lines: current.lines.map((line) => (line.key === key ? { ...line, removeQty: value } : line)) }))
-    setErrors((current) => ({ ...current, [`lines.${key}`]: undefined }))
-  }
-  const removeLine = (key) => setForm((current) => ({ ...current, lines: current.lines.filter((line) => line.key !== key) }))
-
-  /** A quantity's problem as it is typed - above 0 and no more than the warehouse holds - or the save's. */
-  const lineError = (line) => {
-    if (!line) return undefined
-    const quantity = Number(line.removeQty)
-    if (line.removeQty !== '' && Number.isFinite(quantity) && quantity > line.available) return `Only ${line.available} available`
-    if (line.removeQty !== '' && (!Number.isFinite(quantity) || quantity <= 0)) return 'Enter above 0'
-    return errors[`lines.${line.key}`]
+    setErrors((current) => ({ ...current, [`lines.${row.key}`]: undefined, lines: undefined }))
   }
 
   /* ---------------- Save ---------------- */
   const handleSave = async () => {
     if (inFlight.current) return
-    const found = checkAdjustmentForm(form, { product: search.productName })
+    const found = checkAdjustmentForm(savedForm, { product: search.productName })
     setErrors(found)
     if (Object.keys(found).length > 0) {
       toast.error(Object.values(found)[0])
@@ -259,10 +212,10 @@ export default function InventoryAdjustmentFormModal({ open, onOpenChange, compa
     inFlight.current = true
     setSaving(true)
     try {
-      const body = buildAdjustmentBody(form, { companyName, product: search.productName, skuCode: search.skuCode, warehouseDetails })
+      const body = buildAdjustmentBody(savedForm, { companyName, product: search.productName, skuCode: search.skuCode, warehouseDetails })
       const reply = await saveInventoryAdjustment(body)
       toast.success(reply?.msg || 'Inventory updated successfully')
-      setSummary(readSaveSummary(reply, form.lines))
+      setSummary(readSaveSummary(reply, lines))
     } catch (failure) {
       // The backend's own message (see authService); everything entered stays.
       toast.error(failure.message || 'The inventory could not be updated.')
@@ -297,94 +250,17 @@ export default function InventoryAdjustmentFormModal({ open, onOpenChange, compa
     if (search.status === 'idle') return null
     if (search.status === 'loading') return <p className="animate-pulse text-xs text-muted-foreground">Finding the stock...</p>
     if (search.status === 'failed') return <p className="text-xs text-destructive">{search.error}</p>
-    const skus = search.products.flatMap((product) => product.skus.map((sku) => ({ product, sku, warehouses: sku.warehouses.filter(allowed) })))
-    if (skus.length === 0) return <p className="text-xs text-muted-foreground">No stock was found for {search.productName}.</p>
+    if (shownRows.length === 0) return <p className="text-xs text-muted-foreground">No stock was found for {search.productName}.</p>
 
     return (
-      <div className="animate-in space-y-3 duration-200 fade-in-0 slide-in-from-top-1">
-        {skus.map(({ product, sku, warehouses }) => {
-          const stocked = warehouses.filter((warehouse) => warehouse.available > 0)
-          // const details = skuText(sku.skuDetails)
-          return (
-            <div key={`${product.key}|${sku.productId}`} className="rounded-md border border-border">
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border bg-muted/30 px-3 py-2 text-xs">
-                <span className="font-semibold text-foreground">{product.name || 'Unnamed product'}</span>
-                <span>
-                  <span className="text-muted-foreground">SKU: </span>
-                  {sku.skuCode ? <SkuCode code={sku.skuCode} details={sku.skuDetails} /> : <span className="text-muted-foreground">No SKU</span>}
-                </span>
-                {/* {details ? <span className="text-muted-foreground">{details}</span> : null} */}
-                <span className="text-muted-foreground">
-                  HSN: <span className="text-foreground">{orDash(product.hsn)}</span> · Per: <span className="text-foreground">{orDash(product.unit)}</span>
-                </span>
-                <span className="ml-auto text-muted-foreground">
-                  Total Qty: <span className="font-semibold text-foreground tabular-nums">{orDash(sku.totalQty)}</span>
-                </span>
-              </div>
-
-              {/* {sku.entries.length > 0 ? (
-                <div className="flex flex-wrap gap-1.5 border-b border-border px-3 py-2">
-                  {sku.entries.map((entry, index) => (
-                    <span key={`${entry.srNo}#${index}`} className="rounded-full border border-border bg-card px-2 py-0.5 text-[11px] text-muted-foreground">
-                      Sr {orDash(entry.srNo)} · Qty <span className="text-foreground tabular-nums">{orDash(entry.quantity)}</span> · Rate{' '}
-                      <span className="text-foreground tabular-nums">{orDash(entry.unitRate)}</span>
-                      {entry.expiryDate ? (
-                        <>
-                          {' '}
-                          · Expiry <span className="text-foreground">{entry.expiryDate}</span>
-                        </>
-                      ) : null}
-                    </span>
-                  ))}
-                </div>
-              ) : null} */}
-
-              {stocked.length === 0 ? (
-                <p className="px-3 py-2 text-xs text-destructive">No warehouse holds stock of this {sku.skuCode ? 'SKU' : 'product'}.</p>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[44rem] text-sm">
-                    <thead className={HEAD}>
-                      <tr>
-                        <th className={TH}>Warehouse</th>
-                        <th className={TH}>Shelf</th>
-                        <th className={TH}>Level</th>
-                        <th className={TH}>Rack No.</th>
-                        <th className={cn(TH, 'text-right')}>Unit Rate</th>
-                        <th className={cn(TH, 'text-right')}>Available</th>
-                        <th className={cn(TH, 'w-32 text-right')}>Remove Qty</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {stocked.map((warehouse) => {
-                        const line = lineOf(lineKeyOf(sku.productId, warehouse.id))
-                        return (
-                          <tr key={warehouse.id} className={cn('border-t border-border align-top transition-colors', line && 'bg-brand/5')}>
-                            <td className="px-2 py-2 font-medium">{orDash(warehouse.name)}</td>
-                            <td className="px-2 py-2">{orDash(warehouse.shelf)}</td>
-                            <td className="px-2 py-2">{orDash(warehouse.level)}</td>
-                            <td className="px-2 py-2">{orDash(warehouse.rackNo)}</td>
-                            <td className="px-2 py-2 text-right tabular-nums">{orDash(warehouse.unitRate)}</td>
-                            <td className="px-2 py-2 text-right font-semibold tabular-nums">{warehouse.available}</td>
-                            <td className="px-1 py-1">
-                              <QuantityInput
-                                value={line?.removeQty ?? ''}
-                                error={lineError(line)}
-                                label={`Quantity to remove of ${sku.skuCode || product.name} from ${warehouse.name || 'this warehouse'}`}
-                                onChange={(value) => changeRemoval(product, sku, warehouse, value)}
-                              />
-                            </td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          )
-        })}
-      </div>
+      <>
+        <AdjustmentStockTable rows={shownRows} picks={picks} onChange={changePick} warehouseDetails={warehouseDetails} errors={errors} />
+        {typedOnly > 0 ? (
+          <p className="text-xs text-amber-700 dark:text-amber-400">
+            {typedOnly} row{typedOnly === 1 ? ' has' : 's have'} a Remove Qty but {typedOnly === 1 ? 'is' : 'are'} not ticked - only ticked rows are saved.
+          </p>
+        ) : null}
+      </>
     )
   }
 
@@ -394,7 +270,7 @@ export default function InventoryAdjustmentFormModal({ open, onOpenChange, compa
       onOpenChange={(next) => {
         if (!next) close()
       }}
-      size="xxl"
+      size="full"
       title={summary ? 'Inventory Updated' : 'Adjust Inventory'}
       description={summary ? 'What each warehouse holds now.' : 'Take damaged, rejected, expired or returned stock out of the warehouses.'}
       closeOnBackdropClick={false}
@@ -525,55 +401,56 @@ export default function InventoryAdjustmentFormModal({ open, onOpenChange, compa
             {renderResults()}
           </FormSection>
 
-          <FormSection title="To Remove" meta={form.lines.length > 0 ? `(${form.lines.length})` : undefined}>
-            {form.lines.length === 0 ? (
+          <FormSection title="To Remove" meta={lines.length > 0 ? `(${lines.length})` : undefined}>
+            {lines.length === 0 ? (
               <p className={cn('text-xs', errors.lines ? 'text-destructive' : 'text-muted-foreground')}>
-                {errors.lines || 'Enter a Remove Qty against a warehouse above - quantities from several searches add up here.'}
+                {errors.lines || 'Tick a row above and enter its Remove Qty - rows from several searches add up here.'}
               </p>
             ) : (
               <div className="overflow-x-auto rounded-md border border-border">
                 <table className="w-full min-w-[46rem] text-sm">
                   <thead className={HEAD}>
                     <tr>
-                      <th className={cn(TH, 'w-10')}>Sr</th>
+                      <th className={cn(TH, 'w-16')}>Sr No.</th>
                       <th className={TH}>Product Name</th>
                       <th className={TH}>SKU Code</th>
                       <th className={TH}>Warehouse</th>
                       <th className={cn(TH, 'text-right')}>Available</th>
-                      <th className={cn(TH, 'w-32 text-right')}>Remove Qty</th>
+                      <th className={cn(TH, 'w-36 text-right')}>Remove Qty</th>
                       <th className="w-12 px-2 py-2" aria-label="Remove" />
                     </tr>
                   </thead>
                   <tbody>
-                    {form.lines.map((line, index) => (
-                        <tr key={line.key} className="animate-in border-t border-border align-top duration-200 fade-in-0 slide-in-from-top-1">
-                          <td className="px-2 py-2 text-muted-foreground tabular-nums">{index + 1}</td>
-                          <td className="px-2 py-2 font-medium [overflow-wrap:anywhere]">{orDash(line.name)}</td>
-                          <td className="px-2 py-2">
-                            <SkuCode code={line.skuCode} details={line.skuDetails} />
-                          </td>
-                          <td className="px-2 py-2">{orDash(line.warehouseName)}</td>
-                          <td className="px-2 py-2 text-right tabular-nums">{line.available}</td>
-                          <td className="px-1 py-1">
-                            <QuantityInput
-                              value={line.removeQty}
-                              error={lineError(line)}
-                              label={`Quantity to remove of ${line.skuCode || line.name} from ${line.warehouseName || 'this warehouse'}`}
-                              onChange={(value) => changeLine(line.key, value)}
-                            />
-                          </td>
-                          <td className="px-1 py-1 text-center">
-                            <Button
-                              type="button"
-                              variant="iconDelete"
-                              size="icon-sm"
-                              icon={Trash2}
-                              tooltip="Remove"
-                              aria-label={`Remove ${line.skuCode || line.name} from ${line.warehouseName || 'this warehouse'}`}
-                              onClick={() => removeLine(line.key)}
-                            />
-                          </td>
-                        </tr>
+                    {lines.map((line) => (
+                      <tr key={line.key} className="animate-in border-t border-border align-top duration-200 fade-in-0 slide-in-from-top-1">
+                        <td className="px-2 py-2 text-muted-foreground tabular-nums">{orDash(line.srNo)}</td>
+                        <td className="px-2 py-2 font-medium [overflow-wrap:anywhere]">{orDash(line.name)}</td>
+                        <td className="px-2 py-2">
+                          <RowSku code={line.skuCode} details={line.skuDetails} />
+                        </td>
+                        <td className="px-2 py-2">{orDash(line.warehouseName)}</td>
+                        <td className="px-2 py-2 text-right tabular-nums">{line.available}</td>
+                        <td className="px-1 py-1">
+                          <QuantityInput
+                            value={line.removeQty}
+                            max={line.available}
+                            error={removeQtyProblem(line.removeQty, line.available) || errors[`lines.${line.key}`]}
+                            label={`Quantity to remove of ${line.skuCode || line.name} from ${line.warehouseName || 'this warehouse'}`}
+                            onChange={(value) => changePick(picks[line.key].row, { removeQty: value })}
+                          />
+                        </td>
+                        <td className="px-1 py-1 text-center">
+                          <Button
+                            type="button"
+                            variant="iconDelete"
+                            size="icon-sm"
+                            icon={Trash2}
+                            tooltip="Remove"
+                            aria-label={`Remove ${line.skuCode || line.name} from ${line.warehouseName || 'this warehouse'}`}
+                            onClick={() => changePick(picks[line.key].row, { selected: false, removeQty: '' })}
+                          />
+                        </td>
+                      </tr>
                     ))}
                   </tbody>
                 </table>

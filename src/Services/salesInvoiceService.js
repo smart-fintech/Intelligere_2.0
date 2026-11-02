@@ -177,8 +177,8 @@ const taxFields = (figures, interState, rate) => ({
  *   prefill_from           where it was prefilled from - { document_from,
  *                          document_id: [...] } (documentPrefillService's
  *                          buildPrefillFrom), {} when it was not
- *   skuWarehouseSummary    JSON text - only a new Challan whose stock was taken
- *                          out (ChallanStockModal): the whole body that was
+ *   skuWarehouseSummary    JSON text - only a Challan, new or edited, whose stock
+ *                          was taken out (ChallanStockModal): the whole body that was
  *                          PUT to inventory/SKUWarehouseSummaryAPI/, as built
  *                          (challanStock's buildStockUpdateBody) - { company_name,
  *                          product: [{ document_id, warehouse: [{ id, remove_qty,
