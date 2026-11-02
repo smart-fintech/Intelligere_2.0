@@ -27,14 +27,16 @@ const inputClass =
  *
  *   rows          readStockSummary(...) - never empty
  *   initialEntered   the quantities it starts with - editing, the saved ones (withSavedStock); none by default
- *   companyName   the active company's
+ *   autoFilled    initialEntered was worked out (allocateStock) - a new Challan: says so, says at once
+ *                 when stock falls short, and lines of the same SKU share its stock
+ *   companyName  the active company's
  *   documentNo    the Challan's number, for the title
  *   onSkip()      go on without taking stock - only an edited Challan with no saved
  *                 skuWarehouseSummary: its stock may have gone out before, and must not twice
  */
-export default function ChallanStockModal({ rows, initialEntered, companyName, documentNo, onDone, onClose, onSkip = null }) {
+export default function ChallanStockModal({ rows, initialEntered, autoFilled = false, companyName, documentNo, onDone, onClose, onSkip = null }) {
   const [entered, setEntered] = useState(() => initialEntered ?? {})
-  const problems = checkStockRemoval(rows, entered)
+  const problems = checkStockRemoval(rows, entered, { shared: autoFilled })
   const valid = !hasStockProblems(problems)
   // A product's total error shows once something is typed for it.
   const typedFor = (row) => Object.keys(entered).some((key) => key.startsWith(`${row.key}|`) && String(entered[key]).trim() !== '')
@@ -67,7 +69,7 @@ export default function ChallanStockModal({ rows, initialEntered, companyName, d
       open
       onOpenChange={(next) => !next && onClose()}
       title={`Take stock out - ${documentNo || 'Challan'}`}
-      description="Take each product's order quantity from a warehouse's free stock, or from a Sales Order booked there."
+      description={autoFilled ? 'Filled in from Sales Order bookings first, then free stock. Check the quantities, or change them, before OK.' : "Take each product's order quantity from a warehouse's free stock, or from a Sales Order booked there."}
       size="xl"
       autoFocus={false}
       footer={
@@ -87,11 +89,11 @@ export default function ChallanStockModal({ rows, initialEntered, companyName, d
           </Button>
         </div>
       }
-    >
+>
       <div className="space-y-4" data-testid="challan-stock">
         {rows.map((row) => {
           const total = totalRemoved(row, entered)
-          const error = problems.items[row.key] && (typedFor(row) || row.productId === null || row.warehouses.length === 0) ? problems.items[row.key] : null
+          const error = problems.items[row.key] && (autoFilled || typedFor(row) || row.productId === null || row.warehouses.length === 0) ? problems.items[row.key] : null
           return (
             <section key={row.key} className="space-y-1.5 rounded-md border border-border p-3" aria-label={`Stock of ${row.productName}`} data-testid="challan-stock-item">
               <div className="flex flex-wrap items-baseline justify-between gap-2">

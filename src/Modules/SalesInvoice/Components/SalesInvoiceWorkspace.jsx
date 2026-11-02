@@ -42,7 +42,7 @@ import OrderProducts from '@/Modules/SalesInvoice/Components/OrderProducts'
 import InventoryBookingModal from '@/Modules/SalesInvoice/Components/InventoryBookingModal'
 import StockBookingModal from '@/Modules/SalesInvoice/Components/StockBookingModal'
 import ChallanStockModal from '@/Modules/SalesInvoice/Components/ChallanStockModal'
-import { buildStockSummaryRequest, needsChallanStock, readSavedStockSummary, readStockSummary, withSavedStock } from '@/Modules/SalesInvoice/challanStock'
+import { allocateStock, buildStockSummaryRequest, needsChallanStock, readSavedStockSummary, readStockSummary, withSavedStock } from '@/Modules/SalesInvoice/challanStock'
 import InventoryDetailsModal from '@/Modules/SalesInvoice/Components/InventoryDetailsModal'
 import { buildBookingBody } from '@/Modules/SalesInvoice/inventoryBooking'
 import { needsStockBooking, stockBookingItems } from '@/Modules/SalesInvoice/stockBooking'
@@ -716,7 +716,8 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
   /**
    * The Challan's stock to take out (POST, the modal) - the body of what is taken out (sent as the
    * document's skuWarehouseSummary); null - nothing to take; false - not saved. Editing: the modal
-   * starts with the saved skuWarehouseSummary's quantities, counted back into the stock (withSavedStock).
+   * starts with the saved skuWarehouseSummary's quantities, counted back into the stock (withSavedStock);
+   * a new Challan: with its quantities worked out (allocateStock).
    */
   const takeChallanStock = async (documentNo) => {
     let rows
@@ -729,10 +730,10 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
       return false
     }
     if (rows.length === 0) return null
-    const ask = editing?.stockSummary ? withSavedStock(rows, editing.stockSummary) : { rows, entered: {} }
+    const ask = editing?.stockSummary ? withSavedStock(rows, editing.stockSummary) : { rows, entered: editing ? {} : allocateStock(rows) }
     return new Promise((resolve) => {
       challanStockAnswer.current = resolve
-      setChallanStockAsk({ ...ask, documentNo, canSkip: Boolean(editing && !editing.stockSummary) })
+      setChallanStockAsk({ ...ask, documentNo, autoFilled: !editing, canSkip: Boolean(editing && !editing.stockSummary) })
     })
   }
   const settleChallanStock = (taken) => {
@@ -1484,6 +1485,7 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
         <ChallanStockModal
           rows={challanStockAsk.rows}
           initialEntered={challanStockAsk.entered}
+          autoFilled={challanStockAsk.autoFilled}
           companyName={company.comp_name}
           documentNo={challanStockAsk.documentNo}
           onDone={(body) => settleChallanStock(body)}

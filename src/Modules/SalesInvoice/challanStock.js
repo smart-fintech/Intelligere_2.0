@@ -18,7 +18,8 @@
  *       - [] when the reply has nothing to take ({ msg })
  *   readSavedStockSummary(value), withSavedStock(rows, saved)   editing - the
  *       saved skuWarehouseSummary, and the summary with it counted back in
- *   checkStockRemoval(rows, entered)   what is wrong - { cells, items }
+ *   allocateStock(rows)   a new Challan - the `entered` it starts with: Sales Order bookings first, then free stock
+ *   checkStockRemoval(rows, entered, { shared })   what is wrong - { cells, items }
  *   buildStockUpdateBody({ companyName, rows, entered })   what is taken out - the body once PUT
  *       to inventory/SKUWarehouseSummaryAPI/, now sent whole as the Challan's skuWarehouseSummary
  *
@@ -130,10 +131,50 @@ export const totalRemoved = (row, entered) =>
     0,
   )
 
-export const checkStockRemoval = (rows, entered) => {
+/**
+ * A NEW CHALLAN - each product's order quantity worked out: the Sales Orders booked, over all its
+ * warehouses, then what they leave from the warehouses' free stock, both in the summary's order. Nothing
+ * more than is needed, and lines of the same SKU share its stock. Not enough stock: as much as there is
+ * (checkStockRemoval says so). Returns `entered` - the modal's quantities, still to be changed there.
+ */
+export const allocateStock = (rows) => {
+  const entered = {}
+  const used = {}
+  rows
+    .filter((row) => row.productId !== null)
+    .forEach((row) => {
+      let wanted = row.orderQty
+      const sku = { key: row.productId }
+      const take = (key, stockKey, limit) => {
+        const amount = Math.min(wanted, limit - (used[stockKey] ?? 0))
+        if (amount <= 1e-9) return
+        entered[key] = String(Number(amount.toFixed(6)))
+        used[stockKey] = (used[stockKey] ?? 0) + amount
+        wanted -= amount
+      }
+      row.warehouses.forEach((warehouse) => warehouse.bookings.forEach((booking) => take(bookingKey(row, warehouse, booking), bookingKey(sku, warehouse, booking), booking.qty)))
+      row.warehouses.forEach((warehouse) => take(warehouseKey(row, warehouse), warehouseKey(sku, warehouse), warehouse.free))
+    })
+  return entered
+}
+
+/** Everything a product's rows offer - its warehouses' free stock and their bookings. */
+const availableStock = (row) =>
+  row.warehouses.reduce((sum, warehouse) => sum + warehouse.free + warehouse.bookings.reduce((inner, booking) => inner + booking.qty, 0), 0)
+
+/** `shared`: lines of the same SKU draw on one stock - a new Challan, whose rows are all as the summary says. */
+export const checkStockRemoval = (rows, entered, { shared = false } = {}) => {
   const cells = {}
   const itemErrors = {}
+  const used = {}
+  // How much this stock still has for the amount, which then counts as used.
+  const roomIn = (stockKey, limit, amount) => {
+    const room = shared ? Math.max(0, limit - (used[stockKey] ?? 0)) : limit
+    used[stockKey] = (used[stockKey] ?? 0) + Math.max(0, amount ?? 0)
+    return room
+  }
   rows.forEach((row) => {
+    const sku = { key: row.productId }
     if (row.productId === null) {
       itemErrors[row.key] = 'Not in the product list - it cannot be taken out of stock.'
       return
@@ -145,19 +186,24 @@ export const checkStockRemoval = (rows, entered) => {
     row.warehouses.forEach((warehouse) => {
       const key = warehouseKey(row, warehouse)
       const direct = typed(entered, key)
+      const free = roomIn(warehouseKey(sku, warehouse), warehouse.free, direct)
       if (direct === null) cells[key] = 'Numbers only'
       else if (direct < 0) cells[key] = 'Not below 0'
-      else if (direct > warehouse.free + 1e-9) cells[key] = `Only ${tidy(warehouse.free)} free`
+      else if (direct > free + 1e-9) cells[key] = `Only ${tidy(free)} free`
       warehouse.bookings.forEach((booking) => {
         const soKey = bookingKey(row, warehouse, booking)
         const value = typed(entered, soKey)
+        const booked = roomIn(bookingKey(sku, warehouse, booking), booking.qty, value)
         if (value === null) cells[soKey] = 'Numbers only'
         else if (value < 0) cells[soKey] = 'Not below 0'
-        else if (value > booking.qty + 1e-9) cells[soKey] = `Not more than its ${tidy(booking.qty)} booked`
+        else if (value > booked + 1e-9) cells[soKey] = `Not more than its ${tidy(booked)} booked`
       })
     })
     const total = totalRemoved(row, entered)
-    if (Math.abs(total - row.orderQty) > 1e-9) itemErrors[row.key] = `Take out exactly ${tidy(row.orderQty)} - ${tidy(total)} so far`
+    if (Math.abs(total - row.orderQty) > 1e-9) {
+      const available = availableStock(row)
+      itemErrors[row.key] = available < row.orderQty - 1e-9 ? `Not enough stock - only ${tidy(available)} available for ${tidy(row.orderQty)}` : `Take out exactly ${tidy(row.orderQty)} - ${tidy(total)} so far`
+    }
   })
   return { cells, items: itemErrors }
 }

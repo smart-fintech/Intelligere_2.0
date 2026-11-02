@@ -45,34 +45,36 @@ function FeatureCard({ module, company }) {
   const available = open
 
   const card = (
-      <Card
-        // Focusable so a keyboard user can reach the tooltip too - the link
-        // around an open card is what takes the focus then.
-        tabIndex={open ? undefined : 0}
-        className={cn(
-          'gap-0 border-border/70 p-4 transition-all duration-200 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
-          // A module that opens gets the lift; one still coming, or not active
-          // for this company, stays flat and slightly faded.
-          available ? 'hover:-translate-y-0.5 hover:border-brand/40 hover:shadow-md' : 'opacity-90',
-        )}
-      >
-        <div className="flex items-center gap-3">
-          <span
-            className={cn(
-              'flex size-10 shrink-0 items-center justify-center rounded-lg',
-              available
-                ? 'bg-brand-soft text-brand dark:bg-brand/15'
-                // : 'bg-muted text-muted-foreground',
-                : 'bg-muted text-brand',
-            )}
-          >
-            <Icon className="size-5" strokeWidth={1.75} />
-          </span>
+    <Card
+      // Focusable only when the module is available
+      tabIndex={available ? 0 : -1}
+      aria-disabled={!available}
+      className={cn(
+        'gap-0 border-border/70 p-4 transition-all duration-200 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50',
 
-          <div className="min-w-0">
-            <h2 className="text-sm font-medium text-brand">{module.name}</h2>
+        // Available module
+        available
+          ? 'hover:-translate-y-0.5 hover:border-brand/40 hover:shadow-md cursor-pointer'
+          : 'opacity-50 grayscale cursor-not-allowed pointer-events-none select-none',
+      )}
+    >
+      <div className="flex items-center gap-3">
+        <span
+          className={cn(
+            'flex size-10 shrink-0 items-center justify-center rounded-lg',
+            available
+              ? 'bg-brand-soft text-brand dark:bg-brand/15'
+              // : 'bg-muted text-muted-foreground',
+              : 'bg-muted text-brand',
+          )}
+        >
+          <Icon className="size-5" strokeWidth={1.75} />
+        </span>
 
-            {/* {available ? (
+        <div className="min-w-0">
+          <h2 className="text-sm font-medium text-brand">{module.name}</h2>
+
+          {/* {available ? (
               <span className="mt-1.5 inline-block rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400">
                 Available
               </span>
@@ -81,9 +83,9 @@ function FeatureCard({ module, company }) {
                 Coming Soon
               </span>
             )} */}
-          </div>
         </div>
-      </Card>
+      </div>
+    </Card>
   )
 
   return (
