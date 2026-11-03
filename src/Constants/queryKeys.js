@@ -24,6 +24,34 @@
  *                       history, read again after an adjustment is saved (useInventoryAdjustments)
  *   FORECAST_RULES      POST inventory/forecastRules/    [FORECAST_RULES, companyName] - read once
  *                       a session per company (useForecastRules)
+ *   RECEIVABLE_PAYABLE  POST tally/receivable_payable/   [RECEIVABLE_PAYABLE, companyName, source] - one
+ *                       list, read again after a payment, a delete or a Tally sync (OutstandingList)
+ *   RECEIVABLE_PAYABLE_SYNC POST tally/receivable_payable/ [RECEIVABLE_PAYABLE_SYNC, companyName] - when it
+ *                       last came from Tally (PayableReceivableScreen)
+ *   LEDGER_EXPORT_SYNC  POST tally/ledger_export/        [LEDGER_EXPORT_SYNC, companyName] - when the
+ *                       ledgers last came from Tally (TallyLedgerExport)
+ *   LEDGER_REPORT       POST tally/general_ledger/, tally/party_wise_ledger/  [LEDGER_REPORT, companyId,
+ *                       report, what was asked] - one report (LedgerReport)
+ *   ERP_LEDGER          POST tally/ERP_ledger_export/    [ERP_LEDGER, companyName, financialYear] - the
+ *                       ledgers, read again after any change (ErpLedgerList)
+ *   CHEQUE_DETAILS      POST cheque/cheque_details/      [CHEQUE_DETAILS, companyId, type] - the vouchers
+ *                       or past cheques, read again after any change (ChequeHistory)
+ *   DOCUVAULT_USERS     POST docuvault/users/            [DOCUVAULT_USERS, companyName] - the users and
+ *                       the storage, read again after any change to a document (DocuVaultScreen)
+ *   DOCUVAULT_DOCUMENTS POST docuvault/documents/        [DOCUVAULT_DOCUMENTS, companyName, email] - one
+ *                       user's documents, read again after any change to them (DocuVaultDocuments)
+ *   MIS_DASHBOARD       GET mis_reports/dashboard/       [MIS_DASHBOARD, companyId] - the reports the
+ *                       user pinned, read again after they are saved (MisDashboard)
+ *   MIS_DASHBOARD_REPORT POST mis_reports/reports/       [MIS_DASHBOARD_REPORT, companyId, reportType,
+ *                       responseType, period] - one pinned report's card (MisDashboard)
+ *   JV_LEDGERS          POST journal_vouchers/jv-ledgers/    [JV_LEDGERS, companyId] - the JV ledgers,
+ *                       read again after they are changed (JvLedgers)
+ *   JV_TEMPLATES        POST journal_vouchers/jv-templates/  [JV_TEMPLATES, companyId] - read again
+ *                       after a template is saved or deleted (TemplateList)
+ *   JV_VOUCHERS         POST journal_vouchers/jv-vouchers/   [JV_VOUCHERS, companyId] - the saved
+ *                       vouchers, read again after a save or a delete (VoucherHistory)
+ *   JV_BANK_ENTRIES     POST journal_vouchers/jv-bank-entries/ [JV_BANK_ENTRIES, companyId] - both
+ *                       lists, read again after every change, as a change numbers them again
  *
  * How long an answer is used before it is asked for again, even with no
  * change seen here: what another user, another tab or Tally may have
@@ -42,6 +70,20 @@ export const QUERY = Object.freeze({
   TRANSFER_NOTES: 'transferNotes',
   INVENTORY_ADJUSTMENTS: 'inventoryAdjustments',
   FORECAST_RULES: 'forecastRules',
+  RECEIVABLE_PAYABLE: 'receivablePayable',
+  RECEIVABLE_PAYABLE_SYNC: 'receivablePayableSync',
+  LEDGER_EXPORT_SYNC: 'ledgerExportSync',
+  LEDGER_REPORT: 'ledgerReport',
+  ERP_LEDGER: 'erpLedger',
+  CHEQUE_DETAILS: 'chequeDetails',
+  DOCUVAULT_USERS: 'docuVaultUsers',
+  DOCUVAULT_DOCUMENTS: 'docuVaultDocuments',
+  MIS_DASHBOARD: 'misDashboard',
+  MIS_DASHBOARD_REPORT: 'misDashboardReport',
+  JV_LEDGERS: 'jvLedgers',
+  JV_TEMPLATES: 'jvTemplates',
+  JV_VOUCHERS: 'jvVouchers',
+  JV_BANK_ENTRIES: 'jvBankEntries',
 })
 
 export const MASTER_DATA_STALE_MS = 5 * 60 * 1000

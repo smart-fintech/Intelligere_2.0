@@ -1,0 +1,98 @@
+import { AlertCircle, Building2, Lock } from 'lucide-react'
+import { useDispatch, useSelector } from 'react-redux'
+import { Link } from 'react-router-dom'
+
+import { ListSkeleton, RetryButton, StateMessage } from '@/Components/Common/DataList'
+import { Button } from '@/Components/ui/button'
+import { Card, CardContent } from '@/Components/ui/card'
+import { BUSINESS_HEALTH_MODULE } from '@/Constants/businessHealth'
+import { ROUTES } from '@/Constants/routes'
+import { useActiveCompany } from '@/Hooks/useActiveCompany'
+import BusinessHealthScreen from '@/Modules/BusinessHealth/Components/BusinessHealthScreen'
+import { hasActiveModule } from '@/Services/accessService'
+import { fetchCompanies, selectCompanyError, selectCompanyStatus } from '@/Store/Slices/companySlice'
+
+/**
+ * /modules/Business Health Indicators - the Business Health Indicators module.
+ *
+ * Who gets in is decided as for the other product modules, from the active
+ * company's record (already in the store):
+ *
+ *   still loading                     a skeleton - no answer is assumed
+ *   no active company                 pick one in the header first
+ *   "Business Health Indicators" not  the module is not part of this
+ *   in its active_modules             company's plan, with the way to Payment
+ *   otherwise                         the screen, afresh for each company
+ */
+
+function Frame({ children }) {
+  return (
+    <div className="space-y-4 p-4 sm:p-6">
+      <h1 className="text-xl font-semibold text-brand sm:text-2xl">Business Health Indicators</h1>
+      <Card className="border-border/70">
+        <CardContent className="px-4">{children}</CardContent>
+      </Card>
+    </div>
+  )
+}
+
+export default function BusinessHealthPage() {
+  const dispatch = useDispatch()
+  const { activeCompany, activeCompanyId } = useActiveCompany()
+  const status = useSelector(selectCompanyStatus)
+  const error = useSelector(selectCompanyError)
+
+  if ((status === 'idle' || status === 'loading') && !activeCompany) {
+    return (
+      <Frame>
+        <ListSkeleton rows={6} />
+      </Frame>
+    )
+  }
+
+  if (status === 'failed' && !activeCompany) {
+    return (
+      <Frame>
+        <StateMessage
+          icon={AlertCircle}
+          tone="error"
+          title="Could not load your companies"
+          action={<RetryButton onClick={() => dispatch(fetchCompanies({ force: true }))} />}
+        >
+          {error}
+        </StateMessage>
+      </Frame>
+    )
+  }
+
+  if (!activeCompany) {
+    return (
+      <Frame>
+        <StateMessage icon={Building2} title="No company selected">
+          Choose a company in the header, then come back here.
+        </StateMessage>
+      </Frame>
+    )
+  }
+
+  if (!hasActiveModule(activeCompany, BUSINESS_HEALTH_MODULE)) {
+    return (
+      <Frame>
+        <StateMessage
+          icon={Lock}
+          title="Business Health Indicators is not active for this company"
+          action={
+            <Button asChild variant="secondary">
+              <Link to={ROUTES.PAYMENT}>View plans</Link>
+            </Button>
+          }
+        >
+          {activeCompany.comp_name} does not have the Business Health Indicators module. Ask the account owner, or
+          add it to the company&apos;s plan.
+        </StateMessage>
+      </Frame>
+    )
+  }
+
+  return <BusinessHealthScreen key={activeCompanyId} company={activeCompany} companyId={activeCompanyId} />
+}

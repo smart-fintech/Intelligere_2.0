@@ -6,7 +6,7 @@
  *                     Details, Ledger Details, Inventory Details. Each has a
  *                     route.
  *
- *   PRODUCT_MODULES   the twelve product MODULES - Bank Statement, GST
+ *   PRODUCT_MODULES   the thirteen product MODULES - Bank Statement, GST
  *                     Compare, and so on. They are the cards on the Modules
  *                     & Features page and the "Product Modules" group in the
  *                     left sidebar, and each has its own route under
@@ -30,6 +30,7 @@ import {
   FileText,
   LayoutGrid,
   Landmark,
+  Printer,
   Scale,
   ShoppingCart,
   Split,
@@ -152,14 +153,14 @@ export const PRODUCT_MODULES = [
     key: 'Bank Statement',
     name: 'Bank Statement',
     icon: Landmark,
-    status: MODULE_STATUS.COMING_SOON,
+    status: MODULE_STATUS.AVAILABLE,
     description: 'Import and manage bank statements',
   },
   {
     key: 'GST Compare',
     name: 'GST Compare',
     icon: Scale,
-    status: MODULE_STATUS.COMING_SOON,
+    status: MODULE_STATUS.AVAILABLE,
     description: 'Compare your books with GST portal data',
   },
   {
@@ -180,7 +181,7 @@ export const PRODUCT_MODULES = [
     key: 'Amount Distribution',
     name: 'Amount Distribution',
     icon: Split,
-    status: MODULE_STATUS.COMING_SOON,
+    status: MODULE_STATUS.AVAILABLE,
     description: 'Split payments across invoices or ledgers',
   },
   {
@@ -201,21 +202,21 @@ export const PRODUCT_MODULES = [
     key: 'DocuVault',
     name: 'DocuVault',
     icon: Archive,
-    status: MODULE_STATUS.COMING_SOON,
+    status: MODULE_STATUS.AVAILABLE,
     description: 'Store and organise business documents',
   },
   {
     key: 'Payable Receivable',
     name: 'Payable Receivable',
     icon: ArrowLeftRight,
-    status: MODULE_STATUS.COMING_SOON,
+    status: MODULE_STATUS.AVAILABLE,
     description: 'Track amounts payable and receivable',
   },
   {
     key: 'Business Health Indicators',
     name: 'Business Health Indicators',
     icon: Activity,
-    status: MODULE_STATUS.COMING_SOON,
+    status: MODULE_STATUS.AVAILABLE,
     description: 'View key business reports and insights',
   },
   {
@@ -229,7 +230,14 @@ export const PRODUCT_MODULES = [
     key: 'Journal Voucher',
     name: 'Journal Voucher',
     icon: BookOpen,
-    status: MODULE_STATUS.COMING_SOON,
+    status: MODULE_STATUS.AVAILABLE,
     description: 'Record and manage journal vouchers',
+  },
+  {
+    key: 'Cheque Printing',
+    name: 'Cheque Printing',
+    icon: Printer,
+    status: MODULE_STATUS.AVAILABLE,
+    description: 'Print cheques and post their vouchers',
   },
 ].map((module) => ({ ...module, path: `${ROUTES.PRODUCT_MODULES}/${module.key}` }))

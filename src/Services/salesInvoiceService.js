@@ -183,6 +183,9 @@ const taxFields = (figures, interState, rate) => ({
  *                          (challanStock's buildStockUpdateBody) - { company_name,
  *                          product: [{ document_id, warehouse: [{ id, remove_qty,
  *                          so_booked_qty? }] }] }. Not there for anything else
+ *   product_data[].product_id   only an edited Purchase Invoice / Inbound Challan's
+ *                          line kept as saved (`savedLineId` - stockBooking's
+ *                          keptLineId): the update keeps that line and its stock
  */
 export const buildBusinessDocumentPayload = (request) => {
   const { document, figures, interState } = request
@@ -257,6 +260,8 @@ export const buildBusinessDocumentPayload = (request) => {
   // A line filled in from an order: its reference, and the order it came from (orderProducts).
   const orderFields = (line) =>
     line.order ? { reference_no: text(line.order.referenceNo), ref_doc_no: text(line.order.documentNo), document_id: line.order.documentId ?? null } : null
+  // An edited purchase's line kept as saved: its own product_id, so the update keeps it - and its stock (stockBooking).
+  const savedLine = (line) => (line.savedLineId ? { product_id: line.savedLineId } : null)
   const productData = request.lines.map((line) => {
     if (challan) {
       return {
@@ -269,6 +274,7 @@ export const buildBusinessDocumentPayload = (request) => {
         sku_details: line.skuDetails,
         'Per Unit': text(line.per),
         ...orderFields(line),
+        ...savedLine(line),
       }
     }
     const common = {
@@ -282,7 +288,7 @@ export const buildBusinessDocumentPayload = (request) => {
       product_amount: rupees(line.figures.taxablePaise).toFixed(2),
     }
     const taxes = taxFields(line.figures, interState, (rate) => rateString(true, rate))
-    if (line.service) return { ...common, ...taxes, 'Selling Rate': text(line.rate), ...orderFields(line) }
+    if (line.service) return { ...common, ...taxes, 'Selling Rate': text(line.rate), ...orderFields(line), ...savedLine(line) }
     return {
       ...common,
       sku_code: line.skuCode,
@@ -291,6 +297,7 @@ export const buildBusinessDocumentPayload = (request) => {
       'Selling Rate': text(line.rate),
       'Per Unit': text(line.per),
       ...orderFields(line),
+      ...savedLine(line),
     }
   })
 

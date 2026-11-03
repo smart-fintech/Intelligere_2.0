@@ -19,7 +19,7 @@ import { hasActiveModule } from '@/Services/accessService'
  * Modules & Features - the landing page after signing in, and the first tab
  * in the dashboard navigation.
  *
- * It lists the twelve product features (Bank Statement, GST Compare, and so
+ * It lists the thirteen product features (Bank Statement, GST Compare, and so
  * on) from Constants/dashboardModules. These are NOT the pages in the
  * navigation bar above them - see the note at the top of that file.
  *

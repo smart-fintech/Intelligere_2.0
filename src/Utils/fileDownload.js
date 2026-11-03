@@ -34,8 +34,11 @@ export function downloadTextFile(fileName, text, mimeType = 'text/csv;charset=ut
  *
  * @param {string} fileUrl - Direct link to the file returned by the backend.
  * @param {string} defaultFileName - Fallback name if the URL does not contain one.
+ * @param {object} options
+ * @param {boolean} options.keepGivenName - Save under defaultFileName whatever the URL
+ *   says - for a URL whose last part is a storage key rather than a name.
  */
-export async function downloadFileFromUrl(fileUrl, defaultFileName = 'download.log') {
+export async function downloadFileFromUrl(fileUrl, defaultFileName = 'download.log', { keepGivenName = false } = {}) {
     if (!fileUrl) {
         throw new Error('No valid file URL provided.')
     }
@@ -50,8 +53,9 @@ export async function downloadFileFromUrl(fileUrl, defaultFileName = 'download.l
         const blobUrl = window.URL.createObjectURL(blob)
 
         // Extract file name from URL if possible, otherwise use fallback
-        const resolvedName =
-            fileUrl.split('/').pop()?.split('?')[0] || defaultFileName
+        const resolvedName = keepGivenName
+            ? defaultFileName
+            : fileUrl.split('/').pop()?.split('?')[0] || defaultFileName
 
         const link = document.createElement('a')
         link.href = blobUrl

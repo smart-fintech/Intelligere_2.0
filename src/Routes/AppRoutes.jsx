@@ -71,16 +71,24 @@ import useIsLoggedIn from '@/Hooks/useIsLoggedIn'
 import ForgotPassword from '@/Modules/Auth/Pages/ForgetPassword'
 import Login from '@/Modules/Auth/Pages/Login'
 import Register from '@/Modules/Auth/Pages/Register'
+import BankStatementPage from '@/Modules/BankStatement/Pages/BankStatementPage'
 import Dashboard from '@/Modules/Dashboard/Pages/Dashboard'
 import BankDetailsPage from '@/Modules/Dashboard/Pages/BankDetailsPage'
 import CompanyDetailsPage from '@/Modules/Dashboard/Pages/CompanyDetailsPage'
 import InventoryDetailsPage from '@/Modules/Dashboard/Pages/InventoryDetailsPage'
 import LedgerDetailsPage from '@/Modules/Dashboard/Pages/LedgerDetailsPage'
+import AmountDistributionPage from '@/Modules/AmountDistribution/Pages/AmountDistributionPage'
+import BusinessHealthPage from '@/Modules/BusinessHealth/Pages/BusinessHealthPage'
+import ChequePrintingPage from '@/Modules/ChequePrinting/Pages/ChequePrintingPage'
+import DocuVaultPage from '@/Modules/DocuVault/Pages/DocuVaultPage'
+import JournalVoucherPage from '@/Modules/JournalVoucher/Pages/JournalVoucherPage'
+import PayableReceivablePage from '@/Modules/PayableReceivable/Pages/PayableReceivablePage'
 import PaymentPage from '@/Modules/Payment/Pages/PaymentPage'
 import PaymentStatusPage from '@/Modules/Payment/Pages/PaymentStatusPage'
 import PremiumRechargePage from '@/Modules/Payment/Pages/PremiumRechargePage'
 import Profile from '@/Modules/Profile/Pages/Profile'
 import ComingSoonPage from '@/Modules/Misc/Pages/ComingSoonPage'
+import GstComparePage from '@/Modules/GstCompare/Pages/GstComparePage'
 import PurchaseInvoicePage from '@/Modules/PurchaseInvoice/Pages/PurchaseInvoicePage'
 import SalesInvoicePage from '@/Modules/SalesInvoice/Pages/SalesInvoicePage'
 import CreateSubUser from '@/Modules/SubUser/Pages/CreateSubUser'
@@ -97,8 +105,16 @@ import ReportIssue from '@/Modules/Support/Pages/ReportIssue'
  * sidebar row and card already exist.
  */
 const PRODUCT_MODULE_PAGES = {
+  'Bank Statement': BankStatementPage,
   'Sales Invoice': SalesInvoicePage,
   'Purchase Invoice': PurchaseInvoicePage,
+  'GST Compare': GstComparePage,
+  'Payable Receivable': PayableReceivablePage,
+  'Amount Distribution': AmountDistributionPage,
+  'Cheque Printing': ChequePrintingPage,
+  'Business Health Indicators': BusinessHealthPage,
+  'Journal Voucher': JournalVoucherPage,
+  DocuVault: DocuVaultPage,
 }
 
 export default function AppRoutes() {

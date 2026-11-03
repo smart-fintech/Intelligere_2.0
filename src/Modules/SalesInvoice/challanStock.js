@@ -27,8 +27,9 @@
  *
  * THE RULES (the earlier Challan screen's): a product's stock comes out of a
  * warehouse's free stock (Qty - total booked) and/or out of the Sales Orders
- * booked there - never more than an order booked, never more than is free -
- * and everything taken adds up to the product's order quantity exactly.
+ * booked there - never more than an order booked; free stock is only shown and
+ * filled in first, not a limit on what is typed - and everything taken adds up
+ * to the product's order quantity exactly.
  * `manage_qty` decides none of it.
  */
 
@@ -134,8 +135,8 @@ export const totalRemoved = (row, entered) =>
 /**
  * A NEW CHALLAN - each product's order quantity worked out: the Sales Orders booked, over all its
  * warehouses, then what they leave from the warehouses' free stock, both in the summary's order. Nothing
- * more than is needed, and lines of the same SKU share its stock. Not enough stock: as much as there is
- * (checkStockRemoval says so). Returns `entered` - the modal's quantities, still to be changed there.
+ * more than is needed, and lines of the same SKU share its stock. More than that holds: as much as it
+ * holds - the rest is typed in the modal. Returns `entered` - the modal's quantities, still to be changed there.
  */
 export const allocateStock = (rows) => {
   const entered = {}
@@ -162,12 +163,12 @@ export const allocateStock = (rows) => {
 const availableStock = (row) =>
   row.warehouses.reduce((sum, warehouse) => sum + warehouse.free + warehouse.bookings.reduce((inner, booking) => inner + booking.qty, 0), 0)
 
-/** `shared`: lines of the same SKU draw on one stock - a new Challan, whose rows are all as the summary says. */
+/** `shared`: lines of the same SKU draw on one booking - a new Challan, whose rows are all as the summary says. */
 export const checkStockRemoval = (rows, entered, { shared = false } = {}) => {
   const cells = {}
   const itemErrors = {}
   const used = {}
-  // How much this stock still has for the amount, which then counts as used.
+  // How much this booking still has for the amount, which then counts as used.
   const roomIn = (stockKey, limit, amount) => {
     const room = shared ? Math.max(0, limit - (used[stockKey] ?? 0)) : limit
     used[stockKey] = (used[stockKey] ?? 0) + Math.max(0, amount ?? 0)
@@ -186,10 +187,8 @@ export const checkStockRemoval = (rows, entered, { shared = false } = {}) => {
     row.warehouses.forEach((warehouse) => {
       const key = warehouseKey(row, warehouse)
       const direct = typed(entered, key)
-      const free = roomIn(warehouseKey(sku, warehouse), warehouse.free, direct)
       if (direct === null) cells[key] = 'Numbers only'
       else if (direct < 0) cells[key] = 'Not below 0'
-      else if (direct > free + 1e-9) cells[key] = `Only ${tidy(free)} free`
       warehouse.bookings.forEach((booking) => {
         const soKey = bookingKey(row, warehouse, booking)
         const value = typed(entered, soKey)
@@ -202,7 +201,7 @@ export const checkStockRemoval = (rows, entered, { shared = false } = {}) => {
     const total = totalRemoved(row, entered)
     if (Math.abs(total - row.orderQty) > 1e-9) {
       const available = availableStock(row)
-      itemErrors[row.key] = available < row.orderQty - 1e-9 ? `Not enough stock - only ${tidy(available)} available for ${tidy(row.orderQty)}` : `Take out exactly ${tidy(row.orderQty)} - ${tidy(total)} so far`
+      itemErrors[row.key] = `${available < row.orderQty - 1e-9 ? `Only ${tidy(available)} free or booked. ` : ''}Take out exactly ${tidy(row.orderQty)} - ${tidy(total)} so far`
     }
   })
   return { cells, items: itemErrors }

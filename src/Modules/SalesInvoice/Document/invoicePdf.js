@@ -23,11 +23,14 @@
  * to. So the PDF has the preview's pages, rows and closing stack, sheet for
  * sheet. A layout measured for an older model is refused rather than used.
  *
- * The renderer is loaded on demand (await import(...)), so it is not in the
- * page until a PDF is first made.
+ * The renderer is loaded on demand (Utils/pdf), so it is not in the page until
+ * a PDF is first made.
  */
 
-import { createElement } from 'react'
+import { createPdf } from '@/Utils/pdf'
+
+// Everything that imports them from here keeps working; they live in Utils/pdf.
+export { downloadPdf, pdfBlob } from '@/Utils/pdf'
 
 /** react-pdf embeds PNG and JPEG; anything else (WebP, GIF, SVG...) is redrawn as PNG first. */
 const EMBEDDABLE = /^data:image\/(png|jpe?g);/i
@@ -90,32 +93,18 @@ export async function createInvoicePdf({ model, layout, copies }) {
   }
 
   // A challan has its own document - every copy chosen (`copies`) under its own heading.
-  const [{ pdf }, { default: PdfDocument }, printable] = await Promise.all([
-    import('@react-pdf/renderer'),
-    model.challan
-      ? import('@/Modules/SalesInvoice/Document/ChallanPdfDocument')
-      : import('@/Modules/SalesInvoice/Document/InvoicePdfDocument'),
-    withEmbeddableImages(model),
-  ])
+  const loadDocument = model.challan
+    ? () => import('@/Modules/SalesInvoice/Document/ChallanPdfDocument')
+    : () => import('@/Modules/SalesInvoice/Document/InvoicePdfDocument')
 
-  const pdfDocument = createElement(PdfDocument, {
-    model: printable,
+  return createPdf(loadDocument, {
+    model: await withEmbeddableImages(model),
     pages: layout.pages,
     rowsByKey: Object.fromEntries(model.rows.map((row) => [row.key, row])),
     rowPx: layout.rowPx,
     metrics: layout.metrics,
     ...(model.challan ? { copies } : null),
   })
-  return toPdfBytes(pdf, pdfDocument)
-}
-
-/** A react-pdf document as PDF bytes - refused when it comes out empty. */
-async function toPdfBytes(pdf, pdfDocument) {
-  const bytes = new Uint8Array(await (await pdf(pdfDocument).toBlob()).arrayBuffer())
-  if (bytes.length < 500 || String.fromCharCode(...bytes.subarray(0, 5)) !== '%PDF-') {
-    throw new Error('The PDF came out empty.')
-  }
-  return bytes
 }
 
 /**
@@ -123,27 +112,5 @@ async function toPdfBytes(pdf, pdfDocument) {
  * (ewayBillModel.js); it needs no measured layout. Uploaded as the
  * `e_way_bill_pdf` of invoice/save-document-pdf/.
  */
-export async function createEwayBillPdf(ewayBill) {
-  const [{ pdf }, { default: EwayBillPdfDocument }] = await Promise.all([
-    import('@react-pdf/renderer'),
-    import('@/Modules/SalesInvoice/Document/EwayBillPdfDocument'),
-  ])
-  return toPdfBytes(pdf, createElement(EwayBillPdfDocument, { model: ewayBill }))
-}
-
-/** PDF bytes as a Blob - what a download or an upload carries. */
-export const pdfBlob = (bytes) => new Blob([bytes], { type: 'application/pdf' })
-
-/** Saves PDF bytes to the user's disk under `fileName`. */
-export function downloadPdf(bytes, fileName) {
-  const url = URL.createObjectURL(pdfBlob(bytes))
-  const link = document.createElement('a')
-  link.href = url
-  link.download = fileName
-  link.rel = 'noopener'
-  document.body.appendChild(link)
-  link.click()
-  link.remove()
-  // Long enough for the browser to start the download, then the URL is released.
-  setTimeout(() => URL.revokeObjectURL(url), 10000)
-}
+export const createEwayBillPdf = (ewayBill) =>
+  createPdf(() => import('@/Modules/SalesInvoice/Document/EwayBillPdfDocument'), { model: ewayBill })

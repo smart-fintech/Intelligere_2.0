@@ -45,7 +45,7 @@ import ChallanStockModal from '@/Modules/SalesInvoice/Components/ChallanStockMod
 import { allocateStock, buildStockSummaryRequest, needsChallanStock, readSavedStockSummary, readStockSummary, withSavedStock } from '@/Modules/SalesInvoice/challanStock'
 import InventoryDetailsModal from '@/Modules/SalesInvoice/Components/InventoryDetailsModal'
 import { buildBookingBody } from '@/Modules/SalesInvoice/inventoryBooking'
-import { needsStockBooking, stockBookingItems } from '@/Modules/SalesInvoice/stockBooking'
+import { keptLineId, needsStockBooking, needsStockRebooking, savedLinesOf, stockBookingItems } from '@/Modules/SalesInvoice/stockBooking'
 import { PROCUREMENT_STATE, QUOTATION_STATES } from '@/Modules/SalesInvoice/procurement'
 import useProcurement from '@/Modules/SalesInvoice/useProcurement'
 import useInventoryAccess from '@/Hooks/useInventoryAccess'
@@ -276,6 +276,12 @@ const STEP_OF_PARTY = { seller: INVOICE_STEP.SELLER, buyer: INVOICE_STEP.BUYER }
  * the document_id). It cannot be closed; a retry of the upload never books
  * again. Not for a Purchase Invoice whose Prefill From is an Inbound Challan
  * (needsStockBooking) - that stock came in with the challan.
+ * EDITING one: nothing is asked as it opens. Update sends each line whose
+ * product, SKU and quantity are as saved under its own product_id, so it keeps
+ * its stock (stockBooking's keptLineId); a changed or added line goes as a new
+ * one - its old stock taken out by the update - and, once updated, the same
+ * StockBookingModal books those lines alone, with their new quantities. Nothing
+ * changed, nothing is booked.
  *
  * A CHALLAN'S STOCK (Challan with no Prefill From - Inventory Management)
  * ------------------------------------------------------------------
@@ -624,8 +630,8 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
    * once the last is saved; 'skipped' when it has no product to book. A line
    * whose product is no longer in the product list is left out, and said so.
    */
-  const bookStock = (documentId, documentNo) => {
-    const { items, unmatched } = stockBookingItems({ lines: applicable.lines, productsByKey: products.byKey })
+  const bookStock = (documentId, documentNo, lines = applicable.lines) => {
+    const { items, unmatched } = stockBookingItems({ lines, productsByKey: products.byKey })
     if (unmatched.length > 0) toast.warning(`Not in the product list, so not booked into a warehouse: ${unmatched.join(', ')}.`)
     if (items.length === 0) return Promise.resolve('skipped')
     return new Promise((resolve) => {
@@ -667,6 +673,8 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
   })
   // A NEW Purchase Invoice / Inbound Challan books its stock after it is created - not one prefilled from an Inbound Challan (needsStockBooking).
   const booksStock = needsStockBooking({ documentType: documentTypeValue, orderSource: orders.source, inventory: inventoryAccess.full, editing: Boolean(editing) })
+  // One being edited books again only the lines its edit changed, once updated (see the note at the top).
+  const rebooksStock = Boolean(editing) && needsStockRebooking({ documentType: documentTypeValue, prefillFrom: editing.prefillFrom, inventory: inventoryAccess.full })
   /**
    * Prefill From's order source (Challan from a Sales Order, Purchase Invoice
    * from an Inbound Challan, Inbound Challan from an Outbound Purchase Order)
@@ -795,18 +803,19 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
   }
   if (pendingEdit && listsSettled) {
     const record = pendingEdit
-    invoice.load(
-      formFromSavedDocument(record, {
-        createForm: flow.createForm,
-        company,
-        parties,
-        ledgers,
-        products: products.list,
-        banks: banks.list,
-        countries: { countryNames: getCountries(countries.data), stateNamesOf: (country) => getStates(countries.data, country) },
-      }),
-    )
+    const loaded = formFromSavedDocument(record, {
+      createForm: flow.createForm,
+      company,
+      parties,
+      ledgers,
+      products: products.list,
+      banks: banks.list,
+      countries: { countryNames: getCountries(countries.data), stateNamesOf: (country) => getStates(countries.data, country) },
+    })
+    invoice.load(loaded)
     setEditing({
+      // Each line as loaded, with its saved product_id - what a purchase's update keeps (stockBooking).
+      savedLines: savedLinesOf(record.product_data, loaded.lines),
       // The record's own document_id (business-document-history) - what the PUT names.
       documentId: record.document_id,
       documentNo: String(record.document_no ?? '').trim() || String(objectDocumentNo(record) ?? ''),
@@ -1154,6 +1163,11 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
         }
         if (challanStockFor.current?.body) request = { ...request, skuWarehouseSummary: challanStockFor.current.body }
       }
+      // An edited purchase: the lines kept as saved go under their product_id; the rest are booked once updated.
+      const rebookLines = rebooksStock ? applicable.lines.filter((line) => !keptLineId(line, editing.savedLines)) : []
+      if (request && rebooksStock) {
+        request = { ...request, lines: request.lines.map((line) => ({ ...line, savedLineId: keptLineId(line, editing.savedLines) })) }
+      }
       const result = await runSaveWorkflow({
         // A retry of a type that uploads its own file sends the file chosen NOW (it may have been replaced).
         // (`booked` kept, so a retry never books the stock again.)
@@ -1173,7 +1187,9 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
             }
           : booksStock
             ? (documentId) => bookStock(documentId, invoiceNo)
-            : null,
+            : rebooksStock
+              ? (documentId) => bookStock(documentId, invoiceNo, rebookLines)
+              : null,
         // Purchase Invoice / Inbound Challan: the chosen file, or none - never a PDF made from the form.
         makePdf: uploadsFile ? () => documentFile : makeDocumentPdfs(copies),
         uploadPdf: uploadsFile

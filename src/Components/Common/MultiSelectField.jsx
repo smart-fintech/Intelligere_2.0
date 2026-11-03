@@ -182,7 +182,9 @@ export function MultiSelectField({
                     key={option}
                     className="inline-flex max-w-full items-center gap-1 rounded-md border border-brand/20 bg-brand-soft py-0.5 pr-1 pl-2 text-xs font-medium text-brand"
                   >
-                    <span className="truncate">{labels.get(option) ?? option}</span>
+                    <span className="truncate" title={labels.get(option) ?? option}>
+                      {labels.get(option) ?? option}
+                    </span>
                     {disabled ? null : (
                       <button
                         type="button"
@@ -283,7 +285,9 @@ export function MultiSelectField({
                 onClick={() => toggle(item.value)}
               >
                 <Tick checked={chosen.has(item.value)} />
-                <span className="truncate">{item.label}</span>
+                <span className="truncate" title={item.label}>
+                  {item.label}
+                </span>
               </div>
             ))}
             {shown.length === 0 ? (

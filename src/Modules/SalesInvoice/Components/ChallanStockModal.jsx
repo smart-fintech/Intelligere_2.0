@@ -28,7 +28,7 @@ const inputClass =
  *   rows          readStockSummary(...) - never empty
  *   initialEntered   the quantities it starts with - editing, the saved ones (withSavedStock); none by default
  *   autoFilled    initialEntered was worked out (allocateStock) - a new Challan: says so, says at once
- *                 when stock falls short, and lines of the same SKU share its stock
+ *                 when it falls short, and lines of the same SKU share their bookings
  *   companyName  the active company's
  *   documentNo    the Challan's number, for the title
  *   onSkip()      go on without taking stock - only an edited Challan with no saved

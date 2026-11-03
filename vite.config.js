@@ -1,8 +1,48 @@
+import { existsSync } from 'node:fs'
+import path from 'node:path'
 import { fileURLToPath, URL } from 'node:url'
 import react, { reactCompilerPreset } from '@vitejs/plugin-react'
 import babel from '@rolldown/plugin-babel'
 import tailwindcss from '@tailwindcss/vite'
 import { defineConfig, loadEnv } from 'vite'
+
+/**
+ * Development only: rebuilds the pre-bundled dependencies if they vanish while
+ * the server is running.
+ *
+ * node_modules/.vite/deps is shared by everything that starts Vite here. Another
+ * Vite on this project with different settings (a test script, say) deletes it
+ * and rebuilds it; stopped midway, it leaves the folder gone. This server never
+ * notices: what it has already loaded is still served from memory, so the app
+ * looks fine, but the first request for anything else - the PDF renderer, which
+ * is only loaded when a PDF is made - finds no file and gets a 504 "Outdated
+ * Optimize Dep", which the browser reports as "Failed to fetch dynamically
+ * imported module". Reloading cannot help, only a restart does, so this does it:
+ * the deps are rebuilt, the page reloads, and the next try works.
+ *
+ * A 504 alone is normal (Vite sends it while it re-bundles, with the folder
+ * there), so the folder's metadata being gone is what is checked.
+ */
+function restoreLostDepsCache() {
+  return {
+    name: 'restore-lost-deps-cache',
+    apply: 'serve',
+    configureServer(server) {
+      const metadata = path.join(server.config.cacheDir, 'deps', '_metadata.json')
+      let restarting = false
+
+      server.middlewares.use((req, res, next) => {
+        res.on('finish', () => {
+          if (res.statusCode !== 504 || restarting || existsSync(metadata)) return
+          restarting = true
+          server.config.logger.warn('Pre-bundled dependencies are gone from disk - restarting to rebuild them.')
+          server.restart(true)
+        })
+        next()
+      })
+    },
+  }
+}
 
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
@@ -15,7 +55,8 @@ export default defineConfig(({ mode }) => {
     plugins: [
       react(),
       babel({ presets: [reactCompilerPreset()] }),
-      tailwindcss()
+      tailwindcss(),
+      restoreLostDepsCache(),
     ],
     resolve: {
       alias: {

@@ -81,13 +81,21 @@ export const listsModule = (list, names) => {
   return (Array.isArray(list) ? list : []).some((entry) => wanted.has(compactName(entry)))
 }
 
+/** A module whose entry in `active_modules` is not the name it has in this app. */
+const BACKEND_MODULE_NAMES = {
+  DocuVault: ['Repository'],
+  'Business Health Indicators': ['MIS Reports'],
+}
+
 /**
  * Whether the company - the active company's record from
  * tally/user-companies-list/, which for a sub user is what they were given -
  * has a product module: its `active_modules` lists the module's key
- * (Constants/dashboardModules, PRODUCT_MODULES).
+ * (Constants/dashboardModules, PRODUCT_MODULES), or the name the backend's
+ * plans still call it by (BACKEND_MODULE_NAMES).
  */
-export const hasActiveModule = (company, moduleKey) => listsModule(company?.active_modules, [moduleKey])
+export const hasActiveModule = (company, moduleKey) =>
+  listsModule(company?.active_modules, [moduleKey, ...(BACKEND_MODULE_NAMES[moduleKey] ?? [])])
 
 /** True for the sub user role. */
 export const isSubUserRole = (role) => role === SUB_USER_ROLE

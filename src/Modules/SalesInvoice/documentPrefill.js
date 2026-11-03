@@ -71,7 +71,7 @@ const objectOf = (value) => {
 }
 
 /** A list the API may send as JSON text - [] for anything else. */
-const listOf = (value) => {
+export const listOf = (value) => {
   if (Array.isArray(value)) return value
   if (typeof value === 'string' && value.trim().startsWith('[')) {
     try {

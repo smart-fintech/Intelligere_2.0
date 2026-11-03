@@ -545,9 +545,9 @@ const PAGE_SIZES = [
  * is in use - there is nothing to say about a list of four rows.
  *
  * `pageSizeChoice={false}` leaves the picker out, for a list held to its
- * page size.
+ * page size. `always` keeps it on show even for one page.
  */
-export function TablePager({ view, pageSizeChoice = true }) {
+export function TablePager({ view, pageSizeChoice = true, always = false }) {
   // Check if "All" was explicitly chosen
   const isAll = view.pageSize === 'all' || view.pageSize >= 999999
 
@@ -556,7 +556,7 @@ export function TablePager({ view, pageSizeChoice = true }) {
   const first = view.total === 0 ? 0 : (view.page - 1) * effectivePageSize + 1
   const last = isAll ? view.total : Math.min(view.page * effectivePageSize, view.total)
 
-  if (view.pageCount <= 1 && view.pageSize === PAGE_SIZES[0].value) return null
+  if (!always && view.pageCount <= 1 && view.pageSize === PAGE_SIZES[0].value) return null
 
   return (
     <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">

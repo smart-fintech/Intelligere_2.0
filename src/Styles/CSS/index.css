@@ -199,3 +199,24 @@
     transform: translateX(300%);
   }
 }
+
+/* ------------------------------------------------------------------ */
+/* Cheque feed arrows                                                 */
+/* ------------------------------------------------------------------ */
+
+/* Arrows crossing the blank cheque the way it goes into the printer, fading
+   in and out at the edges (ChequeViewer). */
+@keyframes cheque-feed {
+  0% {
+    left: 0;
+    opacity: 0;
+  }
+  20%,
+  80% {
+    opacity: 1;
+  }
+  100% {
+    left: calc(100% - 1.75rem);
+    opacity: 0;
+  }
+}
