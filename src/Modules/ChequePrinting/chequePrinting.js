@@ -8,7 +8,8 @@
  *   readChequeDetails   the id-keyed list reply -> rows, each with `id` and `images`
  *   filterCheques       the rows inside the date and amount filters
  *   findName            a name in a list, whatever its case
- *   buildChequeVoucher  a cheque and what was chosen -> the voucher to send
+ *   toChequeTallyRow    a cheque and what was chosen -> its row in the message to Tally
+ *   toChequeVerifyBody  the same -> the PUT that marks it verified
  *   chequesCsv          rows -> the text of the CSV download
  *   formatTimestamp     an API timestamp -> DD-MM-YYYY HH:MM
  */
@@ -86,28 +87,40 @@ export const findName = (names, value) => {
 }
 
 /**
- * The voucher, both for the PUT and for Tally. The keys are the backend's and
- * the Tally agent's, spelling included, and the amount goes as the API sent it.
+ * One cheque as a row of the bank statement message to Tally (`data` of
+ * buildBankStatementSocketMessage). The keys are tally_connector/bank_voucher/'s,
+ * its spelling included; the company and the module are the message's, not the
+ * row's. `bankLedger` is the bank's ledger in Tally, and the amount goes as the
+ * API sent it.
  */
-export const buildChequeVoucher = (cheque, { companyName, email, ledger, bank, narration }) => ({
-  id: cheque.id,
-  company: companyName,
+export const toChequeTallyRow = (cheque, { email, ledger, bankLedger, narration }) => ({
+  id: Number(cheque.id),
   Date: cheque.cheque_date,
   Transaction: narration,
-  Legder: ledger,
+  ledger,
   Ref_no: '',
   AccountantNarration: '',
   Credit: cheque.cheque_amount,
   Debit: `-${cheque.cheque_amount}`,
   Vouchetype: 'Payment',
   is_verified: true,
-  prevoius_created_on: '',
+  prevoius_created_on: 'null',
   prevoius_zero_cr_dr: Number(cheque.cheque_amount) > 0 ? 'Debit' : 'Credit',
-  created_on: new Date(),
+  created_on: new Date().toISOString(),
   slug: '',
   created_by: email,
+  bank: bankLedger,
+})
+
+/** What the PUT that marks a cheque verified reads - the cheque's ledger, bank and narration. */
+export const toChequeVerifyBody = (cheque, { ledger, bank, narration }) => ({
+  id: Number(cheque.id),
+  Ledger: ledger,
   bank,
-  module: 'bank_statement',
+  cheque_date: cheque.cheque_date,
+  cheque_amount: cheque.cheque_amount,
+  Transaction: narration,
+  is_verified: true,
 })
 
 /** A value as one CSV cell: quoted when it holds a comma, a quote or a line break. */

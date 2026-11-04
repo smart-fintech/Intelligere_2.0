@@ -35,7 +35,8 @@ import { downloadTextFile } from '@/Utils/fileDownload'
  *
  *   Filters       ledger, narration or particular, dates (in the browser)
  *   per ledger    Show All Details, Opening Balance, Bank Entry
- *   per row       Edit (moves it to another ledger), Delete (asked in a popover)
+ *   per row       Edit (moves it to another ledger; not for a bank entry),
+ *                 Delete (asked in a popover)
  *   Download      the filtered ledgers as CSV
  *   Paging        the ledgers, and each ledger's rows - in the browser, as the
  *                 API sends the whole year at once. A filter changed goes back
@@ -157,7 +158,8 @@ function LedgerRows({ ledgerName, rows, showDetails, onEdit, onDelete, deleting 
                   {isFixedRow(row) ? null : (
                     <RowActions
                       label={`${row.particular || row.narration || 'entry'} of ${row.date}`}
-                      onEdit={() => onEdit(ledgerName, row)}
+                      // A bank entry is not moved from here; Delete stays.
+                      onEdit={row.is_bank_entry === true ? undefined : () => onEdit(ledgerName, row)}
                       deleteConfirm={{
                         open: confirming === index,
                         onOpenChange: (next) => setConfirming(next ? index : null),
@@ -278,7 +280,6 @@ export default function ErpLedgerList({ companyName, companyId, companyAddress }
     const isOpen = Boolean(open[ledger.name])
     const showing = Boolean(details[ledger.name])
     const hasDetails = ledger.rows.some((row) => rowDetails(row))
-
     return (
       <section key={ledger.name} className="rounded-md border border-border">
         <div className="flex flex-wrap items-center gap-2 px-3 py-2">

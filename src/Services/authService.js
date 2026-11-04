@@ -176,6 +176,8 @@ apiSetup.interceptors.response.use(
     // screen that made the call decides what to do with it in its `catch`.
     const failure = new Error(getErrorMessage(error))
     failure.status = error?.response?.status ?? null
+    // The whole body, for a screen that needs more than the message (GSTR-1's `step`).
+    failure.data = error?.response?.data ?? null
     return Promise.reject(failure)
   },
 )

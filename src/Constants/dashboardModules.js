@@ -167,7 +167,7 @@ export const PRODUCT_MODULES = [
     key: 'Sales Entries',
     name: 'Sales Entries',
     icon: ShoppingCart,
-    status: MODULE_STATUS.COMING_SOON,
+    status: MODULE_STATUS.AVAILABLE,
     description: 'Record and manage sales transactions',
   },
   {

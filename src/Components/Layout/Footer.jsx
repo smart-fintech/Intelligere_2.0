@@ -359,8 +359,8 @@ export default function Footer() {
         </a>
 
         {/* ---------- Report an Issue ----------
-            Goes to the /issue page. That page is a placeholder for now -
-            the real form is still to be designed. */}
+            Goes to the /issue page: the ticket form and the user's support
+            history (Modules/Support). */}
         <Link
           to={ROUTES.ISSUE}
           className="flex items-center gap-1.5 font-medium text-brand underline-offset-4 transition-colors hover:text-brand-dark hover:underline"

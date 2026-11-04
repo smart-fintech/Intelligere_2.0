@@ -1,48 +1,44 @@
-import { LifeBuoy } from 'lucide-react'
+import { useState } from 'react'
 
-import { Card, CardContent } from '@/Components/ui/card'
 import { SUPPORT } from '@/Constants/support'
+import { getEmail } from '@/Library/secureStorage'
+import TicketForm from '@/Modules/Support/Components/TicketForm'
+import TicketHistory from '@/Modules/Support/Components/TicketHistory'
 
 /**
- * PLACEHOLDER PAGE for /issue.
+ * /issue - Report an Issue, reached from the footer and the Help tab.
  *
- * It exists so the "Report an Issue" link in the footer has somewhere to
- * land. The real form (subject, description, screenshot upload, ticket
- * number) is still to be designed.
+ *   Create New Ticket        the form (TicketForm)
+ *   Latest Support History   every ticket the user has raised (TicketHistory)
  *
- * Note there is no header/sidebar/footer here: this page is nested inside
+ * Both work from the signed-in user's email. A session with none saved types
+ * it into the form, and the history then follows the email the last ticket
+ * went under.
+ *
+ * There is no header/sidebar/footer here: this page is nested inside
  * AppLayout in AppRoutes, so it gets all three automatically.
  */
 export default function ReportIssue() {
+  const [storedEmail] = useState(getEmail)
+  const [historyEmail, setHistoryEmail] = useState(storedEmail || '')
+
   return (
-    <div className="p-4 sm:p-6">
-      <Card className="mx-auto max-w-2xl border-border/70">
-        <CardContent className="space-y-3 px-6 text-center">
-          <span className="mx-auto flex size-12 items-center justify-center rounded-full bg-brand-soft text-brand">
-            <LifeBuoy className="size-6" />
-          </span>
+    <div className="space-y-4 p-4 sm:p-6">
+      <div className="space-y-1">
+        <h1 className="text-xl font-semibold text-brand sm:text-2xl">Report an Issue</h1>
+        <p className="text-sm text-muted-foreground">
+          When something goes wrong, raise a ticket and our team will get back to you. Add a short description
+          and the related file, if any. For anything urgent, call{' '}
+          <a href={SUPPORT.phoneHref} className="font-medium text-brand hover:underline">
+            {SUPPORT.phone}
+          </a>
+          .
+        </p>
+      </div>
 
-          <h1 className="text-2xl font-semibold text-brand">Report an Issue</h1>
+      <TicketForm storedEmail={storedEmail} onRaised={(email) => setHistoryEmail(storedEmail || email)} />
 
-          <p className="text-sm text-muted-foreground">
-            This form is not built yet. In the meantime, please reach us on{' '}
-            <a
-              href={SUPPORT.phoneHref}
-              className="font-medium text-brand hover:underline"
-            >
-              {SUPPORT.phone}
-            </a>{' '}
-            or at{' '}
-            <a
-              href={`mailto:${SUPPORT.email}`}
-              className="font-medium text-brand hover:underline"
-            >
-              {SUPPORT.email}
-            </a>
-            .
-          </p>
-        </CardContent>
-      </Card>
+      <TicketHistory email={historyEmail} />
     </div>
   )
 }

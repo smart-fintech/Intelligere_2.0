@@ -3,6 +3,7 @@ import { useSelector } from 'react-redux'
 
 import { ListSkeleton } from '@/Components/Common/DataList'
 import { ViewSwitch } from '@/Components/Common/ViewSwitch'
+import ImsView from '@/Modules/PurchaseInvoice/Ims/ImsView'
 import SalesInvoiceWorkspace from '@/Modules/SalesInvoice/Components/SalesInvoiceWorkspace'
 import DocumentHistory from '@/Modules/SalesInvoice/History/DocumentHistory'
 import TallyVouchers from '@/Modules/SalesInvoice/Voucher/TallyVouchers'
@@ -36,6 +37,8 @@ import { selectIsTallyErp } from '@/Store/Slices/profileSlice'
  *             (VoucherModes)
  *   prefillRequest   optional - a new document filled from elsewhere (Raise a
  *             PO): handed to the workspace (see its note), on Create Document
+ *   ims       true - IMS beside Voucher: the GST portal's Invoice Management
+ *             System (Purchase Invoice - ImsView), mounted once opened
  */
 const VIEWS = [
   { value: 'create', label: 'Create Document' },
@@ -43,8 +46,9 @@ const VIEWS = [
   // The company's Tally vouchers - one shared answer per company (useTallyVouchers).
   { value: 'voucher', label: 'Voucher' },
 ]
+const IMS_VIEW = { value: 'ims', label: 'IMS' }
 
-export default function SalesInvoiceScreen({ company, title = 'Sales Invoice', flow, history = {}, vouchers = {}, prefillRequest = null }) {
+export default function SalesInvoiceScreen({ company, title = 'Sales Invoice', flow, history = {}, vouchers = {}, prefillRequest = null, ims = false }) {
   const [view, setView] = useState('create')
   // A document filled from elsewhere is shown where it is filled in.
   const [seenPrefill, setSeenPrefill] = useState(null)
@@ -55,6 +59,7 @@ export default function SalesInvoiceScreen({ company, title = 'Sales Invoice', f
   const [historyOpened, setHistoryOpened] = useState(false)
   // Mounted - and so asked for - only once opened; kept mounted after, like History.
   const [voucherOpened, setVoucherOpened] = useState(false)
+  const [imsOpened, setImsOpened] = useState(false)
   // A new object per Edit press, so pressing Edit on the same row again reloads it.
   const [editRequest, setEditRequest] = useState(null)
   const [historyRefresh, setHistoryRefresh] = useState(0)
@@ -75,6 +80,7 @@ export default function SalesInvoiceScreen({ company, title = 'Sales Invoice', f
     setView(next)
     if (next === 'history') setHistoryOpened(true)
     if (next === 'voucher') setVoucherOpened(true)
+    if (next === 'ims') setImsOpened(true)
   }
 
   /** Edit on a history row: Create Document, with that document in the form. */
@@ -89,7 +95,7 @@ export default function SalesInvoiceScreen({ company, title = 'Sales Invoice', f
       <div className="grid grid-cols-1 items-center gap-2 sm:grid-cols-[1fr_auto_1fr]">
         <h1 className="text-xl font-semibold text-brand">{title}</h1>
 
-        <ViewSwitch options={VIEWS} value={view} onValueChange={choose} label={`${title} view`} idPrefix="view" />
+        <ViewSwitch options={ims ? [...VIEWS, IMS_VIEW] : VIEWS} value={view} onValueChange={choose} label={`${title} view`} idPrefix="view" />
 
         {/*<p className="truncate text-sm text-muted-foreground sm:text-right">{company.comp_name}</p>*/}
       </div>
@@ -122,6 +128,12 @@ export default function SalesInvoiceScreen({ company, title = 'Sales Invoice', f
           ) : (
             <TallyVouchers company={company} parties={flow?.parties} {...voucherOptions} />
           )}
+        </div>
+      ) : null}
+
+      {ims && imsOpened ? (
+        <div hidden={view !== 'ims'}>
+          <ImsView company={company} />
         </div>
       ) : null}
 

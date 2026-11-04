@@ -35,6 +35,8 @@ export function useBankOptions(companyId) {
 
   return {
     options: useMemo(() => toOptions(banks, 'bank_name'), [banks]),
+    // The bank's ledger in Tally ("HDFC BANK- 50100750307854"); its name when it has none.
+    ledgerOf: (name) => banks.find((bank) => bank.bank_name === name)?.bank_ledger_name?.trim() || name,
     loading: status === 'idle' || status === 'loading',
     error: status === 'failed' ? error : null,
     retry: () => dispatch(fetchBanks({ companyId, force: true })),

@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
-import { CheckCircle2, Download, FileSpreadsheet, Save, Trash2, X } from 'lucide-react'
+import { CheckCircle2, Download, FileSpreadsheet, Save, Send, Trash2, X } from 'lucide-react'
+import { useSelector } from 'react-redux'
 
 import { CsvUploadButton } from '@/Components/Common/CsvUploadButton'
 import { InlineAlert, RetryButton, StateMessage } from '@/Components/Common/DataList'
@@ -16,6 +17,7 @@ import { toast } from '@/Library/toast'
 import VoucherEditor from '@/Modules/JournalVoucher/Components/VoucherEditor'
 import { checkVoucher, toVoucherPayload, voucherFromTemplate, voucherFromUpload } from '@/Modules/JournalVoucher/journalVoucher'
 import { exportJvTemplate, readJvVoucherExcel, saveJvVouchers } from '@/Services/journalVoucherService'
+import { selectIsErpKnown, selectIsTallyErp } from '@/Store/Slices/profileSlice'
 import { downloadFileFromUrl } from '@/Utils/fileDownload'
 import { safeFileName } from '@/Utils/pdf'
 
@@ -33,13 +35,20 @@ import { safeFileName } from '@/Utils/pdf'
  * screen is remounted per template (its `key`), so nothing of one template's
  * vouchers is left on another's.
  *
+ * For a Tally user each Save is Send to Tally, as in the old project: the
+ * vouchers are saved here first, then sent (`tally`, useJvTallySend) and
+ * the button waits for Tally's answer. What Tally refuses is already in
+ * History, where Resend sends it again - so the form is emptied either way,
+ * and a second click cannot save it twice. Until the ERP is known, nothing
+ * is saved: a Tally user's voucher would miss Tally.
+ *
  * A ref stops a double click saving twice, before `saving` has rendered.
  */
 
 const isClean = (errors) => Object.keys(errors).length === 0
 
 /** One voucher read from the Excel, with its own Save and Remove - each called with it. */
-function PreviewCard({ preview, errors, ledgers, saving, disabled, busy, onChange, onSave, onRemove }) {
+function PreviewCard({ preview, errors, ledgers, isTally, saving, disabled, busy, onChange, onSave, onRemove }) {
   return (
     <div className="rounded-lg border border-border p-3 sm:p-4">
       <VoucherEditor
@@ -54,15 +63,22 @@ function PreviewCard({ preview, errors, ledgers, saving, disabled, busy, onChang
               <span className="rounded-full bg-brand px-2.5 py-0.5 text-xs font-medium text-brand-foreground">Sr No: {preview.srNo}</span>
               {isClean(errors) ? (
                 <span className="flex items-center gap-1 text-xs text-emerald-700 dark:text-emerald-400">
-                  <CheckCircle2 className="size-3.5" /> Ready to save
+                  <CheckCircle2 className="size-3.5" /> {isTally ? 'Ready to send' : 'Ready to save'}
                 </span>
               ) : (
                 <span className="text-xs font-medium text-destructive">Needs correcting</span>
               )}
             </div>
             <div className="flex items-center gap-1.5">
-              <Button type="button" size="sm" icon={Save} loading={saving} disabled={!isClean(errors) || busy} onClick={() => onSave(preview)}>
-                Save
+              <Button
+                type="button"
+                size="sm"
+                icon={isTally ? Send : Save}
+                loading={saving}
+                disabled={!isClean(errors) || busy}
+                onClick={() => onSave(preview)}
+              >
+                {isTally ? 'Send to Tally' : 'Save'}
               </Button>
               <Button
                 type="button"
@@ -82,37 +98,57 @@ function PreviewCard({ preview, errors, ledgers, saving, disabled, busy, onChang
   )
 }
 
-export default function VoucherEntry({ companyId, template, ledgers, onClose }) {
+export default function VoucherEntry({ companyId, template, ledgers, tally, onClose }) {
+  const isTally = useSelector(selectIsTallyErp)
+  const isErpKnown = useSelector(selectIsErpKnown)
+
   const [entry, setEntry] = useState(JV_VOUCHER_ENTRY.FORM)
   const [voucher, setVoucher] = useState(() => voucherFromTemplate(template))
   const [previews, setPreviews] = useState(null) // the vouchers read from the Excel, or null before
   const [reading, setReading] = useState(false)
   const [downloading, setDownloading] = useState(false)
-  const [saving, setSaving] = useState(null) // 'form' | 'all' | a preview's key
+  const [saving, setSaving] = useState(null) // 'form' | 'all' | a preview's key - till Tally answers, for Tally
+  const [missedTally, setMissedTally] = useState(0) // vouchers saved that Tally did not take
   const inFlight = useRef(false)
 
   const previewView = useListView(previews ?? [], { initialPageSize: 5 })
   const previewErrors = (previews ?? []).map((preview) => checkVoucher(preview, ledgers.lookup))
   const faulty = previewErrors.filter((errors) => !isClean(errors)).length
 
-  /** Saves the vouchers, then calls `onSaved`. */
+  const release = () => {
+    inFlight.current = false
+    setSaving(null)
+  }
+
+  /** Saves the vouchers and calls `onSaved` - then, for Tally, sends them and waits for its answer. */
   const save = async (which, vouchers, onSaved) => {
-    if (inFlight.current) return
+    if (inFlight.current || tally.sending) return
     inFlight.current = true
     setSaving(which)
+    setMissedTally(0)
+    let waitingForTally = false
     try {
-      const reply = await saveJvVouchers(
-        companyId,
-        vouchers.map((one) => toVoucherPayload(template.name, one)),
-      )
-      toast.success(reply?.msg || 'Voucher saved successfully.')
+      const payloads = vouchers.map((one) => toVoucherPayload(template.name, one))
+      const reply = await saveJvVouchers(companyId, payloads)
       invalidateQueries(QUERY.JV_VOUCHERS, { refetchActive: true })
       onSaved()
+      if (!isTally) {
+        toast.success(reply?.msg || 'Voucher saved successfully.')
+        return
+      }
+      waitingForTally = true
+      await tally.send(payloads, {
+        onSent: release,
+        onFailed: () => {
+          setMissedTally(payloads.length)
+          release()
+        },
+      })
     } catch (failure) {
       toast.error(failure.message)
+      waitingForTally = false
     } finally {
-      inFlight.current = false
-      setSaving(null)
+      if (!waitingForTally) release()
     }
   }
 
@@ -165,6 +201,8 @@ export default function VoucherEntry({ companyId, template, ledgers, onClose }) 
   }
 
   const busy = Boolean(saving) || reading
+  // A Resend from History may be with Tally too: nothing more is sent till it answers.
+  const saveLocked = busy || !isErpKnown || (isTally && tally.sending)
 
   const renderForm = () => {
     const errors = checkVoucher(voucher, ledgers.lookup)
@@ -179,8 +217,14 @@ export default function VoucherEntry({ companyId, template, ledgers, onClose }) 
           disabled={saving === 'form'}
         />
         <div className="flex justify-end">
-          <Button type="button" icon={Save} loading={saving === 'form'} disabled={!isClean(errors) || busy} onClick={saveForm}>
-            Save Voucher
+          <Button
+            type="button"
+            icon={isTally ? Send : Save}
+            loading={saving === 'form'}
+            disabled={!isClean(errors) || saveLocked}
+            onClick={saveForm}
+          >
+            {isTally ? 'Send to Tally' : 'Save Voucher'}
           </Button>
         </div>
       </div>
@@ -236,8 +280,15 @@ export default function VoucherEntry({ companyId, template, ledgers, onClose }) 
             <Button type="button" variant="ghost" size="sm" icon={X} disabled={busy} onClick={() => setPreviews(null)}>
               Discard
             </Button>
-            <Button type="button" size="sm" icon={Save} loading={saving === 'all'} disabled={faulty > 0 || busy || ledgers.loading} onClick={saveAll}>
-              Save All {previews.length}
+            <Button
+              type="button"
+              size="sm"
+              icon={isTally ? Send : Save}
+              loading={saving === 'all'}
+              disabled={faulty > 0 || saveLocked || ledgers.loading}
+              onClick={saveAll}
+            >
+              {isTally ? `Send All ${previews.length} to Tally` : `Save All ${previews.length}`}
             </Button>
           </div>
         </div>
@@ -254,9 +305,10 @@ export default function VoucherEntry({ companyId, template, ledgers, onClose }) 
             preview={preview}
             errors={previewErrors[previews.indexOf(preview)] ?? {}}
             ledgers={ledgers}
+            isTally={isTally}
             saving={saving === preview.key}
             disabled={saving === preview.key || saving === 'all'}
-            busy={busy || ledgers.loading}
+            busy={saveLocked || ledgers.loading}
             onChange={(next) => setPreviews((previous) => previous.map((one) => (one.key === preview.key ? next : one)))}
             onSave={savePreview}
             onRemove={removePreview}
@@ -279,6 +331,12 @@ export default function VoucherEntry({ companyId, template, ledgers, onClose }) 
       }
     >
       {ledgers.error ? <InlineAlert action={<RetryButton onClick={ledgers.retry} />}>{ledgers.error}</InlineAlert> : null}
+      {missedTally > 0 ? (
+        <InlineAlert>
+          {missedTally === 1 ? 'The voucher is' : `${missedTally} vouchers are`} saved in History, but did not get into Tally.
+          Once the cause in the message is put right, use Resend in History to send {missedTally === 1 ? 'it' : 'them'} again.
+        </InlineAlert>
+      ) : null}
 
       <ViewSwitch
         options={JV_VOUCHER_ENTRY_OPTIONS}

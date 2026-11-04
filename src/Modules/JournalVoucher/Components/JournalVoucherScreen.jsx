@@ -14,6 +14,7 @@ import TemplateList from '@/Modules/JournalVoucher/Components/TemplateList'
 import VoucherEntry from '@/Modules/JournalVoucher/Components/VoucherEntry'
 import VoucherHistory from '@/Modules/JournalVoucher/Components/VoucherHistory'
 import { useCompanyLedgers, useJvBankEntries, useJvLedgers, useJvTemplates, useJvVouchers } from '@/Modules/JournalVoucher/useJournalData'
+import useJvTallySend from '@/Modules/JournalVoucher/useJvTallySend'
 
 /**
  * The module's screen: the three radio buttons, and what they show.
@@ -27,7 +28,8 @@ import { useCompanyLedgers, useJvBankEntries, useJvLedgers, useJvTemplates, useJ
  *   History               the saved vouchers
  *
  * The four lists come from the shared cache (useJournalData), so the views
- * share one copy of each and a change made in one shows in the others.
+ * share one copy of each and a change made in one shows in the others. A
+ * Tally user's sends go through one useJvTallySend, shared the same way.
  */
 
 const BANK_ENTRIES = Object.freeze({ kind: JV_WORKSPACE.BANK_ENTRIES })
@@ -41,6 +43,7 @@ export default function JournalVoucherScreen({ companyId }) {
   const bankEntries = useJvBankEntries(companyId)
   const vouchers = useJvVouchers(companyId)
   const ledgers = useCompanyLedgers(companyId)
+  const tally = useJvTallySend()
 
   const templateRows = templates.data ?? []
   const singleCount = bankEntries.data?.single.reduce((sum, group) => sum + group.entries.length, 0)
@@ -113,7 +116,7 @@ export default function JournalVoucherScreen({ companyId }) {
 
       case JV_WORKSPACE.VOUCHER:
         return renderNamedTemplate((template) => (
-          <VoucherEntry key={template.name} companyId={companyId} template={template} ledgers={ledgers} onClose={backToBankEntries} />
+          <VoucherEntry key={template.name} companyId={companyId} template={template} ledgers={ledgers} tally={tally} onClose={backToBankEntries} />
         ))
 
       default:
@@ -155,7 +158,7 @@ export default function JournalVoucherScreen({ companyId }) {
       </div>
 
       {view === JV_VIEW.DETECT ? <DetectEntries companyId={companyId} bankEntries={bankEntries} /> : null}
-      {view === JV_VIEW.HISTORY ? <VoucherHistory companyId={companyId} vouchers={vouchers} /> : null}
+      {view === JV_VIEW.HISTORY ? <VoucherHistory companyId={companyId} vouchers={vouchers} tally={tally} /> : null}
     </div>
   )
 }

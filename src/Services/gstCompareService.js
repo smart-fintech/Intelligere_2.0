@@ -13,8 +13,8 @@
  *   POST gst_compare/entry_status/           Block Entry / Not To Be Considered
  *   POST gst_compare/pastdata/               a financial year's saved comparison
  *   POST gst_compare/pastmonthsdata/         ...and the months it covers
- *   POST gst_portal_integration/gst-authentication/   sends / verifies the portal OTP
- *   POST invoice/GSTR2BAPI/                  reads GSTR-2B from the portal - see below
+ *   POST gst_portal_integration/gstr2b/      reads GSTR-2B from the portal - see below
+ *                                            (signing in first: Services/gstReturnService)
  *
  * A comparison is always { leftdata, rightdata }, each { M, S, U } - see
  * Modules/GstCompare/gstCompareModel. The rows of U include `unmatch`, which
@@ -37,11 +37,10 @@ import { api, apiSetup } from '@/Services/authService'
 const MULTIPART = { headers: { 'Content-Type': 'multipart/form-data' } }
 
 const PROCESS_FILES_URL = 'gst_compare/process-files/'
-const GSTR_2B_FETCH_URL = 'invoice/GSTR2BAPI/'
-const GST_AUTH_URL = 'gst_portal_integration/gst-authentication/'
+const GSTR_2B_FETCH_URL = 'gst_portal_integration/gstr2b/'
 
 /** The premium feature the portal calls are counted against (Payment/premiumFeatures). */
-const GSTR_2B_PREMIUM = 'GSTR 2B'
+export const GSTR_2B_PREMIUM = 'GSTR 2B'
 
 /** The modules of the two Tally exchanges - sent as `module_name`, answered as `return_module_name`. */
 export const GST_COMPARE_FETCH_MODULE = 'GST_Compare_Data_Fetch'
@@ -76,7 +75,7 @@ const portalFields = (portalFiles) =>
     : { gstfile0: '' }
 
 /** Compares uploaded purchase register file(s) with the portal data. */
-export const compareUploadedFiles = (options, ledgerFiles, portalFiles, config,companyId) =>
+export const compareUploadedFiles = (options, ledgerFiles, portalFiles, config, companyId) =>
   api.post(
     PROCESS_FILES_URL,
     toFormData({
@@ -130,12 +129,12 @@ export const compareIntelligereData = (options, portalFiles, config, companyId) 
  *   { "<row key>": { "Invoice No.", "Invoice Date" }, "1DATA_ID": id, "is_Check": 0 }
  * is_Check must stay the NUMBER 0 - it is what tells this PUT from the GSTR-3B one.
  */
-export const saveEditedEntries = (compareId, edits) =>
-  api.put(PROCESS_FILES_URL, { ...edits, '1DATA_ID': compareId, is_Check: 0 })
+export const saveEditedEntries = (compareId, edits, companyId) =>
+  api.put(PROCESS_FILES_URL, { ...edits, '1DATA_ID': compareId, is_Check: 0, company_id: companyId })
 
 /** Builds the GSTR-3B workbook from the ticked portal rows -> { path }. */
-export const generateGstr3b = (compareId, keys) =>
-  api.put(PROCESS_FILES_URL, toFormData({ is_Check: keys, '1DATA_ID': compareId }), MULTIPART)
+export const generateGstr3b = (compareId, keys, companyId) =>
+  api.put(PROCESS_FILES_URL, toFormData({ is_Check: keys, '1DATA_ID': compareId, company_id: companyId }), MULTIPART)
 
 /** Where a generated workbook is served from. */
 export const gstr3bFileUrl = (path) => `${ENV.API_BASE_URL}media/GSTR3B/${path}`
@@ -195,46 +194,31 @@ export const getPastMonths = (startYear, endYear, companyId) =>
 /* ------------------------------------------------------------------ */
 
 /**
- * Asks the backend to read GSTR-2B from the portal for the period. Answers:
- *   { gst_username: "" } / { msg: "gst_username is required" }   no portal user yet
- *   { msg: "OTP required", gst_username }                        the session has run out
- *   { source, success, error }                                   read and stored
+ * Asks the backend to read GSTR-2B from the portal for the months of `year`
+ * (start_month not after end_month). It stores them where the comparison's
+ * empty gstfile0 reads them; source "B2B" also saves them as B2B data, which
+ * needs the company's IGST / CGST / SGST ledgers. Answers (200):
+ *   { msg: "gst_username is required", gst_username: "" }   no portal user yet
+ *   { msg: "OTP required", gst_username }                    the portal session has run out
+ *   { msg: "April : 12 records saved, ..." }                 read and stored ("... : Data fetched" for
+ *                                                            months stored earlier)
+ * Anything else - "Ledgers not found IGST", "company not found", a month the
+ * portal had nothing for - is a 500, so it is thrown.
  */
 export const fetchGstr2b = ({ companyId, startMonth, endMonth, year }) =>
-  api.post(
-    GSTR_2B_FETCH_URL,
-    toFormData({
-      Comp_id: companyId,
-      start_month: startMonth,
-      end_month: endMonth,
-      year,
-      source: 'gst_compare',
-      premium_name: GSTR_2B_PREMIUM,
-    }),
-    MULTIPART,
-  )
-
-/** Texts the OTP to the company's registered mobile. Also saves `username` on the company. */
-export const sendGstOtp = ({ companyId, username }) =>
-  api.post(GST_AUTH_URL, {
-    Comp_id: companyId,
-    username,
-    is_send_otp: true,
-    premium_name: GSTR_2B_PREMIUM,
+  api.post(GSTR_2B_FETCH_URL, {
+    company_id: companyId,
+    start_month: Number(startMonth),
+    end_month: Number(endMonth),
+    year: String(year),
     source: 'gst_compare',
-    gst_otp: '',
+    premium_name: GSTR_2B_PREMIUM,
   })
 
-/** Verifies the OTP. The string "false": an empty or false is_send_otp fails the view's required check. */
-export const verifyGstOtp = ({ companyId, username, otp }) =>
-  api.post(GST_AUTH_URL, {
-    Comp_id: companyId,
-    username,
-    is_send_otp: 'false',
-    premium_name: GSTR_2B_PREMIUM,
-    source: 'gst_compare',
-    gst_otp: otp,
-  })
+/*
+ * Signing in to the portal first (gst-authentication/) is shared with the
+ * other portal modules: Services/gstReturnService, under GSTR_2B_PREMIUM.
+ */
 
 /* ------------------------------------------------------------------ */
 /* The Tally messages                                                  */

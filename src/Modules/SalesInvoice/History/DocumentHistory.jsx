@@ -19,7 +19,7 @@ import { cn } from '@/Library/utils'
 import { toast } from '@/Library/toast'
 import useInventoryAccess from '@/Hooks/useInventoryAccess'
 import { useListView } from '@/Hooks/useListView'
-import { GstProgressPanel, GstToolbarActions } from '@/Modules/SalesInvoice/History/GstDocumentPanel'
+import { GstProgressPanel, GstToolbarActions, Gstr1Filing } from '@/Modules/SalesInvoice/History/GstDocumentPanel'
 import HistoryPdfModal from '@/Modules/SalesInvoice/History/HistoryPdfModal'
 import HistoryChildDocuments from '@/Modules/SalesInvoice/History/HistoryChildDocuments'
 import HistoryProductRows from '@/Modules/SalesInvoice/History/HistoryProductRows'
@@ -118,6 +118,9 @@ import { formatDate } from '@/Utils/date'
  * all are through (the page and filters stay). A row whose e_invoice_details
  * says one is generated offers Cancel E-Invoice / Cancel E-Way Bill instead
  * (asked first): the cancel API, then that PDF stamped CANCELLED and saved.
+ * GSTR-1 (Sales Invoice) ticks the same way, for invoices not filed yet, and
+ * files those ticked together - one month's - as one return (useGstr1Filing):
+ * the portal sign-in when asked, the EVC OTP, then the acknowledgement number.
  *
  * Delete asks first (the app's confirm popover), and a row leaves the table
  * only when the server says it is gone - the list is then read again, and
@@ -472,7 +475,7 @@ export default function DocumentHistory({
   /* ---- E-Invoice / E-Way Bill - Sales Invoice, Credit Note, Debit Note ---- */
   const gstApplies = GST_DOCUMENT_TYPES.includes(documentTypeOfRecord(documentType))
   const historyPdfs = useHistoryDocumentPdf(company)
-  const gst = useGstDocumentActions({ pdfs: historyPdfs, reload: history.reload, documentType: documentTypeOfRecord(documentType) })
+  const gst = useGstDocumentActions({ pdfs: historyPdfs, reload: history.reload, documentType: documentTypeOfRecord(documentType), companyId: company.company_id })
 
   /* ---- filters and pages - on the rows already loaded ---- */
   const [filters, setFilters] = useState(EMPTY_HISTORY_FILTERS)
@@ -754,6 +757,8 @@ export default function DocumentHistory({
       </Card>
 
       {gstApplies ? <GstProgressPanel gst={gst} /> : null}
+      {/* Kept while a filing is on its way, should the type be changed meanwhile. */}
+      {gst.offersGstr1 || gst.gstr1.busy ? <Gstr1Filing filing={gst.gstr1} /> : null}
 
       {inventoryOrders ? <InventorySalesOrderHistory company={company} /> : null}
 

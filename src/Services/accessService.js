@@ -85,6 +85,7 @@ export const listsModule = (list, names) => {
 const BACKEND_MODULE_NAMES = {
   DocuVault: ['Repository'],
   'Business Health Indicators': ['MIS Reports'],
+  'Sales Entries': ['Sales Inventory'],
 }
 
 /**

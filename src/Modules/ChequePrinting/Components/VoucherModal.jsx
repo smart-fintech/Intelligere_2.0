@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useSelector } from 'react-redux'
 
 import { InlineAlert, RetryButton } from '@/Components/Common/DataList'
@@ -6,13 +6,14 @@ import { Field, FormGrid, SelectField } from '@/Components/Common/FormFields'
 import { Modal } from '@/Components/Common/Modal'
 import { Button } from '@/Components/ui/button'
 import { QUERY } from '@/Constants/queryKeys'
-import { useWebSocket } from '@/Hooks/useWebSocket'
 import { invalidateQueries } from '@/Library/queryCache'
 import { getEmail } from '@/Library/secureStorage'
 import { toast } from '@/Library/toast'
-import { buildChequeVoucher, findName } from '@/Modules/ChequePrinting/chequePrinting'
+import { findName, toChequeTallyRow, toChequeVerifyBody } from '@/Modules/ChequePrinting/chequePrinting'
 import { useBankOptions, useLedgerOptions } from '@/Modules/ChequePrinting/useChequeOptions'
-import { TALLY_CHEQUE_VOUCHER_MODULE, updateCheque } from '@/Services/chequeService'
+import useTallyExchange from '@/Modules/GstCompare/useTallyExchange'
+import { BANK_STATEMENT_SOCKET_MODULE, buildBankStatementSocketMessage } from '@/Services/bankStatementService'
+import { updateCheque } from '@/Services/chequeService'
 import { selectIsErpKnown, selectIsIntelligereErp } from '@/Store/Slices/profileSlice'
 import { formatIndianCurrency } from '@/Utils/currency'
 import { formatDate } from '@/Utils/date'
@@ -27,32 +28,77 @@ import { orDash } from '@/Utils/display'
  * cheque is shown beside the choice.
  *
  * WHAT POST DOES
- *   Tally          the voucher goes to the agent first, and then the PUT marks
- *                  the cheque verified. In that order: a voucher that could not
- *                  be sent stays on the list, instead of leaving it unposted.
+ *   Tally          the voucher goes to the agent as a bank statement message
+ *                  (Services/chequeService), and only once Tally answers that it
+ *                  took it does the PUT mark the cheque verified - a voucher Tally
+ *                  turned away stays on the list, to be posted again.
  *   Intelligere    only the PUT: there is no agent to send it to.
  *
- * The agent sends no reply to this message, so delivered is as far as it can be
- * followed. A ref stops a double click posting twice.
+ * Tally's bank is its ledger there (useBankOptions' ledgerOf); the PUT keeps the
+ * bank's name, as the cheque has it. A ref stops a double click posting twice.
  */
 export default function VoucherModal({ cheque, companyName, companyId, alreadyPosted, onClose }) {
   const isIntelligere = useSelector(selectIsIntelligereErp)
   const isErpKnown = useSelector(selectIsErpKnown)
   const banks = useBankOptions(companyId)
   const ledgers = useLedgerOptions(companyId)
-  const { send } = useWebSocket({ module: TALLY_CHEQUE_VOUCHER_MODULE })
 
   // What was chosen, or '' for what the cheque's own name finds in the list.
   const [chosen, setChosen] = useState({ ledger: '', bank: '' })
   const [narration, setNarration] = useState(cheque.narration ?? '')
   const [errors, setErrors] = useState({})
-  const [posting, setPosting] = useState(false)
+  const [saving, setSaving] = useState(false)
   const inFlight = useRef(false)
+  const pending = useRef(null) // the PUT body, from the send until Tally answers
 
   const ledgerNames = ledgers.options.map((option) => option.value)
   const bankNames = banks.options.map((option) => option.value)
   const ledger = chosen.ledger || findName(ledgerNames, cheque.payee_name)
   const bank = chosen.bank || findName(bankNames, cheque.bank_name)
+
+  /** The PUT; `sentToTally` says what a failure there means for the user. */
+  const markVerified = async (body, sentToTally) => {
+    setSaving(true)
+    try {
+      await updateCheque(body)
+      toast.success(sentToTally ? 'Voucher sent to Tally.' : 'Voucher posted.')
+      invalidateQueries(QUERY.CHEQUE_DETAILS, { refetchActive: true })
+      onClose()
+    } catch (failure) {
+      toast.error(
+        sentToTally
+          ? `Tally has the voucher, but it could not be marked as sent here: ${failure.message} Check Tally before posting it again.`
+          : failure.message,
+      )
+    } finally {
+      inFlight.current = false
+      setSaving(false)
+    }
+  }
+
+  const tally = useTallyExchange({
+    module: BANK_STATEMENT_SOCKET_MODULE,
+    onReply: (reply) => {
+      const body = pending.current
+      pending.current = null
+      if (!body) return
+      if (String(reply.status ?? '').toLowerCase() !== 'success') {
+        inFlight.current = false
+        toast.error(reply.msg || 'Tally could not create the voucher.')
+        return
+      }
+      markVerified(body, true)
+    },
+  })
+
+  // A lost connection or no answer ends the exchange with no reply: nothing was posted.
+  useEffect(() => {
+    if (tally.busy || pending.current === null) return
+    pending.current = null
+    inFlight.current = false
+  }, [tally.busy])
+
+  const posting = saving || tally.busy
 
   const post = async () => {
     const found = {}
@@ -62,34 +108,19 @@ export default function VoucherModal({ cheque, companyName, companyId, alreadyPo
     if (Object.keys(found).length > 0 || inFlight.current) return
 
     inFlight.current = true
-    setPosting(true)
-    let delivered = false
-    try {
-      const voucher = buildChequeVoucher(cheque, {
-        companyName,
-        email: getEmail(),
-        ledger,
-        bank,
-        narration: narration.trim(),
-      })
+    const body = toChequeVerifyBody(cheque, { ledger, bank, narration: narration.trim() })
+    if (isIntelligere) {
+      markVerified(body, false)
+      return
+    }
 
-      if (!isIntelligere) {
-        delivered = await send(voucher)
-        if (!delivered) {
-          toast.error('Could not reach the live server, so the voucher was not sent. Please try again.')
-          return
-        }
-      }
-
-      await updateCheque(voucher)
-      toast.success(isIntelligere ? 'Voucher posted.' : 'Voucher sent to Tally.')
-      invalidateQueries(QUERY.CHEQUE_DETAILS, { refetchActive: true })
-      onClose()
-    } catch (failure) {
-      toast.error(delivered ? `The voucher reached Tally but could not be marked as sent: ${failure.message} Check Tally before posting it again.` : failure.message)
-    } finally {
+    const bankLedger = banks.ledgerOf(bank)
+    const row = toChequeTallyRow(cheque, { email: getEmail() || '', ledger, bankLedger, narration: narration.trim() })
+    pending.current = body
+    const started = await tally.start(buildBankStatementSocketMessage({ companyName, bank: bankLedger, rows: [row] }))
+    if (!started) {
+      pending.current = null
       inFlight.current = false
-      setPosting(false)
     }
   }
 
@@ -108,7 +139,7 @@ export default function VoucherModal({ cheque, companyName, companyId, alreadyPo
             Cancel
           </Button>
           <Button type="button" variant="secondary" loading={posting} disabled={!isErpKnown} onClick={post}>
-            {isIntelligere || !isErpKnown ? 'Post Voucher' : 'Send to Tally'}
+            {tally.busy ? 'Waiting for Tally...' : isIntelligere || !isErpKnown ? 'Post Voucher' : 'Send to Tally'}
           </Button>
         </>
       }

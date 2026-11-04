@@ -9,14 +9,12 @@ import { DataTable, PlainHead, SortableHead, TableFilters, TablePager } from '@/
 import { Button } from '@/Components/ui/button'
 import { TableCell, TableRow } from '@/Components/ui/table'
 import { QUERY } from '@/Constants/queryKeys'
-import { useActiveCompany } from '@/Hooks/useActiveCompany'
 import { useListView } from '@/Hooks/useListView'
-import { useWebSocket } from '@/Hooks/useWebSocket'
 import { invalidateQueries } from '@/Library/queryCache'
 import { toast } from '@/Library/toast'
 import { cn } from '@/Library/utils'
-import { historyVoucherPayload, tallyJournalMessage } from '@/Modules/JournalVoucher/journalVoucher'
-import { TALLY_JV_MODULE, deleteJvVoucher, exportJvVouchers, saveJvVouchers } from '@/Services/journalVoucherService'
+import { historyVoucherPayload } from '@/Modules/JournalVoucher/journalVoucher'
+import { deleteJvVoucher, exportJvVouchers, saveJvVouchers } from '@/Services/journalVoucherService'
 import { selectIsErpKnown, selectIsTallyErp } from '@/Store/Slices/profileSlice'
 import { formatIndianCurrency } from '@/Utils/currency'
 import { formatDate } from '@/Utils/date'
@@ -31,10 +29,9 @@ import { safeFileName } from '@/Utils/pdf'
  *
  *   Resend           as the old project's: the voucher is saved again, as a
  *                    copy - in History and Ledger Export twice - and for Tally
- *                    it is first sent on the socket (TALLY_JV_MODULE). Asked
- *                    about first, for the copy. The agent sends no reply, so
- *                    delivered to the connector is as far as it can be followed;
- *                    not delivered, nothing is saved.
+ *                    it is first sent there (`tally`, useJvTallySend). Asked
+ *                    about first, for the copy. Not delivered, nothing is
+ *                    saved; delivered, Tally's answer follows as its own message.
  *   Delete           marks the voucher deleted: it leaves this list, the Excel
  *                    and Ledger Export
  *   Download Excel   this template's vouchers, or every template's
@@ -50,7 +47,7 @@ function SideTag({ side }) {
   return <span className="ml-1.5 rounded bg-brand px-1.5 py-0.5 text-[10px] font-semibold text-brand-foreground">{side}</span>
 }
 
-function TemplateVouchers({ companyId, group, onChanged }) {
+function TemplateVouchers({ companyId, group, tally, onChanged }) {
   const rows = useMemo(() => group.vouchers.map((voucher) => ({ ...voucher, firstLedger: voucher.dr[0]?.ledger ?? '' })), [group.vouchers])
   const view = useListView(rows, { searchFields: SEARCH_FIELDS, initialSort: INITIAL_SORT })
   const [open, setOpen] = useState(() => new Set())
@@ -61,8 +58,6 @@ function TemplateVouchers({ companyId, group, onChanged }) {
 
   const isTally = useSelector(selectIsTallyErp)
   const isErpKnown = useSelector(selectIsErpKnown)
-  const { activeCompany } = useActiveCompany()
-  const { send } = useWebSocket({ module: TALLY_JV_MODULE })
 
   const toggle = (key) =>
     setOpen((previous) => {
@@ -92,22 +87,18 @@ function TemplateVouchers({ companyId, group, onChanged }) {
     try {
       const payload = historyVoucherPayload(group.template, voucher)
       if (isTally) {
-        delivered = await send(tallyJournalMessage(TALLY_JV_MODULE, companyId, activeCompany, payload))
-        if (!delivered) {
-          toast.error('Could not reach the live server, so the voucher was not resent. Please try again.')
-          return
-        }
+        // Not delivered, useJvTallySend has said why.
+        delivered = await tally.send([payload])
+        if (!delivered) return
       }
       await saveJvVouchers(companyId, [payload])
       toast.success(
-        isTally
-          ? 'Voucher sent to the Tally connector and saved again. Tally does not confirm journal vouchers, so check it there.'
-          : 'Voucher resent - a copy is saved in History.',
+        isTally ? "Voucher sent to Tally - a copy is saved in History. Tally's answer follows." : 'Voucher resent - a copy is saved in History.',
       )
       setResendAsked(null)
       onChanged()
     } catch (failure) {
-      toast.error(delivered ? `The voucher went to the Tally connector, but its copy could not be saved: ${failure.message}` : failure.message)
+      toast.error(delivered ? `The voucher went to Tally, but its copy could not be saved: ${failure.message}` : failure.message)
     } finally {
       setResending(false)
     }
@@ -189,7 +180,7 @@ function TemplateVouchers({ companyId, group, onChanged }) {
                             icon={Send}
                             tooltip={isTally ? 'Send this voucher to Tally again' : 'Save this voucher again'}
                             aria-label={`Resend the voucher dated ${formatDate(voucher.date)}`}
-                            disabled={!isErpKnown || resending}
+                            disabled={!isErpKnown || resending || (isTally && tally.sending)}
                           >
                             Resend
                           </Button>
@@ -245,7 +236,7 @@ function TemplateVouchers({ companyId, group, onChanged }) {
   )
 }
 
-export default function VoucherHistory({ companyId, vouchers }) {
+export default function VoucherHistory({ companyId, vouchers, tally }) {
   const groups = vouchers.data ?? NO_GROUPS
   const [chosen, setChosen] = useState(null)
   const active = groups.find((group) => group.template === chosen) ?? groups[0] ?? null
@@ -363,7 +354,7 @@ export default function VoucherHistory({ companyId, vouchers }) {
         }
       >
         {vouchers.status === 'failed' ? <InlineAlert action={<RetryButton onClick={vouchers.reload} />}>{vouchers.error}</InlineAlert> : null}
-        <TemplateVouchers key={active.template} companyId={companyId} group={active} onChanged={refresh} />
+        <TemplateVouchers key={active.template} companyId={companyId} group={active} tally={tally} onChanged={refresh} />
       </Panel>
     </div>
   )

@@ -538,6 +538,28 @@ const PAGE_SIZES = [
   { label: '100', value: 100 },
   { label: 'All', value: 'all' },
 ]
+
+/** The page size "All" stands for - every row on one page. */
+const ALL_ROWS = 999999
+
+/** A pager's choices from a plain list of sizes: [5, 20, 'all']. */
+const toPageSizeOptions = (sizes) =>
+  sizes.map((size) => (size === 'all' ? { label: 'All', value: 'all' } : { label: String(size), value: size }))
+
+/**
+ * The page buttons to draw: the first and last page, and the pages either
+ * side of the current one, with an ellipsis wherever pages are skipped -
+ * 1 ... 4 5 6 ... 12. Seven pages or fewer are all drawn.
+ */
+const pageButtonsOf = (page, pageCount) => {
+  const pages = Array.from({ length: pageCount }, (_, index) => index + 1)
+  if (pageCount <= 7) return pages
+
+  return pages
+    .filter((number) => number === 1 || number === pageCount || Math.abs(number - page) <= 1)
+    .flatMap((number, index, kept) => (index > 0 && number - kept[index - 1] > 1 ? ['gap', number] : [number]))
+}
+
 /**
  * The rows-per-page picker, the count, and the page buttons.
  *
@@ -546,17 +568,26 @@ const PAGE_SIZES = [
  *
  * `pageSizeChoice={false}` leaves the picker out, for a list held to its
  * page size. `always` keeps it on show even for one page.
+ *
+ * `pageSizes` replaces the usual 10 / 25 / 50 / 100 / All with a list of its
+ * own, e.g. [5, 20, 50, 'all'] - its first entry is then the default the
+ * pager hides itself at, so pass the same number as the list's
+ * initialPageSize (useListView). `pageNumbers` adds a button per page between
+ * Previous and Next, with an ellipsis for the pages skipped on a long list.
  */
-export function TablePager({ view, pageSizeChoice = true, always = false }) {
+export function TablePager({ view, pageSizeChoice = true, always = false, pageSizes, pageNumbers = false }) {
+  const sizeOptions = pageSizes ? toPageSizeOptions(pageSizes) : PAGE_SIZES
+
   // Check if "All" was explicitly chosen
-  const isAll = view.pageSize === 'all' || view.pageSize >= 999999
+  const isAll = view.pageSize === 'all' || view.pageSize >= ALL_ROWS
 
   // Calculate actual rows displayed
   const effectivePageSize = isAll ? (view.total || 1) : Number(view.pageSize)
   const first = view.total === 0 ? 0 : (view.page - 1) * effectivePageSize + 1
   const last = isAll ? view.total : Math.min(view.page * effectivePageSize, view.total)
+  const pageCount = isAll ? 1 : view.pageCount || 1
 
-  if (!always && view.pageCount <= 1 && view.pageSize === PAGE_SIZES[0].value) return null
+  if (!always && view.pageCount <= 1 && view.pageSize === sizeOptions[0].value) return null
 
   return (
     <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
@@ -567,7 +598,7 @@ export function TablePager({ view, pageSizeChoice = true, always = false }) {
             onValueChange={(value) => {
               if (value === 'all') {
                 // Set to sentinel value representing "All"
-                view.setPageSize(999999)
+                view.setPageSize(ALL_ROWS)
               } else {
                 view.setPageSize(Number(value))
               }
@@ -577,7 +608,7 @@ export function TablePager({ view, pageSizeChoice = true, always = false }) {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {PAGE_SIZES.map((option) => (
+              {sizeOptions.map((option) => (
                 <SelectItem key={String(option.value)} value={String(option.value)}>
                   {option.label}
                 </SelectItem>
@@ -602,15 +633,38 @@ export function TablePager({ view, pageSizeChoice = true, always = false }) {
           Previous
         </Button>
 
-        <span className="px-2">
-          Page {view.page} of {isAll ? 1 : (view.pageCount || 1)}
-        </span>
+        {pageNumbers ? (
+          pageButtonsOf(view.page, pageCount).map((number, index) =>
+            number === 'gap' ? (
+              <span key={`gap-${index}`} aria-hidden="true" className="px-1">
+                &hellip;
+              </span>
+            ) : (
+              <Button
+                key={number}
+                type="button"
+                variant={number === view.page ? 'secondary' : 'outline'}
+                size="sm"
+                className="min-w-8 px-2 tabular-nums"
+                aria-label={`Page ${number}`}
+                aria-current={number === view.page ? 'page' : undefined}
+                onClick={() => view.setPage(number)}
+              >
+                {number}
+              </Button>
+            ),
+          )
+        ) : (
+          <span className="px-2">
+            Page {view.page} of {pageCount}
+          </span>
+        )}
 
         <Button
           type="button"
           variant="default"
           size="sm"
-          disabled={view.page >= (view.pageCount || 1) || isAll}
+          disabled={view.page >= pageCount || isAll}
           onClick={() => view.setPage(view.page + 1)}
         >
           Next

@@ -1,0 +1,6 @@
+SR,Invoice No,Invoice Date,Total,State,GSTIN,Party ledger,ledger name,ledger amount,Taxable Amount
+1,201,01/01/2025,29500,Gujarat,24BAUPSXXXXQ1Z,Abcd,,,25000
+,,,,,,,Sales 18%,24000,
+,,,,,,,Packaging Charge,1000,
+,,,,,,,CGST 9%,2250,
+,,,,,,,SGST 9%,2250,

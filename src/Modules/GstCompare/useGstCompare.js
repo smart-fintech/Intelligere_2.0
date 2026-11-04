@@ -139,7 +139,7 @@ export default function useGstCompare({ companyName, companyId }) {
         ? await compareIntelligereData(period, input.portalFiles, tracking, companyId)
         : input.tallyData
           ? await compareTallyVouchers(period, input.tallyData, input.portalFiles, tracking, companyId)
-          : await compareUploadedFiles(period, input.ledgerFiles, input.portalFiles, tracking,companyId)
+          : await compareUploadedFiles(period, input.ledgerFiles, input.portalFiles, tracking, companyId)
       if (!isComparison(reply)) throw new Error(reply?.msg || 'The comparison could not be read.')
       show(reply)
       toast.success('Data matched successfully.')
@@ -237,13 +237,13 @@ export default function useGstCompare({ companyName, companyId }) {
     if (!option) return
     setLoadingPast(true)
     try {
-      const reply = await getPastData(option.startYear, option.endYear,companyId)
+      const reply = await getPastData(option.startYear, option.endYear, companyId)
       if (!isComparison(reply)) {
         toast.warning(reply?.msg || 'No past data found.')
         return
       }
       show(reply)
-      const months = await getPastMonths(option.startYear, option.endYear,companyId).catch(() => null)
+      const months = await getPastMonths(option.startYear, option.endYear, companyId).catch(() => null)
       setPastMonths(Array.isArray(months) ? months : [])
     } catch (error) {
       toast.error(error.message)
@@ -279,7 +279,7 @@ export default function useGstCompare({ companyName, companyId }) {
     setActing('update')
     try {
       if (hasEdits) {
-        latest = await saveEditedEntries(compareId, edits)
+        latest = await saveEditedEntries(compareId, edits, companyId)
         if (isComparison(latest)) show(latest)
         else latest = comparison
       }
@@ -318,7 +318,7 @@ export default function useGstCompare({ companyName, companyId }) {
 
   const downloadGstr3b = (keys) =>
     act('gstr3b', async () => {
-      const { path } = await generateGstr3b(compareId, keys)
+      const { path } = await generateGstr3b(compareId, keys, companyId)
       if (path) await downloadFileFromUrl(gstr3bFileUrl(path), path)
       toast.success('Tax calculated successfully.')
     })

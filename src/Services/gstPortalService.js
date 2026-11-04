@@ -109,6 +109,7 @@ const flag = (value) => value === true || ['true', '1', 'yes'].includes(text(val
  * is all empty / false):
  *   einvoice   { generated, cancelled, irn, ackNo, ackDate, qr }
  *   ewaybill   { generated, cancelled, number, date, validUpTo }
+ *   gstr1      { filed, ackNo }   - gstr1_generated / gstr1_ack_no, saved by the GSTR-1 filing
  * Each on its own - one never says anything about the other. A cancelled one
  * (its cancel date set) is not offered for generating again.
  */
@@ -137,6 +138,10 @@ export const readEinvoiceDetails = (record) => {
       number: text(details.ewaybill_no),
       date: text(details.ewaybill_date),
       validUpTo: text(details.valid_up_to),
+    },
+    gstr1: {
+      filed: flag(details.gstr1_generated),
+      ackNo: text(details.gstr1_ack_no),
     },
   }
 }

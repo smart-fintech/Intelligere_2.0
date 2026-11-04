@@ -52,6 +52,12 @@
  *                       vouchers, read again after a save or a delete (VoucherHistory)
  *   JV_BANK_ENTRIES     POST journal_vouchers/jv-bank-entries/ [JV_BANK_ENTRIES, companyId] - both
  *                       lists, read again after every change, as a change numbers them again
+ *   SALES_LEDGERS       POST accounting_entries/sales_ledger_list/ [SALES_LEDGERS, companyId] - the
+ *                       "Sales Accounts" ledgers Sales Entries offers (useSalesLedgerChoice)
+ *   KEYWORD_MAPPING     POST accounting_entries/keyword_b2b/ [KEYWORD_MAPPING, companyId, source] - one
+ *                       source's keyword -> ledger mapping, read again after a change (useKeywordMapping)
+ *   SUPPORT_TICKETS     POST notifications/get_user_tickets/ [SUPPORT_TICKETS, email] - the user's
+ *                       tickets, for every company; read again after one is raised (TicketHistory)
  *
  * How long an answer is used before it is asked for again, even with no
  * change seen here: what another user, another tab or Tally may have
@@ -84,6 +90,9 @@ export const QUERY = Object.freeze({
   JV_TEMPLATES: 'jvTemplates',
   JV_VOUCHERS: 'jvVouchers',
   JV_BANK_ENTRIES: 'jvBankEntries',
+  SALES_LEDGERS: 'salesLedgers',
+  KEYWORD_MAPPING: 'keywordMapping',
+  SUPPORT_TICKETS: 'supportTickets',
 })
 
 export const MASTER_DATA_STALE_MS = 5 * 60 * 1000

@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react'
 
 import { toast } from '@/Library/toast'
+import useGstr1Filing from '@/Modules/SalesInvoice/History/useGstr1Filing'
 import { documentPdfFileName, saveDocumentPdf, saveEwayBillPdf } from '@/Services/salesInvoiceService'
 import {
   cancelEinvoiceIrn,
@@ -39,17 +40,28 @@ import {
  * stamped CANCELLED and saved (the invoice's `file`, or `e_way_bill_pdf`) -
  * the other document is never touched. Then the history is read again.
  *
+ * GSTR-1 (Sales Invoice only - `offersGstr1`): start('gstr1') ticks the same
+ * way; generate() then files the invoices ticked TOGETHER, as one return
+ * (useGstr1Filing, exposed as `gstr1` for its dialogs) - only when they are of
+ * one month (document_date), which the backend requires too. Once filed (or
+ * its status unknown), the selection ends and the history is read again.
+ *
  * Eligibility reads e_invoice_details (readEinvoiceDetails): a row is offered
- * for generating while that one is neither generated nor cancelled, and has a
- * document_id. One run at a time - nothing starts while another is running.
+ * for generating while that one is neither generated nor cancelled - for
+ * GSTR-1, while it is not filed - and has a document_id. One run at a time -
+ * nothing starts while another is running.
  */
 
 /** The history types E-Invoice and E-Way Bill are offered for. */
 export const GST_DOCUMENT_TYPES = Object.freeze(['Sales Invoice', 'Credit Note', 'Debit Note'])
 
+/** The one type GSTR-1 is filed from (check-gstr1-data/ takes only Sales Invoices). */
+const GSTR_1_DOCUMENT_TYPE = 'Sales Invoice'
+
 const KIND = Object.freeze({
   einvoice: { label: 'E-Invoice', plural: 'E-Invoices' },
   ewaybill: { label: 'E-Way Bill', plural: 'E-Way Bills' },
+  gstr1: { label: 'GSTR-1', plural: 'GSTR-1' },
 })
 
 const documentIdOf = (row) => {
@@ -57,35 +69,55 @@ const documentIdOf = (row) => {
   return id === undefined || id === null || String(id).trim() === '' ? null : id
 }
 
-export default function useGstDocumentActions({ pdfs, reload, documentType }) {
+export default function useGstDocumentActions({ pdfs, reload, documentType, companyId }) {
   const [mode, setMode] = useState(null)
   const [selected, setSelected] = useState(() => new Set())
   const [progress, setProgress] = useState(null)
   const [cancelling, setCancelling] = useState(null)
   const running = useRef(false)
+  const offersGstr1 = documentType === GSTR_1_DOCUMENT_TYPE
+  const gstr1 = useGstr1Filing({
+    companyId,
+    onSettled: () => {
+      setMode(null)
+      setSelected(new Set())
+      reload()
+    },
+  })
 
   const eligible = useCallback(
     (row, kind = mode) => {
       // A deleted document (x_deleted) is not generated for.
       if (!kind || row.deleted || documentIdOf(row) === null) return false
-      const state = readEinvoiceDetails(row.source)[kind]
-      return !state.generated && !state.cancelled
+      const details = readEinvoiceDetails(row.source)
+      if (kind === 'gstr1') return !details.gstr1.filed
+      return !details[kind].generated && !details[kind].cancelled
     },
     [mode],
   )
 
+  /** The ticked invoices filed together as one GSTR-1 - of one month only. */
+  const fileGstr1 = (queue) => {
+    const months = new Set(queue.map((row) => String(row.documentDay ?? '').slice(0, 7)).filter(Boolean))
+    if (months.size > 1) {
+      toast.error('All invoices must be from the same month.', { description: 'Select the Sales Invoices of one month to file their GSTR-1.' })
+      return
+    }
+    gstr1.start(queue.map(documentIdOf))
+  }
+
   const start = (kind) => {
-    if (running.current) return
+    if (running.current || gstr1.busy) return
     setMode(kind)
     setSelected(new Set())
   }
   const stop = () => {
-    if (running.current) return
+    if (running.current || gstr1.busy) return
     setMode(null)
     setSelected(new Set())
   }
   const toggle = (row, on) => {
-    if (running.current || !eligible(row)) return
+    if (running.current || gstr1.busy || !eligible(row)) return
     setSelected((current) => {
       const next = new Set(current)
       if (on) next.add(String(row.id))
@@ -94,7 +126,7 @@ export default function useGstDocumentActions({ pdfs, reload, documentType }) {
     })
   }
   const toggleMany = (rows, on) => {
-    if (running.current) return
+    if (running.current || gstr1.busy) return
     setSelected((current) => {
       const next = new Set(current)
       rows.filter((row) => eligible(row)).forEach((row) => (on ? next.add(String(row.id)) : next.delete(String(row.id))))
@@ -135,6 +167,10 @@ export default function useGstDocumentActions({ pdfs, reload, documentType }) {
     const queue = rows.filter((row) => selected.has(String(row.id)) && eligible(row, kind))
     if (queue.length === 0) {
       toast.error(`Select at least one document for ${KIND[kind].label}.`)
+      return
+    }
+    if (kind === 'gstr1') {
+      fileGstr1(queue)
       return
     }
     if (pdfs.status !== 'ready') {
@@ -220,8 +256,10 @@ export default function useGstDocumentActions({ pdfs, reload, documentType }) {
     mode,
     selected,
     progress,
-    busy: Boolean(progress?.running) || cancelling !== null,
+    busy: Boolean(progress?.running) || cancelling !== null || gstr1.busy,
     cancelling,
+    offersGstr1,
+    gstr1,
     eligible,
     start,
     stop,

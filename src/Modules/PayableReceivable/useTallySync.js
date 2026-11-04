@@ -9,6 +9,7 @@
  *     buildMessage,    // (companyName, ...args) => the message to send
  *     messages,        // { done, failed } when Tally's reply has no `msg`
  *     onSuccess,
+ *     onFailure,       // optional - Tally refused, or the sync could not finish
  *   })
  *   sync.start(...args)
  *
@@ -21,7 +22,7 @@
  *
  * A click while a sync is running is ignored. A connection lost mid-sync, or
  * no stop_loader within SYNC_TIMEOUT_MS, ends it as a failure. On success
- * `onSuccess` runs - the lists are read again then.
+ * `onSuccess` runs - the lists are read again then; on a failure, `onFailure`.
  */
 
 import { useEffect, useRef, useState } from 'react'
@@ -50,16 +51,16 @@ export const readSyncReply = (data, moduleName, messages) => {
     : { ok: true, message: reply.msg || messages.done }
 }
 
-export default function useTallySync({ moduleName, companyName, buildMessage, messages, onSuccess }) {
+export default function useTallySync({ moduleName, companyName, buildMessage, messages, onSuccess, onFailure }) {
   const [syncing, setSyncing] = useState(false)
   // 'idle' | 'sending' | 'waiting' (for stop_loader). A ref: the socket
   // callback that reads it is registered once.
   const phaseRef = useRef('idle')
   const timerRef = useRef(null)
-  const latestRef = useRef({ messages, onSuccess })
+  const latestRef = useRef({ messages, onSuccess, onFailure })
 
   useEffect(() => {
-    latestRef.current = { messages, onSuccess }
+    latestRef.current = { messages, onSuccess, onFailure }
   })
 
   const end = () => {
@@ -73,6 +74,7 @@ export default function useTallySync({ moduleName, companyName, buildMessage, me
     console.error(`[Tally Sync: ${moduleName}] WebSocket error:`, error ?? message)
     end()
     toast.error(message)
+    latestRef.current.onFailure?.()
   }
 
   const { send, status } = useWebSocket({
@@ -86,6 +88,7 @@ export default function useTallySync({ moduleName, companyName, buildMessage, me
       end()
       if (!result.ok) {
         toast.error(result.message)
+        latestRef.current.onFailure?.()
         return
       }
       toast.success(result.message)

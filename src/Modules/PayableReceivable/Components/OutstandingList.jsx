@@ -8,7 +8,7 @@ import { Field } from '@/Components/Common/FormFields'
 import { Loader } from '@/Components/Common/Loader'
 import { MultiSelectField } from '@/Components/Common/MultiSelectField'
 import { Panel } from '@/Components/Common/Panel'
-import { DataTable, DateRangeFilter, PlainHead, TablePager } from '@/Components/Common/TableTools'
+import { DataTable, PlainHead, TablePager } from '@/Components/Common/TableTools'
 import { Button } from '@/Components/ui/button'
 import { Checkbox } from '@/Components/ui/checkbox'
 import { TableCell, TableRow } from '@/Components/ui/table'
@@ -465,12 +465,24 @@ export default function OutstandingList({ companyName, companyId, source, syncin
             on anything narrower, with Clear always beside Party Name. Every field its label over a box
             of the same height. From the top, so the rest stay put when the party chips grow a row. */}
         <div className="mb-3 flex flex-wrap items-start gap-3 min-[1200px]:flex-nowrap">
-          <DateRangeFilter
-            stacked
-            label="Due Date"
-            from={filters.dueFrom}
-            to={filters.dueTo}
-            onChange={({ from, to }) => setFilter({ dueFrom: from, dueTo: to })}
+          {/* The due date, From and To under their own labels as on Ledger Export; neither passes the other. */}
+          <Field
+            id="pr-filter-from"
+            label="From Date"
+            type="date"
+            value={filters.dueFrom}
+            max={filters.dueTo || undefined}
+            onChange={(event) => setFilter({ dueFrom: event.target.value })}
+            className="w-full sm:w-40 min-[1200px]:shrink-0"
+          />
+          <Field
+            id="pr-filter-to"
+            label="To Date"
+            type="date"
+            value={filters.dueTo}
+            min={filters.dueFrom || undefined}
+            onChange={(event) => setFilter({ dueTo: event.target.value })}
+            className="w-full sm:w-40 min-[1200px]:shrink-0"
           />
           <Field
             id="pr-filter-overdue"

@@ -43,7 +43,8 @@ import { fetchCompanies, selectCompanyError, selectCompanyStatus } from '@/Store
  * purchase flow, and a history of the purchase types: on a purchase the
  * ledger saved as buyer_id is the supplier, so its column is "Seller". Fetch
  * from Tally (sales vouchers) is not offered here. Voucher shows only the
- * Purchase Invoice vouchers.
+ * Purchase Invoice vouchers; IMS, beside it, the GST portal's Invoice
+ * Management System (ImsView).
  */
 
 /** History's options for the purchase documents. */
@@ -170,6 +171,7 @@ export default function PurchaseInvoicePage() {
       history={PURCHASE_HISTORY}
       vouchers={PURCHASE_VOUCHERS}
       prefillRequest={prefillRequest}
+      ims
     />
   )
 }

@@ -74,6 +74,9 @@
  *   onSaved()     after a successful save; the page reloads the list and
  *                 goes back to an empty form
  *   onCancel()    leaves edit mode
+ *   defaults      a new product only: fields to start filled in, named as
+ *                 toBasicProduct names them ({ name, hsn, gstRate }) - Sales
+ *                 Entries' missing stock item suggests its own
  */
 
 import { useEffect, useRef, useState } from 'react'
@@ -144,12 +147,12 @@ const initialVendors = (product) => (product?.vendors ?? []).map(vendorValueOf).
 /** Whether two lists of vendor values hold the same vendors, in any order. */
 const sameVendors = (a, b) => a.length === b.length && a.every((value) => b.includes(value))
 
-export default function BasicProductForm({ erp, product, companyName, groups, units, vendors, onSaved, onCancel }) {
+export default function BasicProductForm({ erp, product, companyName, groups, units, vendors, onSaved, onCancel, defaults }) {
   const editing = Boolean(product)
   const isTally = erp === BASIC_PRODUCT_ERP.TALLY
   const fields = BASIC_PRODUCT_FIELDS[erp]
 
-  const [initial] = useState(() => ({ form: initialForm(fields, product), vendors: initialVendors(product) }))
+  const [initial] = useState(() => ({ form: initialForm(fields, product ?? defaults), vendors: initialVendors(product) }))
   const [form, setForm] = useState(initial.form)
   const [chosenVendors, setChosenVendors] = useState(initial.vendors)
   const [errors, setErrors] = useState({})

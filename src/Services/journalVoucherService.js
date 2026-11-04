@@ -32,6 +32,20 @@
  * A save or a delete answers only { msg } - the list is read again for the
  * rows. Nothing here shows a message: a failure is an Error carrying the
  * backend's own text (Services/authService), for the screen to show.
+ *
+ * ------------------------------------------------------------------
+ * THE MESSAGE TO TALLY (a Tally user's Send to Tally, and Resend)
+ * ------------------------------------------------------------------
+ * Sent on the app's shared socket, in the envelope every Tally message uses:
+ *
+ *   { "payload": { "module_name": "journal_vouchers",
+ *                  "company_name": "<active company>",
+ *                  "data": [ { gst_number, state, voucher_type: "Journal", template_name,
+ *                              voucher_date: "YYYY-MM-DD", narration,
+ *                              dr: [{ ledger_name, amount }], cr: [...] } ] } }
+ *
+ * one row per voucher (toTallyJournalRow, Modules/JournalVoucher), and
+ * answered as `return_module_name` with a stop_loader - see useJvTallySend.
  */
 
 import { JOURNAL_VOUCHER_MODULE } from '@/Constants/journalVoucher'
@@ -49,13 +63,17 @@ const BANK_ENTRIES_URL = 'journal_vouchers/jv-bank-entries/'
 // Named so axios sends the FormData as it is - see Services/bankService.
 const MULTIPART = { headers: { 'Content-Type': 'multipart/form-data' } }
 
-/**
- * The name History's Resend sends a voucher to Tally by, on the socket - the
- * old project's message, kept as it was (tallyJournalMessage in
- * Modules/JournalVoucher). On 2026-11-03 the Tally agent's handler for it was
- * switched off, so it is delivered to the connector but not yet posted.
- */
-export const TALLY_JV_MODULE = 'journalVouchers'
+/** The name this Tally operation goes by, in both directions (old project: journalVouchers). */
+export const TALLY_JV_MODULE = 'journal_vouchers'
+
+/** The vouchers, ready to send to Tally - `rows` as toTallyJournalRow makes them. */
+export const buildJvTallyMessage = (companyName, rows) => ({
+  payload: {
+    module_name: TALLY_JV_MODULE,
+    company_name: companyName,
+    data: rows,
+  },
+})
 
 /** The CSV to fill in with JV ledger names - see LEDGER_CSV_FORMAT_FILE on why it is `?raw`. */
 export const JV_LEDGER_CSV_FORMAT_FILE = 'JV_Ledger_Format.csv'

@@ -90,6 +90,7 @@ import Profile from '@/Modules/Profile/Pages/Profile'
 import ComingSoonPage from '@/Modules/Misc/Pages/ComingSoonPage'
 import GstComparePage from '@/Modules/GstCompare/Pages/GstComparePage'
 import PurchaseInvoicePage from '@/Modules/PurchaseInvoice/Pages/PurchaseInvoicePage'
+import SalesEntriesPage from '@/Modules/SalesEntries/Pages/SalesEntriesPage'
 import SalesInvoicePage from '@/Modules/SalesInvoice/Pages/SalesInvoicePage'
 import CreateSubUser from '@/Modules/SubUser/Pages/CreateSubUser'
 import NotFound from '@/Modules/Misc/Pages/NotFound'
@@ -107,6 +108,7 @@ import ReportIssue from '@/Modules/Support/Pages/ReportIssue'
 const PRODUCT_MODULE_PAGES = {
   'Bank Statement': BankStatementPage,
   'Sales Invoice': SalesInvoicePage,
+  'Sales Entries': SalesEntriesPage,
   'Purchase Invoice': PurchaseInvoicePage,
   'GST Compare': GstComparePage,
   'Payable Receivable': PayableReceivablePage,

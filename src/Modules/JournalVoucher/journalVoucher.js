@@ -9,6 +9,8 @@
  *                                 the one shape every voucher editor works on
  *   voucherTotals / checkVoucher / toVoucherPayload
  *                                 what a voucher adds up to, what is wrong with it, what is sent
+ *   historyVoucherPayload / toTallyJournalRow
+ *                                 a saved voucher sent again; a voucher as Tally is sent it
  *
  * A voucher being edited is
  *   { key, date: 'YYYY-MM-DD', narration, legs: [{ side: 'Dr' | 'Cr', ledger, amount }] }
@@ -322,22 +324,16 @@ export const historyVoucherPayload = (templateName, voucher) => ({
 })
 
 /**
- * The old project's journal voucher message to Tally, keys as it sent them:
- * the voucher with the company's name, GSTIN and state. `company` is the
- * active company's record, which does not carry its id as `id`.
+ * A voucher as jv-vouchers/ takes it (toVoucherPayload, historyVoucherPayload)
+ * as one row of the message to Tally: with the company's GSTIN and state, and
+ * the type, as the old project sent them. `company` is the active company's
+ * record.
  */
-export const tallyJournalMessage = (module, companyId, company, payload) => ({
-  module_name: module,
-  company_id: companyId,
-  company_name: company?.comp_name || '',
-  data: [
-    {
-      gst_number: company?.comp_gstin || '',
-      state: company?.comp_state || '',
-      voucher_type: 'Journal',
-      ...payload,
-    },
-  ],
+export const toTallyJournalRow = (company, payload) => ({
+  gst_number: company?.comp_gstin || '',
+  state: company?.comp_state || '',
+  voucher_type: 'Journal',
+  ...payload,
 })
 
 /** The voucher as jv-vouchers/ saves it: only the legs with an amount, as numbers. */

@@ -10,7 +10,8 @@
  *          -> { "<cheque id>": { payee_name, bank_name, cheque_date, cheque_amount,
  *                                narration, created_by, created_on, processed_cheque: [...] } }
  *
- *   PUT  cheque/cheque_details/   the voucher message below - marks the cheque verified
+ *   PUT  cheque/cheque_details/   { id, Ledger, bank, cheque_date, cheque_amount, Transaction,
+ *                                   is_verified: true } - marks the cheque verified
  *   DELETE cheque/cheque_details/ { id }
  *
  * Nothing here shows a message: a failure is an Error carrying the backend's
@@ -19,10 +20,12 @@
  * ------------------------------------------------------------------
  * THE MESSAGE TO TALLY
  * ------------------------------------------------------------------
- * Not the { payload: { module_name } } envelope of the newer Tally messages:
- * the backend relays this one to the Tally agent exactly as it arrives, and the
- * agent's bank statement import reads these flat, oddly spelt keys. There is no
- * reply to wait for - see buildChequeVoucher in Modules/ChequePrinting.
+ * A cheque's voucher goes the way a bank statement's entries do - the same
+ * message (buildBankStatementSocketMessage in Services/bankStatementService),
+ * answered under return_module_name "bank_statement":
+ *
+ *   { payload: { company_name, bank_name: <bank ledger>, module_name: "bank_statement",
+ *                data: [toChequeTallyRow, ...] } }
  */
 
 import { ENV } from '@/Config/env'
@@ -37,9 +40,6 @@ const IMAGE_FOLDER = 'media/processed_cheques/'
 
 // Named so axios sends the FormData as it is - see Services/bankService.
 const MULTIPART = { headers: { 'Content-Type': 'multipart/form-data' } }
-
-/** The name the voucher goes by on the socket. */
-export const TALLY_CHEQUE_VOUCHER_MODULE = 'bank_statement'
 
 /** The CSV to fill in for many cheques - see LEDGER_CSV_FORMAT_FILE on why it is `?raw`. */
 export const CHEQUE_CSV_FORMAT_FILE = 'Cheque_format.csv'
@@ -72,8 +72,8 @@ export const printChequesFromCsv = ({ companyId, file }) => {
 /** The cheques of one list: `type` is CHEQUE_VIEW.VOUCHER or CHEQUE_VIEW.PAST. */
 export const getChequeDetails = (companyId, type) => api.post(DETAILS_URL, { company_id: companyId, type })
 
-/** Records a cheque's voucher: its ledger, bank and narration, and that it is verified. */
-export const updateCheque = (voucher) => api.put(DETAILS_URL, voucher)
+/** Records a cheque's voucher: its ledger, bank and narration, and that it is verified (toChequeVerifyBody). */
+export const updateCheque = (body) => api.put(DETAILS_URL, body)
 
 export const deleteCheque = (id) => api.delete(DETAILS_URL, { data: { id } })
 

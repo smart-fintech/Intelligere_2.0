@@ -8,7 +8,9 @@ import { Label } from '@/Components/ui/label'
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from '@/Components/ui/select'
@@ -258,12 +260,43 @@ export function TextareaField({ id, label, required, error, className, rows = 3,
 export const OPTIONS_PAGE = 100
 
 /**
+ * A dropdown's options as its items. Options that carry a `group` are drawn
+ * under that heading, one heading per run of options with the same group, so
+ * the caller lists them in the order the groups should appear.
+ */
+const renderSelectItems = (options) => {
+  const item = (option) => (
+    <SelectItem key={option.value} value={option.value} title={option.title} disabled={option.disabled}>
+      {option.label}
+    </SelectItem>
+  )
+  if (!options.some((option) => option.group)) return options.map(item)
+
+  const groups = []
+  options.forEach((option) => {
+    const name = option.group ?? ''
+    const last = groups.at(-1)
+    if (last && last.name === name) last.options.push(option)
+    else groups.push({ name, options: [option] })
+  })
+
+  return groups.map((group, index) => (
+    <SelectGroup key={`${group.name}-${index}`}>
+      {group.name ? <SelectLabel className="font-semibold text-brand-muted">{group.name}</SelectLabel> : null}
+      {group.options.map(item)}
+    </SelectGroup>
+  ))
+}
+
+/**
  * A labelled dropdown.
  *
  * `options` is a list of `{ value, label }` - the caller maps its own data
  * into that shape, so this never has to know what it is showing. An
  * option may add a `title`, shown when it is hovered, and `disabled: true`
- * to be listed but not chosen (something the plan does not include).
+ * to be listed but not chosen (something the plan does not include), and a
+ * `group` to be listed under that heading (Standard / Premium Modules) -
+ * see renderSelectItems. Every value must still be unique across groups.
  * `searchable` adds a filter box to the top of a long list (the states).
  * `size="sm"` draws the compact 32px box, to sit beside a Field given
  * inputClassName="h-8" in a form that has to stay short.
@@ -433,11 +466,7 @@ export function SelectField({
           }}
           onViewportScroll={drawMore}
         >
-          {mountedOptions.map((option) => (
-            <SelectItem key={option.value} value={option.value} title={option.title} disabled={option.disabled}>
-              {option.label}
-            </SelectItem>
-          ))}
+          {renderSelectItems(mountedOptions)}
 
           {/* An empty list with no word of explanation reads as broken. */}
           {searchable && visibleOptions.length === 0 ? (
