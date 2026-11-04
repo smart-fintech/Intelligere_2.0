@@ -139,7 +139,7 @@ export default function useGstCompare({ companyName, companyId }) {
         ? await compareIntelligereData(period, input.portalFiles, tracking, companyId)
         : input.tallyData
           ? await compareTallyVouchers(period, input.tallyData, input.portalFiles, tracking, companyId)
-          : await compareUploadedFiles(period, input.ledgerFiles, input.portalFiles, tracking)
+          : await compareUploadedFiles(period, input.ledgerFiles, input.portalFiles, tracking,companyId)
       if (!isComparison(reply)) throw new Error(reply?.msg || 'The comparison could not be read.')
       show(reply)
       toast.success('Data matched successfully.')

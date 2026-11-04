@@ -76,7 +76,7 @@ const portalFields = (portalFiles) =>
     : { gstfile0: '' }
 
 /** Compares uploaded purchase register file(s) with the portal data. */
-export const compareUploadedFiles = (options, ledgerFiles, portalFiles, config) =>
+export const compareUploadedFiles = (options, ledgerFiles, portalFiles, config,companyId) =>
   api.post(
     PROCESS_FILES_URL,
     toFormData({
@@ -84,6 +84,7 @@ export const compareUploadedFiles = (options, ledgerFiles, portalFiles, config) 
       ...Object.fromEntries(ledgerFiles.map((file, index) => [`tallyfile${index}`, file])),
       ...portalFields(portalFiles),
       source: (getERP()).toLowerCase(),
+      company_id: companyId,
     }),
     { ...MULTIPART, ...config },
   )
