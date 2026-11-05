@@ -10,7 +10,7 @@ env:
   SERVER_HOST: 15.207.57.26
   APP_PORT: 8006
   APP_DIR: intelligere-frontend-2.0
-  APP_NAME: intelligere-stage
+  APP_NAME: intelligere-frontend-stage
 
 jobs:
   deploy:
@@ -57,9 +57,12 @@ jobs:
 
     # --spa sends unknown paths to index.html, so a refresh on a page like
     # /login still loads the app. The curl proves the app itself answered.
+    # intelligere-stage is the process's old name. It must go too, or it keeps
+    # holding the port. This line can be removed after the first deploy.
     - name: run on server
       run: |
         ssh -i ~/.ssh/stage_key "$SERVER_USER@$SERVER_HOST" bash -se <<EOF
+        pm2 delete intelligere-stage 2>/dev/null || true
         pm2 delete $APP_NAME 2>/dev/null || true
         pm2 serve "\$HOME/$APP_DIR" $APP_PORT --name $APP_NAME --spa
         pm2 save
