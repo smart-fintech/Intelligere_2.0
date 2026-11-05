@@ -1,0 +1,74 @@
+name:  Deploy Stage Server
+on:
+  push:
+    branches:
+    - main
+
+concurrency: deploy-stage-server
+
+env:
+  SERVER_HOST: 15.207.57.26
+  APP_PORT: 8006
+  APP_DIR: intelligere-frontend-2.0
+  APP_NAME: intelligere-stage
+
+jobs:
+  deploy:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v5
+    - name: Use Node.js 24.x
+      uses: actions/setup-node@v5
+      with:
+        node-version: 24.x
+
+    - name: npm install, build
+      run: |
+        : "${VITE_STORAGE_SECRET:?Add the VITE_STORAGE_SECRET_STAGE repository secret}"
+        npm ci
+        rm -rf .env
+        echo "VITE_API_END_POINT=http://15.207.57.26:8005/" >> .env
+        echo "VITE_API_TABULA_URL=https://stage.tabula.digitaldocsys.in" >> .env
+        echo "VITE_API_WEBSOCKET_URL=ws://15.207.57.26:8005/" >> .env
+        echo "VITE_API_WEBSOCKET_PATH=ws/tally-connector/" >> .env
+        echo "VITE_GST_LOOKUP_URL=https://stage.api.digitaldocsys.in/tally/gst-details/" >> .env
+        echo "VITE_GST_LOOKUP_METHOD=post" >> .env
+        echo "REACT_APP_CASHFREE_ENV=sandbox" >> .env
+        npm run build
+      env:
+        VITE_STORAGE_SECRET: ${{ secrets.VITE_STORAGE_SECRET_STAGE }}
+
+    - name: set up ssh
+      run: |
+        mkdir -p ~/.ssh
+        echo "$SSH_PRIVATE_KEY" > ~/.ssh/stage_key
+        chmod 600 ~/.ssh/stage_key
+        echo "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+      env:
+        SSH_PRIVATE_KEY: ${{ secrets.STAGE_SERVER_SSH_KEY }}
+        SSH_KNOWN_HOSTS: ${{ secrets.STAGE_SERVER_KNOWN_HOSTS }}
+
+    - name: copy build to server
+      run: rsync -az --delete -e "ssh -i ~/.ssh/stage_key" dist/ "$SERVER_USER@$SERVER_HOST:$APP_DIR/"
+      env:
+        SERVER_USER: ${{ secrets.STAGE_SERVER_USER }}
+
+    # --spa sends unknown paths to index.html, so a refresh on a page like
+    # /login still loads the app. The curl proves the app itself answered.
+    - name: run on server
+      run: |
+        ssh -i ~/.ssh/stage_key "$SERVER_USER@$SERVER_HOST" bash -se <<EOF
+        pm2 delete $APP_NAME 2>/dev/null || true
+        pm2 serve "\$HOME/$APP_DIR" $APP_PORT --name $APP_NAME --spa
+        pm2 save
+        for attempt in 1 2 3 4 5 6 7 8 9 10; do
+          curl -fsS http://127.0.0.1:$APP_PORT/login | grep -q 'id="root"' && exit 0
+          sleep 2
+        done
+        pm2 logs $APP_NAME --lines 30 --nostream
+        exit 1
+        EOF
+      env:
+        SERVER_USER: ${{ secrets.STAGE_SERVER_USER }}

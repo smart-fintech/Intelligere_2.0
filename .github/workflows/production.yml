@@ -1,0 +1,57 @@
+name:  Build Production
+on:
+  push:
+    branches:
+    - production
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [24.x]
+
+    steps:
+    - uses: actions/checkout@v5
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v5
+      with:
+        node-version: ${{ matrix.node-version }}
+
+    - name: npm install, build
+      run: |
+        : "${VITE_STORAGE_SECRET:?Add the VITE_STORAGE_SECRET_PRODUCTION repository secret}"
+        npm ci
+        rm -rf .env
+        echo "VITE_API_END_POINT=https://api.digitaldocsys.in/" >> .env
+        echo "VITE_API_TABULA_URL=https://tabula.digitaldocsys.in" >> .env
+        echo "VITE_API_WEBSOCKET_URL=wss://api.digitaldocsys.in/" >> .env
+        echo "VITE_API_WEBSOCKET_PATH=ws/tally-connector/" >> .env
+        echo "VITE_GST_LOOKUP_URL=https://api.digitaldocsys.in/tally/gst-details/" >> .env
+        echo "VITE_GST_LOOKUP_METHOD=post" >> .env
+        echo "REACT_APP_CASHFREE_ENV=production" >> .env
+        npm run build
+      env:
+        VITE_STORAGE_SECRET: ${{ secrets.VITE_STORAGE_SECRET_PRODUCTION }}
+
+    - name: deploy to s3
+      uses: jakejarvis/s3-sync-action@master
+      with:
+        args: --acl public-read --follow-symlinks --delete
+      env:
+        SOURCE_DIR: './dist'
+        AWS_REGION: ${{ secrets.AWS_REGION_PRODUCTION }}
+        AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET_PRODUCTION }}
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID_PRODUCTION }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY_PRODUCTION }}
+
+    - name: invalidate
+      uses: chetan/invalidate-cloudfront-action@master
+      env:
+        DISTRIBUTION: ${{ secrets.CF_DISTRIBUTION_PRODUCTION }}
+        PATHS: '/*'
+        AWS_REGION: ${{ secrets.AWS_REGION_PRODUCTION }}
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID_PRODUCTION }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY_PRODUCTION }}
