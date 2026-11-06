@@ -78,6 +78,10 @@ export const ENV = {
   // Key used to scramble what we keep in localStorage.
   STORAGE_SECRET: import.meta.env.VITE_STORAGE_SECRET || 'intelligere-dev-key',
 
+  // The Tabula PDF reader the Bank Statement PDF option opens in a frame
+  // (VITE_API_TABULA_URL). Empty when it is not set - that option then says so.
+  TABULA_URL: String(import.meta.env.VITE_API_TABULA_URL || '').trim(),
+
   // Request timeout in milliseconds (default 5 minutes).
   API_TIMEOUT: readNumber(import.meta.env.VITE_API_TIMEOUT, 1000 * 60 * 5),
 
