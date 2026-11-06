@@ -270,6 +270,15 @@ export const selectIsMsme = (state) =>
   state.profile.data?.profile_details?.user_type === 'MSME'
 
 /**
+ * True when the signed-in user is an Accounting Professional - spelt as the
+ * backend writes profile_details.user_type (and as Register sends it).
+ * Inventory Details hides Product and Vendor from one whose active company
+ * lacks Inventory Management.
+ */
+export const selectIsAccountingProfessional = (state) =>
+  state.profile.data?.profile_details?.user_type === 'Accounting Professional'
+
+/**
  * Which ERP this user runs - ERP.TALLY ("Tally") or ERP.INTELLIGERE
  * ("Intelligere"), whatever case the API sent it in - or null until the
  * profile has loaded (or when it names no ERP this app has).

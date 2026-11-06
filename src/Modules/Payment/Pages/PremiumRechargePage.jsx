@@ -29,10 +29,11 @@ function RechargeRow({ entry, count, onChange }) {
     >
       <div className="min-w-0">
         {/* The old screen's line: the name, and the price under it -
-            "E-Invoice" / "₹1 per unit", "GSTR 1" / "₹5 per filling". */}
+            "E-Invoice" / "₹1 per unit", "GSTR 1" / "₹5 per filling".
+            A feature sold in blocks prices the block: "₹50 per 500 pages". */}
         <p className="text-sm font-semibold text-foreground">{entry.label}</p>
         <p className="text-xs text-muted-foreground">
-          {formatINR(entry.amount)} per {entry.unit ?? 'unit'}
+          {formatINR(entry.amount)} per {entry.pack ? `${entry.pack} ${entry.unit ?? 'units'}` : entry.unit ?? 'unit'}
         </p>
       </div>
 
@@ -47,6 +48,12 @@ function RechargeRow({ entry, count, onChange }) {
         />
         <span className="w-24 text-right text-sm font-semibold tabular-nums">
           {count > 0 ? formatINR(entry.amount * count) : '—'}
+          {/* What the quantity comes to, for a feature counted in blocks. */}
+          {entry.pack && count > 0 ? (
+            <span className="block text-xs font-normal text-muted-foreground">
+              {(count * entry.pack).toLocaleString('en-IN')} {entry.unit ?? 'units'}
+            </span>
+          ) : null}
         </span>
       </div>
     </li>

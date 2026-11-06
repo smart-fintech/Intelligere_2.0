@@ -34,6 +34,12 @@
  * Until that is known NOTHING is drawn but a placeholder: nobody is shown
  * screens that are then taken away.
  *
+ * AN ACCOUNTING PROFESSIONAL whose active company's plan lacks Inventory
+ * Management (hasInventoryManagement) is not offered Product or Vendor at
+ * all - not shown, not reachable by address (`professionalNeedsInventory`
+ * in Constants/inventory). With nothing else left to open, the page says so.
+ * Read again when the header moves to another company.
+ *
  * A sub user who may not VIEW Product Details in this company
  * (useSectionAccess) still sees the Product section, disabled: it cannot be
  * opened, by click, keyboard or address, and says why on hover and focus.
@@ -59,17 +65,20 @@
  * but in the pages themselves.
  */
 
+import { PackageX } from 'lucide-react'
 import { useMemo, useState } from 'react'
+import { useSelector } from 'react-redux'
 import { useSearchParams } from 'react-router-dom'
 
 import ComingSoon from '@/Components/Common/ComingSoon'
-import { ListSkeleton } from '@/Components/Common/DataList'
+import { ListSkeleton, StateMessage } from '@/Components/Common/DataList'
 import { Card, CardContent } from '@/Components/ui/card'
 import { Tooltip } from '@/Components/ui/tooltip'
 import {
   FORECASTING_UNAVAILABLE_MESSAGE,
   INVENTORY_DEFAULT_SECTION,
   INVENTORY_DEFAULT_SECTION_WITHOUT_INVENTORY,
+  INVENTORY_NOTHING_TO_OPEN,
   INVENTORY_SECTIONS,
 } from '@/Constants/inventory'
 import { useActiveCompany } from '@/Hooks/useActiveCompany'
@@ -77,6 +86,9 @@ import useInventoryAccess from '@/Hooks/useInventoryAccess'
 import useSectionAccess from '@/Hooks/useSectionAccess'
 import { cn } from '@/Library/utils'
 import { ACCESS_SECTIONS, NO_VIEW_MESSAGE, listsModule } from '@/Services/Auth/accessService'
+import { hasInventoryManagement } from '@/Services/Inventory/inventoryService'
+import { selectActiveCompany, selectCompanyStatus } from '@/Store/Slices/companySlice'
+import { selectIsAccountingProfessional } from '@/Store/Slices/profileSlice'
 import AIForecasting from './AIForecasting'
 import BasicProducts from './BasicProducts'
 import CompareQuotation from './CompareQuotation'
@@ -136,9 +148,12 @@ const PRODUCT_SECTION = 'product'
  * Details (`canViewProduct`), Product is still listed, `disabled` - and so
  * is a section whose `requiresModule` the company's `active_modules` lacks
  * (AI Forecasting), each with the reason it says on hover.
+ * `withoutProductAndVendor` (an Accounting Professional without Inventory
+ * Management) takes out whatever is marked `professionalNeedsInventory`.
  */
-const sectionsFor = (full, pages, canViewProduct, activeModules) =>
+const sectionsFor = (full, pages, canViewProduct, activeModules, withoutProductAndVendor) =>
   INVENTORY_SECTIONS.map((section) => {
+    if (withoutProductAndVendor && section.professionalNeedsInventory) return null
     const entry =
       section.key === PRODUCT_SECTION && !canViewProduct
         ? { ...section, disabled: true, disabledReason: NO_VIEW_MESSAGE }
@@ -149,7 +164,7 @@ const sectionsFor = (full, pages, canViewProduct, activeModules) =>
     if (entry.requiresInventory) return null
     if (!entry.tabs) return entry
 
-    const tabs = entry.tabs.filter((tab) => !tab.requiresInventory)
+    const tabs = entry.tabs.filter((tab) => !tab.requiresInventory && !(withoutProductAndVendor && tab.professionalNeedsInventory))
     if (tabs.length > 0) return { ...entry, tabs }
     return pages[entry.key] ? { ...entry, tabs: undefined } : null
   }).filter(Boolean)
@@ -157,9 +172,18 @@ const sectionsFor = (full, pages, canViewProduct, activeModules) =>
 export default function InventoryDetails() {
   const access = useInventoryAccess()
   const product = useSectionAccess(ACCESS_SECTIONS.PRODUCT)
+  const professional = useSelector(selectIsAccountingProfessional)
+  const company = useSelector(selectActiveCompany)
+  const companyStatus = useSelector(selectCompanyStatus)
+
+  // An Accounting Professional's Product and Vendor hang on the company's
+  // plan, so for one the companies have to be in first.
+  const companiesSettled = companyStatus === 'succeeded' || companyStatus === 'failed'
+  const professionalKnown = !professional || companiesSettled
+  const withoutProductAndVendor = professional && !hasInventoryManagement(company)
 
   // Not known yet: a placeholder, never one user's screens for a moment.
-  if (!access.known || !product.known) {
+  if (!access.known || !product.known || !professionalKnown) {
     return (
       <Card className="border-border/70">
         <CardContent className="px-4">
@@ -174,21 +198,25 @@ export default function InventoryDetails() {
   // of the other set is left mounted.
   return (
     <InventoryNavigation
-      key={`${access.full ? 'with-inventory' : 'without-inventory'}#${product.view ? 'product' : 'no-product'}`}
+      key={`${access.full ? 'with-inventory' : 'without-inventory'}#${product.view ? 'product' : 'no-product'}#${withoutProductAndVendor ? 'no-product-vendor' : 'product-vendor'}`}
       full={access.full}
       canViewProduct={product.view}
+      withoutProductAndVendor={withoutProductAndVendor}
     />
   )
 }
 
-function InventoryNavigation({ full, canViewProduct }) {
+function InventoryNavigation({ full, canViewProduct, withoutProductAndVendor }) {
   const [params, setParams] = useSearchParams()
   // Read again whenever the header moves to another company.
   const { activeCompany } = useActiveCompany()
   const activeModules = activeCompany?.active_modules
 
   const pages = full ? PAGES_WITH_INVENTORY : PAGES_WITHOUT_INVENTORY
-  const sections = useMemo(() => sectionsFor(full, pages, canViewProduct, activeModules), [full, pages, canViewProduct, activeModules])
+  const sections = useMemo(
+    () => sectionsFor(full, pages, canViewProduct, activeModules, withoutProductAndVendor),
+    [full, pages, canViewProduct, activeModules, withoutProductAndVendor],
+  )
   // What can be opened - a disabled section is shown, never open.
   const openable = sections.filter((entry) => !entry.disabled)
 
@@ -199,26 +227,28 @@ function InventoryNavigation({ full, canViewProduct }) {
   // An unknown or missing value falls back to the default, so a stale or
   // mistyped link - or one to a tab this user is not offered, or a section
   // they cannot open - still opens a real page.
-  const section = openable.find((entry) => entry.key === params.get('section')) ?? defaultSection
-  const tabs = section.tabs ?? []
+  // None at all only when Product and Vendor are taken out and AI Forecasting
+  // is not on the plan: then `section` is null and the page says so.
+  const section = openable.find((entry) => entry.key === params.get('section')) ?? defaultSection ?? null
+  const tabs = section?.tabs ?? []
   const defaultTab = tabs.length > 0 ? firstReady(tabs) : null
   const tab = tabs.find((entry) => entry.key === params.get('tab')) ?? defaultTab
 
   // What is open: the tab when the section has tabs, else the section itself.
   const open = tab ?? section
-  const openId = pageId(section, tab)
-  const openIsBuilt = Boolean(open.ready && pages[openId])
+  const openId = section ? pageId(section, tab) : null
+  const openIsBuilt = Boolean(open?.ready && pages[openId])
 
   /* The pages opened so far - these stay mounted (see the note at the top).
      Added to while rendering rather than in the click handlers, so a page
      reached by a link or the Back button is remembered just the same. */
-  const [opened, setOpened] = useState([openId])
-  if (!opened.includes(openId)) setOpened([...opened, openId])
+  const [opened, setOpened] = useState(openId ? [openId] : [])
+  if (openId && !opened.includes(openId)) setOpened([...opened, openId])
 
   /** A section was clicked: it opens on its own default tab. */
   const chooseSection = (key) => {
     const next = new URLSearchParams(params)
-    if (key === defaultSection.key) next.delete('section')
+    if (key === defaultSection?.key) next.delete('section')
     else next.set('section', key)
     next.delete('tab')
     setParams(next, { replace: true })
@@ -237,7 +267,7 @@ function InventoryNavigation({ full, canViewProduct }) {
   const showTabs = tabs.length > 1
 
   // The control that names the open page, for its panel's aria-labelledby.
-  const labelledBy = tab && showTabs ? `inventory-tab-${tab.key}` : `inventory-section-${section.key}`
+  const labelledBy = tab && showTabs ? `inventory-tab-${tab.key}` : section ? `inventory-section-${section.key}` : undefined
 
   return (
     <div className="space-y-3">
@@ -248,7 +278,7 @@ function InventoryNavigation({ full, canViewProduct }) {
           scrollbar at the strip's right end. */}
       <div role="tablist" aria-label="Inventory sections" className="flex flex-wrap  gap-1 border-b border-border">
         {sections.map((entry) => {
-          const selected = entry.key === section.key
+          const selected = entry.key === section?.key
           // A section with a single tab IS that tab: "Vendor", not
           // "Inventory Master" with one lonely tab beneath it.
           const { label, icon: Icon } = entry.tabs?.length === 1 ? entry.tabs[0] : entry
@@ -341,8 +371,17 @@ function InventoryNavigation({ full, canViewProduct }) {
         )
       })}
 
+      {/* ---------------- Nothing this user can open ---------------- */}
+      {section ? null : (
+        <Card className="animate-in border-border/70 duration-200 fade-in-0">
+          <StateMessage icon={PackageX} title={INVENTORY_NOTHING_TO_OPEN.title}>
+            {INVENTORY_NOTHING_TO_OPEN.message}
+          </StateMessage>
+        </Card>
+      )}
+
       {/* ---------------- Not built yet ---------------- */}
-      {openIsBuilt ? null : (
+      {openIsBuilt || !section ? null : (
         <div role="tabpanel" aria-labelledby={labelledBy}>
           <Card className="border-border/70">
             <ComingSoon icon={open.icon} title={open.label} />

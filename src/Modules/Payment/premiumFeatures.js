@@ -24,6 +24,10 @@
  * FOUR KINDS OF ITEM ON THE PAGE
  * ------------------------------------------------------------------
  *   RECHARGE   counted units: count x unit price    (E-Invoice, GSTR 1 ...)
+ *              - including an item sold in BLOCKS, where one unit is a
+ *                block of work: 500 pages for Rs 50, two for Rs 100
+ *                (Bank Statement AI). Its block comes from the price
+ *                list's own `page`, so it is counted, not ticked
  *   GROUP      a named list of items ticked one by one, with an "All"
  *              price for taking the whole list      (Biz Doxs)
  *   PACKAGES   one module sold in named packages, one of which is chosen
@@ -102,7 +106,10 @@ const liftSections = (items) =>
  * Price-list items (pricing.parsePremiumFeatures().items) -> what the page
  * draws:
  *
- *   recharge    [{ id, feature, unit, amount, key }]   priced counted features
+ *   recharge    [{ id, feature, unit, amount, key, pack? }]
+ *                                                     priced counted features,
+ *               `pack` being the work one unit buys (500 pages) for items
+ *               sold in blocks rather than one unit at a time
  *   groups      [{ key, name, items, bundle }]         Biz Doxs and the like
  *   packages    [{ key, name, packages: [...] }]       Inventory Management
  *   addOns      [item]                                 everything else on sale
@@ -127,10 +134,36 @@ export const buildRechargeCatalog = (rawItems = []) => {
     }
   }).filter(Boolean)
 
+  /*
+   * SOLD IN BLOCKS, SO COUNTED RATHER THAN TICKED
+   *
+   * A flat item that carries the work it buys - `page: 500` beside
+   * `amount: 50` - is bought by the block: one of them is 500 pages for
+   * Rs 50, three are 1,500 pages for Rs 150. That is the counter the usage
+   * features already have, so such an item joins them instead of becoming an
+   * add-on with a tick. The block and the price are the price list's; the id
+   * carries on after the fixed ones, as every other bought row's does.
+   */
+  const packs = items
+    .filter((item) => !used.has(item.key) && item.kind === 'flat' && item.pages)
+    .map((item, index) => {
+      used.add(item.key)
+      return {
+        id: RECHARGE_FEATURES.length + 1 + index,
+        key: `pack-${item.key}`,
+        feature: item.name,
+        label: item.name,
+        amount: item.amount,
+        // One unit of this feature is 500 pages, not one page.
+        pack: item.pages,
+        unit: 'pages',
+      }
+    })
+
   const rest = items.filter((item) => !used.has(item.key))
 
   return {
-    recharge,
+    recharge: [...recharge, ...packs],
     groups: rest.filter((item) => item.kind === 'group'),
     packages: rest.filter((item) => item.kind === 'packages'),
     addOns: rest.filter((item) => item.kind === 'flat' || item.kind === 'options'),
@@ -309,7 +342,11 @@ export const calculateRechargeQuote = ({
       lines.push({
         key: entry.key,
         label: entry.label ?? entry.feature,
-        detail: `${count} × ${formatINR(entry.amount)}${entry.unit ? ` / ${entry.unit}` : ''}`,
+        // An item sold in blocks is read by what it buys - "1,500 pages" -
+        // with the arithmetic behind it beside the figure.
+        detail: entry.pack
+          ? `${(count * entry.pack).toLocaleString('en-IN')} ${entry.unit ?? 'units'} · ${count} × ${formatINR(entry.amount)}`
+          : `${count} × ${formatINR(entry.amount)}${entry.unit ? ` / ${entry.unit}` : ''}`,
         amount: entry.amount * count,
         owned: false,
       })
@@ -381,6 +418,10 @@ export const calculateRechargeQuote = ({
  *                                             sent it... } } }
  *                  only the package chosen: never Basic or Gold beside it
  *   add-on         { id, count: "", feature, selected_option? }
+ *   sold in blocks { id, count: 3, feature, page: 1500, amount: 150 } - the
+ *                  counted feature whose unit is a block of work: `count`
+ *                  blocks, `page` the work they come to and `amount` what
+ *                  they cost, so the backend credits what was paid for
  */
 export const buildRechargePayload = ({
   quote,
@@ -393,16 +434,34 @@ export const buildRechargePayload = ({
   optionChoices = {},
   productType,
 }) => {
-  const rows = RECHARGE_FEATURES
-    .map(({ id, feature }) => ({ id, count: counts[id] ?? 0, feature }))
+  const rows = catalog.recharge
+    .map((entry) => ({ entry, count: counts[entry.id] ?? 0 }))
     // A quantity of 0 was not bought - it is left out of the payload.
     .filter((row) => row.count > 0)
-    // By id, as the payload has always been ordered - the list above is in
-    // the order the screen shows them, which is not the same.
-    .sort((a, b) => a.id - b.id)
+    // By id, as the payload has always been ordered - the catalog is in the
+    // order the screen shows them, which is not the same.
+    .sort((a, b) => a.entry.id - b.entry.id)
+    .map(({ entry, count }) => ({
+      id: entry.id,
+      count,
+      feature: entry.feature,
+      /*
+       * An item sold in blocks sends what the quantity comes to, worked out
+       * from the price list's own block and price - 3 x 500 pages for
+       * 3 x Rs 50 - so the backend credits the allowance the user paid for
+       * and never the first block alone.
+       */
+      ...(entry.pack
+        ? { page: count * entry.pack, amount: Math.round(entry.amount * count) / 100 }
+        : {}),
+    }))
 
-  // Everything bought once carries on the counted features' numbering.
-  let nextId = RECHARGE_FEATURES.length
+  /*
+   * Everything bought once carries on the counted features' numbering, past
+   * the fixed seven and past any block-priced feature beside them, so no two
+   * rows of one payment share an id.
+   */
+  let nextId = Math.max(RECHARGE_FEATURES.length, ...catalog.recharge.map((entry) => entry.id))
   const addRow = (row) => {
     nextId += 1
     rows.push({ id: nextId, count: '', ...row })
@@ -433,6 +492,11 @@ export const buildRechargePayload = ({
     .forEach((item) => {
       addRow({
         feature: item.name,
+        // What was bought, for an item sold by a quantity of work: the price
+        // list's own `page`, sent back untouched, so the allowance credited is
+        // the one the user was shown. One tick is one allowance (the row's
+        // count stays the empty one every bought-once row carries).
+        ...(item.pages ? { page: item.pages } : {}),
         ...(item.kind === 'options' ? { selected_option: optionChoices[item.key] ?? null } : {}),
       })
     })

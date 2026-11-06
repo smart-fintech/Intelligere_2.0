@@ -54,6 +54,10 @@ import {
  *   requiresInventory   optional. true = part of Inventory Management, and
  *          shown only to a user who has it (see useInventoryAccess). Everyone
  *          else never sees the tab - or the section - at all.
+ *   professionalNeedsInventory   optional. true = hidden altogether from an
+ *          Accounting Professional whose active company's plan lacks
+ *          Inventory Management (Product, and the Vendor tab). Everyone
+ *          else is unaffected.
  *   requiresModule      optional. The `active_modules` entry the active
  *          company must have (matched as accessService's listsModule does -
  *          case, spaces and punctuation aside). Without it the section is
@@ -87,6 +91,7 @@ export const INVENTORY_SECTIONS = [
     label: 'Product',
     icon: Package,
     ready: true,
+    professionalNeedsInventory: true,
     // Inventory Management's only. Without it Product has no tabs and is
     // the simple product list itself (see sectionsFor in InventoryDetails).
     tabs: [
@@ -111,7 +116,7 @@ export const INVENTORY_SECTIONS = [
       { key: 'warehouse', label: 'Warehouse', icon: Warehouse, ready: true, requiresInventory: true },
       // Not `requiresInventory`: a simple product can name its vendor too,
       // and this is where vendors are added.
-      { key: 'vendor', label: 'Vendor', icon: Truck, ready: true },
+      { key: 'vendor', label: 'Vendor', icon: Truck, ready: true, professionalNeedsInventory: true },
       {
         key: 'customised-fields',
         label: 'Customised Fields',
@@ -332,6 +337,16 @@ export const labelOf = (options, value) => options.find((option) => option.value
 /* ------------------------------------------------------------------ */
 /* AI Forecasting                                                     */
 /* ------------------------------------------------------------------ */
+
+/**
+ * Inventory Details with nothing that can be opened - an Accounting
+ * Professional without Inventory Management (no Product, no Vendor) whose
+ * company's plan lacks AI Forecasting too.
+ */
+export const INVENTORY_NOTHING_TO_OPEN = {
+  title: 'No inventory pages for this company',
+  message: "Product and Vendor need Inventory Management on this company's plan.",
+}
 
 /** Why AI Forecasting is shown disabled - the company's plan does not have it. */
 export const FORECASTING_UNAVAILABLE_MESSAGE = "AI Forecasting is not part of this company's plan."

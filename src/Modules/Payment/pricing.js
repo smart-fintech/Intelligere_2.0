@@ -141,6 +141,9 @@ const RESERVED_FIELDS = new Set([
   'additional_company_discount',
   'coming_soon',
   'is_active',
+  // How much an item BUYS, not what it costs: see readAllowance below.
+  'page',
+  'pages',
 ])
 
 /** Thrown when the price list cannot be turned into something to sell. */
@@ -201,6 +204,23 @@ const optionLabel = (key) =>
 const readBasis = (raw) => {
   const basis = normalizeKey(raw.basis ?? raw.price_basis)
   return basis === BASIS.PER_COMPANY || basis === BASIS.FLAT ? basis : null
+}
+
+/**
+ * HOW MUCH AN ITEM BUYS, WHERE THE BACKEND SAYS SO
+ *
+ * A premium item priced for a quantity of work carries it beside its price:
+ *
+ *   { module_name: "Bank Statement (AI Adavance Modal)", amount: 50, page: 500 }
+ *
+ * 500 pages for Rs 50 - so the item is one purchase, like any other add-on,
+ * but what it buys is pages rather than a year. The number is read, never
+ * written, here: it is shown under the price and travels in the payload, and
+ * an item without it behaves exactly as before.
+ */
+const readAllowance = (raw) => {
+  const pages = Number(raw.page ?? raw.pages)
+  return Number.isFinite(pages) && pages > 0 ? Math.floor(pages) : null
 }
 
 /** ["Challan", " "] -> ["Challan"]; a bare string -> ["Challan"]. */
@@ -278,6 +298,8 @@ const parsePriceItem = (raw) => {
     name,
     description: typeof raw.description === 'string' ? raw.description : '',
     basis: readBasis(raw),
+    // The work this item buys (500 pages), when it is sold by one.
+    pages: readAllowance(raw),
     discountPercent: toPaise(raw.additional_company_discount) === null
       ? null
       : Number(raw.additional_company_discount),
