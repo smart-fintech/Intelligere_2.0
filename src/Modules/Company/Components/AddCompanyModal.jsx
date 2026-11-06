@@ -15,7 +15,7 @@
  *
  *   ON  (lookup)   every field is hidden except the GST number. The button
  *                  becomes "Fetch details": it looks the number up through
- *                  Services/gstService, writes the name, address, pincode
+ *                  Services/Gst/gstService, writes the name, address, pincode
  *                  and state into the form, and switches back to the full
  *                  form so the user can add the one thing a GST record does
  *                  not carry - a mobile number - and save.
@@ -38,9 +38,9 @@ import { Button } from '@/Components/ui/button'
 import { INDIAN_STATES, findStateByGstNumber } from '@/Constants/indianStates'
 import { toast } from '@/Library/toast'
 import { cn } from '@/Library/utils'
-import { createIntelligereCompany } from '@/Services/companyService'
+import { createIntelligereCompany } from '@/Services/Company/companyService'
 import { useGstLookup } from '@/Hooks/useGstLookup'
-import { isValidGstNumber } from '@/Services/gstService'
+import { isValidGstNumber } from '@/Services/Gst/gstService'
 
 /* ------------------------------------------------------------------ */
 /* The form                                                           */

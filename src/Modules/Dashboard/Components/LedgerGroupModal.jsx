@@ -34,7 +34,7 @@ import { toast } from '@/Library/toast'
 import {
   LEDGER_GROUP_CREATE_MODULE,
   buildLedgerGroupCreateMessage,
-} from '@/Services/ledgerService'
+} from '@/Services/Ledger/ledgerService'
 
 /**
  * Safety net: the longest Submit waits for Tally's stop_loader. The reply

@@ -25,7 +25,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { useActiveCompany } from '@/Hooks/useActiveCompany'
-import { getVendorId, getVendors, vendorCompanyDetails } from '@/Services/inventoryService'
+import { getVendorId, getVendors, vendorCompanyDetails } from '@/Services/Inventory/vendorService'
 
 const NO_VENDORS = []
 

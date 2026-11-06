@@ -17,7 +17,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { readInventorySalesOrder } from '@/Modules/SalesInvoice/History/inventorySalesOrders'
-import { getInventorySalesOrderHistory } from '@/Services/salesInvoiceService'
+import { getInventorySalesOrderHistory } from '@/Services/Invoice/documentHistoryService'
 
 const NONE = []
 

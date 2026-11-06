@@ -26,7 +26,7 @@
 import { MASTER_DATA_STALE_MS, QUERY } from '@/Constants/queryKeys'
 import { useActiveCompany } from '@/Hooks/useActiveCompany'
 import { useQuery } from '@/Library/queryCache'
-import { getWarehouses } from '@/Services/inventoryService'
+import { getWarehouses } from '@/Services/Inventory/warehouseService'
 
 const NO_WAREHOUSES = []
 

@@ -16,7 +16,7 @@ import {
   TALLY_RECEIVABLE_PAYABLE_MODULE,
   buildReceivablePayableSyncMessage,
   getLastSync,
-} from '@/Services/payableReceivableService'
+} from '@/Services/Accounting/payableReceivableService'
 import { selectIsTallyErp } from '@/Store/Slices/profileSlice'
 
 /**

@@ -60,9 +60,9 @@ import { Field, FileField, FormActions, FormGrid, SelectField } from '@/Componen
 import { Panel } from '@/Components/Common/Panel'
 import { Button } from '@/Components/ui/button'
 import { toast } from '@/Library/toast'
-import { addBank, updateBank } from '@/Services/bankService'
-import { getLedgerId } from '@/Services/ledgerService'
-import { paymentQrOfBank } from '@/Services/salesInvoiceService'
+import { addBank, updateBank } from '@/Services/Company/bankService'
+import { getLedgerId } from '@/Services/Ledger/ledgerService'
+import { paymentQrOfBank } from '@/Services/Invoice/salesInvoiceService'
 import {
   selectBankNames,
   selectBankOptionsError,

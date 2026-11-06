@@ -1,7 +1,7 @@
 /**
  * HOW A COMPONENT USES THE APP'S ONE WEBSOCKET.
  *
- * The connection itself lives in Services/socketService.js and is shared by
+ * The connection itself lives in Services/Global/socketService.js and is shared by
  * every module. This hook only wires it into React: it subscribes on mount,
  * unsubscribes on unmount, and re-renders the component when the connection
  * comes up or goes down.
@@ -63,7 +63,7 @@
 
 import { useEffect, useRef, useSyncExternalStore } from 'react'
 
-import { appSocket } from '@/Services/socketService'
+import { appSocket } from '@/Services/Global/socketService'
 
 /**
  * Keeps a box holding the newest version of a value.

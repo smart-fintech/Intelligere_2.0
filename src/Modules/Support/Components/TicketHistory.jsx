@@ -11,7 +11,7 @@ import { useQuery } from '@/Library/queryCache'
 import { toast } from '@/Library/toast'
 import { cn } from '@/Library/utils'
 import { readTicketsReply, statusToneOf, ticketsKey } from '@/Modules/Support/support'
-import { getUserTickets } from '@/Services/supportService'
+import { getUserTickets } from '@/Services/Support/supportService'
 import { orDash } from '@/Utils/display'
 import { downloadFileFromUrl } from '@/Utils/fileDownload'
 

@@ -58,7 +58,7 @@ import {
   getMasterDetailsId,
   toMasterDetails,
   updateMasterDetails,
-} from '@/Services/inventoryService'
+} from '@/Services/Inventory/inventoryService'
 import InvoiceFormatPicker from './InvoiceFormatPicker'
 
 const INDUSTRY_OPTIONS = toOptions(INDUSTRY_TYPES)

@@ -2,7 +2,7 @@
  * "Is somebody signed in?" - as a value a component can render.
  *
  * There is no second copy of the rule here. The answer still comes from
- * isLoggedIn() in Services/tokenService, which is the one place that decides
+ * isLoggedIn() in Services/Auth/tokenService, which is the one place that decides
  * what being signed in means; this hook only subscribes to it, so a component
  * re-renders the moment the session starts or ends.
  *
@@ -16,7 +16,7 @@
 
 import { useSyncExternalStore } from 'react'
 
-import { isLoggedIn, onTokensChanged } from '@/Services/tokenService'
+import { isLoggedIn, onTokensChanged } from '@/Services/Auth/tokenService'
 
 export const useIsLoggedIn = () =>
   // subscribe, read now, and read on the server (never used here, but React

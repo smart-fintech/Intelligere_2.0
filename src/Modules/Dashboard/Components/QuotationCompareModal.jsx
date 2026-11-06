@@ -31,7 +31,7 @@ import { PURCHASE_INVOICE_MODULE } from '@/Constants/purchaseInvoice'
 import { cn } from '@/Library/utils'
 import { SkuCode } from '@/Modules/SalesInvoice/Components/RequestQuotation'
 import { gstPercentOf, readQuotationComparison } from '@/Modules/Dashboard/quotationRequests'
-import { compareQuotations } from '@/Services/procurementService'
+import { compareQuotations } from '@/Services/Procurement/procurementService'
 import { formatIndianCurrency } from '@/Utils/currency'
 
 const PURCHASE_PATH = PRODUCT_MODULES.find((module) => module.key === PURCHASE_INVOICE_MODULE)?.path

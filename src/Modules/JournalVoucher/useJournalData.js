@@ -4,7 +4,7 @@ import { MASTER_DATA_STALE_MS, QUERY } from '@/Constants/queryKeys'
 import { useQuery } from '@/Library/queryCache'
 import { nameLookup, readBankEntries, readJvLedgers, readTemplates, readVouchers } from '@/Modules/JournalVoucher/journalVoucher'
 import { useLedgerOptions } from '@/Modules/ChequePrinting/useChequeOptions'
-import { getJvBankEntries, getJvLedgers, getJvTemplates, getJvVouchers } from '@/Services/journalVoucherService'
+import { getJvBankEntries, getJvLedgers, getJvTemplates, getJvVouchers } from '@/Services/Accounting/journalVoucherService'
 
 /**
  * The module's four lists, from the shared cache (Library/queryCache) under

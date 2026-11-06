@@ -17,7 +17,7 @@
 import { createAsyncThunk, createSlice } from '@reduxjs/toolkit'
 
 import { ERP, getUuid, normaliseErp, setERP } from '@/Library/secureStorage'
-import { api } from '@/Services/authService'
+import { api } from '@/Services/Global/apiService'
 
 /* ------------------------------------------------------------------ */
 /* 1. Loading the profile                                             */

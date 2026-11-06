@@ -14,7 +14,7 @@
 
 import { toast } from '@/Library/toast'
 import useTallyExchange from '@/Modules/GstCompare/useTallyExchange'
-import { TALLY_FETCH_SALES_MODULE, buildFetchSalesMessage } from '@/Services/salesEntriesService'
+import { TALLY_FETCH_SALES_MODULE, buildFetchSalesMessage } from '@/Services/Accounting/salesEntriesService'
 import { downloadFileFromUrl } from '@/Utils/fileDownload'
 
 export default function useSalesTallyFetch({ companyName, onFetched }) {

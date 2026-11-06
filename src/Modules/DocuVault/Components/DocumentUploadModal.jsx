@@ -8,7 +8,7 @@ import { Modal } from '@/Components/Common/Modal'
 import { Button } from '@/Components/ui/button'
 import { toast } from '@/Library/toast'
 import { refreshDocuVault } from '@/Modules/DocuVault/docuVault'
-import { uploadDocument } from '@/Services/docuVaultService'
+import { uploadDocument } from '@/Services/DocuVault/docuVaultService'
 
 /**
  * Upload - one description, any number of files picked or dropped.

@@ -51,7 +51,7 @@ export function SkuSelector({
   skuVariants = [],
   value = '',
   onChange,
-  valueOf = defaultValueOf,
+  valueOf: valueOfProp,
   id,
   label,
   required = false,
@@ -65,6 +65,13 @@ export function SkuSelector({
   showChosenDetails = false,
   className,
 }) {
+  // Every props object inherits Object.prototype.valueOf, so a destructuring
+  // default for `valueOf` never applies - a caller that left it out had its
+  // options valued by that native function, which throws ("Cannot convert
+  // undefined or null to object"). Only a function the caller passed counts.
+  const valueOf =
+    typeof valueOfProp === 'function' && valueOfProp !== Object.prototype.valueOf ? valueOfProp : defaultValueOf
+
   const options = useMemo(
     () =>
       (Array.isArray(skuVariants) ? skuVariants : []).map((variant, index) => ({

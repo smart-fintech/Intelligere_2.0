@@ -11,7 +11,7 @@ import useVendorOptions from '@/Hooks/useVendorOptions'
 import useWarehouseOptions from '@/Hooks/useWarehouseOptions'
 import ProductFormModal from '@/Modules/Dashboard/Components/ProductFormModal'
 import { buildProductSteps, PRODUCT_INPUT, productInputKind, stepFields } from '@/Modules/Dashboard/productForm'
-import { hasSingleWarehouseLimit, isSkuManagementEnabled } from '@/Services/inventoryService'
+import { hasSingleWarehouseLimit, isSkuManagementEnabled } from '@/Services/Inventory/inventoryService'
 
 /**
  * BOOK A SAVED PURCHASE'S STOCK - Purchase Invoice and Inbound Challan alike

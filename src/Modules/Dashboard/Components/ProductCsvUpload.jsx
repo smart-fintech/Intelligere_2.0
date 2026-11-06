@@ -54,7 +54,7 @@ import {
   TALLY_PRODUCT_CREATE_MODULE,
   buildTallyProductImportMessage,
   importProductCsv,
-} from '@/Services/productService'
+} from '@/Services/Product/productService'
 import { selectIsErpKnown } from '@/Store/Slices/profileSlice'
 import { downloadTextFile } from '@/Utils/fileDownload'
 

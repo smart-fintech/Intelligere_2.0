@@ -15,8 +15,8 @@
  * the remembered product_type picks the confirmation endpoint.
  */
 
-import { openCashfreeCheckout } from '@/Services/cashfreeService'
-import { createPaymentOrder, rememberPendingOrder } from '@/Services/paymentService'
+import { openCashfreeCheckout } from '@/Services/Payment/cashfreeService'
+import { createPaymentOrder, rememberPendingOrder } from '@/Services/Payment/paymentService'
 
 export async function startCheckout(payload, { beforeRedirect } = {}) {
   const response = await createPaymentOrder(payload)

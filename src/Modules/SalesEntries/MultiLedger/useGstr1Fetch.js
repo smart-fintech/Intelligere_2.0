@@ -5,7 +5,7 @@ import { toast } from '@/Library/toast'
 import { GSTR_1_OUTCOME, readGstr1Reply } from '@/Modules/SalesEntries/MultiLedger/gstr1Reply'
 import { plural } from '@/Modules/SalesEntries/shared/ledgerLists'
 import { MONTH_OPTIONS } from '@/Modules/SalesInvoice/History/historyHelpers'
-import { fetchGstr1, GSTR_1_PREMIUM } from '@/Services/gstReturnService'
+import { fetchGstr1, GSTR_1_PREMIUM } from '@/Services/Gst/gstReturnService'
 
 /**
  * FETCH FROM GSTR-1 - one month's sections from the GST portal, signing in

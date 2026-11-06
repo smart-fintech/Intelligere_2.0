@@ -8,10 +8,10 @@ import {
   getAiInvoiceProgress,
   readAiProgress,
   startAiInvoiceProcessing,
-} from '@/Services/aiInvoiceService'
+} from '@/Services/Invoice/aiInvoiceService'
 
 /**
- * AI VOUCHER'S UPLOAD AND ITS PROGRESS (Services/aiInvoiceService):
+ * AI VOUCHER'S UPLOAD AND ITS PROGRESS (Services/Invoice/aiInvoiceService):
  *
  *   const ai = useAiVoucherProcessing({ companyName, companyId, documentType, active })
  *

@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 
 import { toast } from '@/Library/toast'
 import { orderSourceChoicesOf, orderSourceOf, readOrderRows } from '@/Modules/SalesInvoice/orderProducts'
-import { getOrderNumbers, getOrderProducts } from '@/Services/orderProductService'
+import { getOrderNumbers, getOrderProducts } from '@/Services/Invoice/orderProductService'
 
 const IDLE = Object.freeze({ status: 'idle', rows: [], error: null })
 

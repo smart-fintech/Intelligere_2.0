@@ -20,7 +20,7 @@ import { useActiveCompany } from '@/Hooks/useActiveCompany'
 import { toast } from '@/Library/toast'
 import { toTallyJournalRow } from '@/Modules/JournalVoucher/journalVoucher'
 import useTallySync from '@/Modules/PayableReceivable/useTallySync'
-import { TALLY_JV_MODULE, buildJvTallyMessage } from '@/Services/journalVoucherService'
+import { TALLY_JV_MODULE, buildJvTallyMessage } from '@/Services/Accounting/journalVoucherService'
 
 const SEND_MESSAGES = Object.freeze({
   done: 'Voucher sent to Tally.',

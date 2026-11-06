@@ -6,7 +6,7 @@ import { Field } from '@/Components/Common/FormFields'
 import { Button } from '@/Components/ui/button'
 import { ROUTES } from '@/Constants/routes'
 import { toast } from '@/Library/toast'
-import { api } from '@/Services/authService'
+import { api } from '@/Services/Global/apiService'
 import AuthShell from '../Components/AuthShell'
 
 /**

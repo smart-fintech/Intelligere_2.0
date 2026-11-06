@@ -12,8 +12,8 @@ import { toast } from '@/Library/toast'
 import { findName, toChequeTallyRow, toChequeVerifyBody } from '@/Modules/ChequePrinting/chequePrinting'
 import { useBankOptions, useLedgerOptions } from '@/Modules/ChequePrinting/useChequeOptions'
 import useTallyExchange from '@/Modules/GstCompare/useTallyExchange'
-import { BANK_STATEMENT_SOCKET_MODULE, buildBankStatementSocketMessage } from '@/Services/bankStatementService'
-import { updateCheque } from '@/Services/chequeService'
+import { BANK_STATEMENT_SOCKET_MODULE, buildBankStatementSocketMessage } from '@/Services/Accounting/bankStatementService'
+import { updateCheque } from '@/Services/Accounting/chequeService'
 import { selectIsErpKnown, selectIsIntelligereErp } from '@/Store/Slices/profileSlice'
 import { formatIndianCurrency } from '@/Utils/currency'
 import { formatDate } from '@/Utils/date'
@@ -29,7 +29,7 @@ import { orDash } from '@/Utils/display'
  *
  * WHAT POST DOES
  *   Tally          the voucher goes to the agent as a bank statement message
- *                  (Services/chequeService), and only once Tally answers that it
+ *                  (Services/Accounting/chequeService), and only once Tally answers that it
  *                  took it does the PUT mark the cheque verified - a voucher Tally
  *                  turned away stays on the list, to be posted again.
  *   Intelligere    only the PUT: there is no agent to send it to.

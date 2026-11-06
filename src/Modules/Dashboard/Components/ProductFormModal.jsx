@@ -176,7 +176,7 @@ import { Modal } from '@/Components/Common/Modal'
 import { Stepper } from '@/Components/Common/Stepper'
 import { Button } from '@/Components/ui/button'
 import { toast } from '@/Library/toast'
-import { findHsn, loadHsnList } from '@/Services/hsnService'
+import { findHsn, loadHsnList } from '@/Services/Product/hsnService'
 import {
   buildProductPayload,
   buildProductUpdatePayload,
@@ -184,7 +184,7 @@ import {
   nextPastVersionKey,
   pastVersionOf,
   updateProduct,
-} from '@/Services/inventoryService'
+} from '@/Services/Inventory/inventoryProductService'
 import {
   allocationTotalError,
   checkProductStep,

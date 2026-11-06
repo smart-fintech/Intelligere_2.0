@@ -49,7 +49,7 @@ import {
   readStockRows,
   removeQtyProblem,
 } from '@/Modules/Dashboard/inventoryAdjustments'
-import { getAdjustmentStock, saveInventoryAdjustment } from '@/Services/inventoryService'
+import { getAdjustmentStock, saveInventoryAdjustment } from '@/Services/Inventory/inventoryAdjustmentService'
 import { orDash } from '@/Utils/display'
 import AdjustmentStockTable, { QuantityInput, RowSku } from './AdjustmentStockTable'
 

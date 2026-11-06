@@ -3,7 +3,7 @@
  *
  *   1. choose     the bank account, the file type and the file
  *   2. submit     the file goes up, becomes the statement's entries, and the
- *                 first page of them is read (Services/bankStatementService)
+ *                 first page of them is read (Services/Accounting/bankStatementService)
  *   3. map        each entry gets its ledger - by hand, from a keyword mapping,
  *                 or the "remaining entries" ledger - and optionally an Agst Ref
  *   4. send       Tally: the WebSocket message, then the rows are marked
@@ -53,7 +53,7 @@ import {
   uploadStatementAI,
   uploadStatementFile,
   verifyStatementRows,
-} from '@/Services/bankStatementService'
+} from '@/Services/Accounting/bankStatementService'
 
 const text = (value) => (value === null || value === undefined ? '' : String(value).trim())
 

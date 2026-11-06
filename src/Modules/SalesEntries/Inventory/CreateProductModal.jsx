@@ -5,7 +5,7 @@ import useProductGroups from '@/Hooks/useProductGroups'
 import useProductUnits from '@/Hooks/useProductUnits'
 import useVendorOptions from '@/Hooks/useVendorOptions'
 import BasicProductForm from '@/Modules/Dashboard/Components/BasicProductForm'
-import { BASIC_PRODUCT_ERP } from '@/Services/productService'
+import { BASIC_PRODUCT_ERP } from '@/Services/Product/productService'
 import { selectIsTallyErp } from '@/Store/Slices/profileSlice'
 
 /**

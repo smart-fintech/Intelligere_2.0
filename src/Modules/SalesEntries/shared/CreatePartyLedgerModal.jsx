@@ -15,10 +15,13 @@ import { selectIsTallyErp } from '@/Store/Slices/profileSlice'
  * Ledger page.
  *
  *   entry      the entry whose party ledger is made, or null (closed)
+ *   group      optional - the ledger group it starts under (Sundry Debtors; B2B / CNDN's
+ *              suppliers pass Sundry Creditors)
+ *   description  optional - the dialog's line under the title (default: "For invoice <no>")
  *   onCreated  after the save - the screen loads the batch again, and the
  *              backend then finds the ledger and drops "Not in Tally"
  */
-export default function CreatePartyLedgerModal({ entry, companyId, companyName, onClose, onCreated }) {
+export default function CreatePartyLedgerModal({ entry, companyId, companyName, onClose, onCreated, group = 'Sundry Debtors', description }) {
   const dispatch = useDispatch()
   const groups = useSelector(selectLedgerGroups)
   const bankNames = useSelector(selectBankNames)
@@ -38,7 +41,7 @@ export default function CreatePartyLedgerModal({ entry, companyId, companyName, 
       open={Boolean(entry)}
       onOpenChange={(next) => (next ? null : onClose())}
       title="Create party ledger"
-      description={entry ? `For invoice ${entry.invoiceNo}` : undefined}
+      description={entry ? (description ?? `For invoice ${entry.invoiceNo}`) : undefined}
       size="lg"
     >
       {entry ? (
@@ -50,7 +53,7 @@ export default function CreatePartyLedgerModal({ entry, companyId, companyName, 
             ledeger_gstin: entry.gstin,
             ledeger_state: entry.state,
             ledeger_address: entry.address,
-            ledeger_group_name: 'Sundry Debtors',
+            ledeger_group_name: group,
           }}
           companyId={companyId}
           companyName={companyName}

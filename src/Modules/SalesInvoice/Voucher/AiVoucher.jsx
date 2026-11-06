@@ -7,7 +7,7 @@ import { Button } from '@/Components/ui/button'
 import { toast } from '@/Library/toast'
 import AiVoucherProgress, { RefreshButton } from '@/Modules/SalesInvoice/Voucher/AiVoucherProgress'
 import { useAiVoucherProcessing } from '@/Modules/SalesInvoice/Voucher/useAiVoucherProcessing'
-import { AI_INVOICE_ACCEPT } from '@/Services/aiInvoiceService'
+import { AI_INVOICE_ACCEPT } from '@/Services/Invoice/aiInvoiceService'
 
 const fileKey = (file) => `${file.name}:${file.size}:${file.lastModified}`
 const isPdf = (file) => file.name.toLowerCase().endsWith('.pdf')

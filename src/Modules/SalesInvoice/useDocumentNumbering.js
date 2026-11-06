@@ -33,7 +33,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { toast } from '@/Library/toast'
-import { getLastDocumentNumber, saveAutoIncrement } from '@/Services/salesInvoiceService'
+import { getLastDocumentNumber, saveAutoIncrement } from '@/Services/Invoice/salesInvoiceService'
 
 export default function useDocumentNumbering({ companyId, documentType, round, apply, setAutoIncrement }) {
   const key = JSON.stringify({ companyId, documentType, round })

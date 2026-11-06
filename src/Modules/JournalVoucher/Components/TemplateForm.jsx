@@ -16,7 +16,7 @@ import {
   templateFormFrom,
   toTemplatePayload,
 } from '@/Modules/JournalVoucher/journalVoucher'
-import { addJvTemplates, updateJvTemplates } from '@/Services/journalVoucherService'
+import { addJvTemplates, updateJvTemplates } from '@/Services/Accounting/journalVoucherService'
 
 /**
  * Adding a template, or changing one (`template` given).

@@ -15,7 +15,7 @@ import {
   textOf,
   withCurrentOption,
 } from '@/Modules/SalesInvoice/salesInvoiceForm'
-import { DEFAULT_COUNTRY, getCountries, getStates } from '@/Services/locationService'
+import { DEFAULT_COUNTRY, getCountries, getStates } from '@/Services/Global/locationService'
 
 /**
  * Step 2 - Buyer Details, and Shipping To under it.

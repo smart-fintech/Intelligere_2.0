@@ -50,9 +50,9 @@ import {
 } from '@/Constants/salesInvoice'
 import { percentOf, toPaise } from '@/Modules/Payment/pricing'
 import { savedValue } from '@/Modules/Dashboard/productList'
-import { isValidGstNumber } from '@/Services/gstService'
-import { getLedgerSac } from '@/Services/ledgerService'
-import { DEFAULT_COUNTRY } from '@/Services/locationService'
+import { isValidGstNumber } from '@/Services/Gst/gstService'
+import { getLedgerSac } from '@/Services/Ledger/ledgerService'
+import { DEFAULT_COUNTRY } from '@/Services/Global/locationService'
 import { toInputDate } from '@/Utils/date'
 import { isValidEmail, isValidPan, isValidPhone, isValidPincode, isValidWebsite } from '@/Utils/validation'
 

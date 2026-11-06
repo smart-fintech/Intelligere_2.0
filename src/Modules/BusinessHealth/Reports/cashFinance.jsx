@@ -1,5 +1,5 @@
 import { ComparisonTable, Figure, HealthDot, NoteBox } from '@/Modules/BusinessHealth/Components/ReportCard'
-import { hasActiveModule } from '@/Services/accessService'
+import { hasActiveModule } from '@/Services/Auth/accessService'
 
 /**
  * The Cash & Finance tab's reports (old CashFinanceReports.js). Each report:

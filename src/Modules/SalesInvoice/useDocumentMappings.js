@@ -30,7 +30,7 @@ import { useCallback, useMemo, useState } from 'react'
 import { MASTER_DATA_STALE_MS, QUERY } from '@/Constants/queryKeys'
 import { useQuery } from '@/Library/queryCache'
 import { readMappingKey } from '@/Utils/gstLedgers'
-import { deleteDocumentMapping, getDocumentMappings, saveDocumentMapping } from '@/Services/salesInvoiceService'
+import { deleteDocumentMapping, getDocumentMappings, saveDocumentMapping } from '@/Services/Invoice/documentMappingService'
 
 // Read by the one rule the GST ledgers are resolved by too (Utils/gstLedgers).
 export { readMappingKey }

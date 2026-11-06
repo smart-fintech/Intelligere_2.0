@@ -103,7 +103,7 @@ import {
   createIntelligereProduct,
   isProductAlreadyExists,
   updateIntelligereProduct,
-} from '@/Services/productService'
+} from '@/Services/Product/productService'
 
 const GST_OPTIONS = toOptions(GST_RATES)
 

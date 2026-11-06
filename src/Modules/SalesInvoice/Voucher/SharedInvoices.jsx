@@ -8,8 +8,8 @@ import { invalidateQueries } from '@/Library/queryCache'
 import { toast } from '@/Library/toast'
 import { cn } from '@/Library/utils'
 import { PdfFrame } from '@/Modules/SalesInvoice/History/HistoryPdfModal'
-import { fileUrlOf } from '@/Services/salesInvoiceService'
-import { getSharedInvoices, respondToSharedInvoice } from '@/Services/invoiceSharingService'
+import { fileUrlOf } from '@/Services/Global/apiHelpers'
+import { getSharedInvoices, respondToSharedInvoice } from '@/Services/Invoice/invoiceSharingService'
 
 /**
  * ADD VOUCHER (Purchase Invoice) - the documents other companies have shared

@@ -67,7 +67,7 @@ import {
   getCompanyPermissions,
   getCompanyUserPlan,
   isSingleUserCompany,
-} from '@/Services/subUserService'
+} from '@/Services/User/subUserService'
 import { cn } from '@/Library/utils'
 import { Chip } from './SubUserChips'
 

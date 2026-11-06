@@ -12,7 +12,7 @@
  */
 
 import { useCodeList } from '@/Hooks/useCodeList'
-import { cachedSacList, loadSacList } from '@/Services/sacService'
+import { cachedSacList, loadSacList } from '@/Services/Ledger/sacService'
 
 export default function useSacList() {
   return useCodeList(cachedSacList, loadSacList)

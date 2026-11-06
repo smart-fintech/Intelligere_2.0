@@ -5,7 +5,7 @@
  *
  * The rules are the ones the app's forms already apply (Ledger Form, Company
  * Form), so a phone number or PAN accepted on one screen is accepted on every
- * other. A GST number is checked by isValidGstNumber in Services/gstService,
+ * other. A GST number is checked by isValidGstNumber in Services/Gst/gstService,
  * which is where the GST rules live.
  *
  * Each takes the raw value and answers true / false. None of them decides

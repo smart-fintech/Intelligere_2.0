@@ -54,8 +54,8 @@ import {
   yearOptions,
 } from '@/Modules/Dashboard/forecasting'
 import { readProducts } from '@/Modules/Dashboard/productList'
-import { listsModule } from '@/Services/accessService'
-import { generateForecast } from '@/Services/inventoryService'
+import { listsModule } from '@/Services/Auth/accessService'
+import { generateForecast } from '@/Services/Inventory/forecastService'
 import ForecastChart from './ForecastChart'
 
 const FORECASTING_MODULE = 'Forecasting'

@@ -61,7 +61,7 @@ import { SkuSelector } from '@/Components/Common/SkuSelector'
 import { Button } from '@/Components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/Components/ui/table'
 import { cn } from '@/Library/utils'
-import { buildProductReference } from '@/Services/inventoryService'
+import { buildProductReference } from '@/Services/Inventory/inventoryProductService'
 import { validateReferenceDraft } from '../productForm'
 import { displayValue, isProductCategory, PRODUCT_CATEGORY, readProducts } from '../productList'
 

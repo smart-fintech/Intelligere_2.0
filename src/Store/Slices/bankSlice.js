@@ -30,7 +30,7 @@
 
 import { createAsyncThunk, createSlice } from '@reduxjs/toolkit'
 
-import { getBankDetails, getBankList } from '@/Services/bankService'
+import { getBankDetails, getBankList } from '@/Services/Company/bankService'
 
 /* ------------------------------------------------------------------ */
 /* 1. The bank accounts                                               */

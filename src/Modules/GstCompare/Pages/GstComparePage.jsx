@@ -9,7 +9,7 @@ import { Card, CardContent } from '@/Components/ui/card'
 import { ROUTES } from '@/Constants/routes'
 import { useActiveCompany } from '@/Hooks/useActiveCompany'
 import GstCompareScreen from '@/Modules/GstCompare/Components/GstCompareScreen'
-import { hasActiveModule } from '@/Services/accessService'
+import { hasActiveModule } from '@/Services/Auth/accessService'
 import { fetchCompanies, selectCompanyError, selectCompanyStatus } from '@/Store/Slices/companySlice'
 
 /** The module's name in `active_modules` - its key in PRODUCT_MODULES. */

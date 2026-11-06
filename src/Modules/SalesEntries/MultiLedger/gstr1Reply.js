@@ -4,7 +4,7 @@
  *
  *   readGstr1Reply(msg, { thrown, invoicesAsked }) -> { outcome, saved, failures, message }
  *
- * The status alone does not tell (Services/gstReturnService): a 200 is a
+ * The status alone does not tell (Services/Gst/gstReturnService): a 200 is a
  * success or a sign-in step (useGstPortalAuth takes those), and a 500 may
  * still have saved invoices -
  *
@@ -24,7 +24,7 @@
  */
 
 import { GSTR_1_PORTAL_TABLES } from '@/Constants/salesEntries'
-import { GSTR_1_NO_INVOICES } from '@/Services/gstReturnService'
+import { GSTR_1_NO_INVOICES } from '@/Services/Gst/gstReturnService'
 
 export const GSTR_1_OUTCOME = Object.freeze({
   SAVED: 'saved',

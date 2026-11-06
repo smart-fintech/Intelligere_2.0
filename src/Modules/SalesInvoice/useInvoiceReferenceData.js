@@ -25,7 +25,7 @@ import { useDispatch, useSelector } from 'react-redux'
 
 import useProducts from '@/Hooks/useProducts'
 import { readProducts } from '@/Modules/Dashboard/productList'
-import { getLedgerId } from '@/Services/ledgerService'
+import { getLedgerId } from '@/Services/Ledger/ledgerService'
 import {
   fetchBanks,
   selectBankError,

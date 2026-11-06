@@ -8,13 +8,13 @@ import { Button } from '@/Components/ui/button'
 import { Card } from '@/Components/ui/card'
 import { ROUTES } from '@/Constants/routes'
 import { cn } from '@/Library/utils'
-import { openCashfreeCheckout } from '@/Services/cashfreeService'
+import { openCashfreeCheckout } from '@/Services/Payment/cashfreeService'
 import {
   PRODUCT_TYPE,
   clearPendingOrder,
   confirmPayment,
   readPendingProductType,
-} from '@/Services/paymentService'
+} from '@/Services/Payment/paymentService'
 import { fetchCompanies } from '@/Store/Slices/companySlice'
 import { fetchProfile } from '@/Store/Slices/profileSlice'
 import { orDash } from '@/Utils/display'
@@ -59,7 +59,7 @@ const outcomeKey = (reply) => {
  * The order is confirmed with the endpoint that matches what was bought -
  * payment/PaymentConfirm/ for a package, payment/PremiumPaymentConfirm/ for
  * a premium feature (the product_type remembered when the order was made;
- * see Services/paymentService). Then the profile and company list are
+ * see Services/Payment/paymentService). Then the profile and company list are
  * reloaded so the new plan shows everywhere at once.
  */
 export default function PaymentStatusPage() {

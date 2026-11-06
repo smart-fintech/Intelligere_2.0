@@ -9,7 +9,7 @@ import DocuVaultDocuments from '@/Modules/DocuVault/Components/DocuVaultDocument
 import DocuVaultUsers from '@/Modules/DocuVault/Components/DocuVaultUsers'
 import StorageSummary from '@/Modules/DocuVault/Components/StorageSummary'
 import { isUpdateMessage, refreshDocuVault } from '@/Modules/DocuVault/docuVault'
-import { getDocuVaultUsers } from '@/Services/docuVaultService'
+import { getDocuVaultUsers } from '@/Services/DocuVault/docuVaultService'
 
 /**
  * The module's screen.

@@ -2,7 +2,7 @@
  * A SALES ORDER'S PURCHASING - from its booked stock to a Request for
  * Quotation, as one state machine with no screen attached
  * (inventory/order_requirement/ and inventory/request_quotation/ -
- * Services/procurementService):
+ * Services/Procurement/procurementService):
  *
  *   INITIAL                    the order is being made (or edited)
  *     | the order is saved
@@ -57,7 +57,7 @@
  * never given a vendor it does not have.
  */
 
-import { getVendorId } from '@/Services/inventoryService'
+import { getVendorId } from '@/Services/Inventory/vendorService'
 
 /* ------------------------------------------------------------------ */
 /* The machine                                                        */

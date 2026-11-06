@@ -30,7 +30,7 @@ import { QUERY } from '@/Constants/queryKeys'
 import { useWebSocket } from '@/Hooks/useWebSocket'
 import { invalidateQueries } from '@/Library/queryCache'
 import { runTallySend, runVoucherVerify } from '@/Modules/SalesInvoice/Voucher/tallySend'
-import { TALLY_VOUCHER_MODULE, updateTallyVoucher } from '@/Services/salesInvoiceService'
+import { TALLY_VOUCHER_MODULE, updateTallyVoucher } from '@/Services/Invoice/tallyVoucherService'
 
 const text = (value) => (value === null || value === undefined ? '' : String(value).trim())
 

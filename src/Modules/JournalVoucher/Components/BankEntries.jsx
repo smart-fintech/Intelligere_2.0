@@ -13,7 +13,7 @@ import { invalidateQueries } from '@/Library/queryCache'
 import { toast } from '@/Library/toast'
 import VoucherEditor from '@/Modules/JournalVoucher/Components/VoucherEditor'
 import { checkVoucher, toVoucherPayload, voucherFromBankEntry } from '@/Modules/JournalVoucher/journalVoucher'
-import { deleteJvBankEntries, saveJvVouchers } from '@/Services/journalVoucherService'
+import { deleteJvBankEntries, saveJvVouchers } from '@/Services/Accounting/journalVoucherService'
 
 /**
  * THE BANK ENTRIES - bank statement entries verified against a JV ledger that

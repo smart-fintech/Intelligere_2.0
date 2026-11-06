@@ -29,7 +29,7 @@
 import { useMemo } from 'react'
 
 import useWarehouses from '@/Hooks/useWarehouses'
-import { getWarehouseId } from '@/Services/inventoryService'
+import { getWarehouseId } from '@/Services/Inventory/warehouseService'
 
 export default function useWarehouseOptions(enabled, forCompanyId) {
   const { status, warehouses, error, reload } = useWarehouses(enabled, forCompanyId)

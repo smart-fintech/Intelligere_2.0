@@ -2,13 +2,13 @@ import { useRef, useState } from 'react'
 
 import { prefillSourcesOf } from '@/Constants/salesInvoice'
 import { toast } from '@/Library/toast'
-import { getPrefillDocumentDetails, getPrefillDocuments } from '@/Services/documentPrefillService'
+import { getPrefillDocumentDetails, getPrefillDocuments } from '@/Services/Invoice/documentPrefillService'
 
 const IDLE_LIST = Object.freeze({ status: 'idle', rows: [], error: null })
 
 /**
  * PREFILL FROM's two choices, for the document type being made
- * (Services/documentPrefillService):
+ * (Services/Invoice/documentPrefillService):
  *
  *   const prefill = useDocumentPrefill({ companyId, documentType, enabled, onDocument, onClear })
  *

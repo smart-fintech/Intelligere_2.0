@@ -1,7 +1,7 @@
 /**
  * A CHALLAN'S STOCK, TAKEN OUT OF THE WAREHOUSES - before a Challan with no
  * Prefill From is saved, for a company with Inventory Management
- * (inventory/SKUWarehouseSummaryAPI/ - Services/inventoryBookingService), with
+ * (inventory/SKUWarehouseSummaryAPI/ - Services/Inventory/inventoryBookingService), with
  * no screen attached:
  *
  *   needsChallanStock({ documentType, inventory, prefilled, savedStock })

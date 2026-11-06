@@ -13,7 +13,7 @@ import { JV_LEDGER_ENTRY, JV_LEDGER_ENTRY_OPTIONS } from '@/Constants/journalVou
 import { QUERY } from '@/Constants/queryKeys'
 import { invalidateQueries } from '@/Library/queryCache'
 import { toast } from '@/Library/toast'
-import { JV_LEDGER_CSV_FORMAT_CONTENT, JV_LEDGER_CSV_FORMAT_FILE, setJvLedgers, uploadJvLedgers } from '@/Services/journalVoucherService'
+import { JV_LEDGER_CSV_FORMAT_CONTENT, JV_LEDGER_CSV_FORMAT_FILE, setJvLedgers, uploadJvLedgers } from '@/Services/Accounting/journalVoucherService'
 import { selectLedgers, selectLedgersCompanyId } from '@/Store/Slices/ledgerSlice'
 import { downloadTextFile } from '@/Utils/fileDownload'
 

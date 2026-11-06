@@ -49,7 +49,7 @@ import {
   rateText,
   textOf,
 } from '@/Modules/SalesInvoice/salesInvoiceForm'
-import { OTHER_CHARGES_SOURCE, SERVICE_PRODUCT_TYPE, paymentQrOfBank } from '@/Services/salesInvoiceService'
+import { OTHER_CHARGES_SOURCE, SERVICE_PRODUCT_TYPE, paymentQrOfBank } from '@/Services/Invoice/salesInvoiceService'
 import { toInputDate } from '@/Utils/date'
 
 /* ------------------------------------------------------------------ */

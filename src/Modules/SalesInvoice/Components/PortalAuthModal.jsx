@@ -5,7 +5,7 @@ import { Field, PasswordField } from '@/Components/Common/FormFields'
 import { Modal } from '@/Components/Common/Modal'
 import { Button } from '@/Components/ui/button'
 import { toast } from '@/Library/toast'
-import { PORTAL_AUTH, authenticatePortal } from '@/Services/gstPortalService'
+import { PORTAL_AUTH, authenticatePortal } from '@/Services/Invoice/gstPortalService'
 
 const FORM_ID = 'portal-auth-form'
 

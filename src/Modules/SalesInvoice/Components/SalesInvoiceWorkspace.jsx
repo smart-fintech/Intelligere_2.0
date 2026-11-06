@@ -20,6 +20,8 @@ import BuyerStep from '@/Modules/SalesInvoice/Components/BuyerStep'
 import DocumentStep from '@/Modules/SalesInvoice/Components/DocumentStep'
 import DocumentTypeCard from '@/Modules/SalesInvoice/Components/DocumentTypeCard'
 import GstLedgerCheck from '@/Modules/SalesInvoice/Components/GstLedgerCheck'
+import MasterDataNotice from '@/Modules/SalesInvoice/Components/MasterDataNotice'
+import { masterDataReadiness } from '@/Modules/SalesInvoice/masterDataReadiness'
 import PortalAuthModal from '@/Modules/SalesInvoice/Components/PortalAuthModal'
 import ShareInvoiceModal from '@/Modules/SalesInvoice/Components/ShareInvoiceModal'
 import ProductsStep from '@/Modules/SalesInvoice/Components/ProductsStep'
@@ -49,8 +51,8 @@ import { keptLineId, needsStockBooking, needsStockRebooking, savedLinesOf, stock
 import { PROCUREMENT_STATE, QUOTATION_STATES } from '@/Modules/SalesInvoice/procurement'
 import useProcurement from '@/Modules/SalesInvoice/useProcurement'
 import useInventoryAccess from '@/Hooks/useInventoryAccess'
-import { buildPrefillFrom, readPrefillFrom } from '@/Services/documentPrefillService'
-import { bookInventory, getStockSummary } from '@/Services/inventoryBookingService'
+import { buildPrefillFrom, readPrefillFrom } from '@/Services/Invoice/documentPrefillService'
+import { bookInventory, getStockSummary } from '@/Services/Inventory/inventoryBookingService'
 import { SAVE_OUTCOME, runSaveWorkflow } from '@/Modules/SalesInvoice/saveWorkflow'
 import {
   buyerFromLedger,
@@ -73,6 +75,7 @@ import {
   textOf,
   validateInvoice,
 } from '@/Modules/SalesInvoice/salesInvoiceForm'
+import { MAPPING_DOCUMENT_TYPE } from '@/Services/Invoice/documentMappingService'
 import {
   buildBuyerLedgerPayload,
   buildCompanyUpdatePayload,
@@ -80,17 +83,16 @@ import {
   createBusinessDocument,
   documentPdfFileName,
   getDocumentTypeAccess,
-  MAPPING_DOCUMENT_TYPE,
   saveBuyerLedger,
   saveDocumentFile,
   saveDocumentPdf,
   saveSellerCompany,
   updateBusinessDocument,
-} from '@/Services/salesInvoiceService'
-import { PORTAL_AUTH, hasPortalCredentials, needsPortalAuth } from '@/Services/gstPortalService'
-import { findBuyerCompany, getAllCompanies } from '@/Services/invoiceSharingService'
-import { getLedgerId } from '@/Services/ledgerService'
-import { getCountries, getStates } from '@/Services/locationService'
+} from '@/Services/Invoice/salesInvoiceService'
+import { PORTAL_AUTH, hasPortalCredentials, needsPortalAuth } from '@/Services/Invoice/gstPortalService'
+import { findBuyerCompany, getAllCompanies } from '@/Services/Invoice/invoiceSharingService'
+import { getLedgerId } from '@/Services/Ledger/ledgerService'
+import { getCountries, getStates } from '@/Services/Global/locationService'
 import { fetchCompanies } from '@/Store/Slices/companySlice'
 import { selectIsIntelligereErp, selectIsTallyErp } from '@/Store/Slices/profileSlice'
 import { formatDate } from '@/Utils/date'
@@ -200,7 +202,7 @@ const STEP_OF_PARTY = { seller: INVOICE_STEP.SELLER, buyer: INVOICE_STEP.BUYER }
  * whichever step is open, and the preview follows every change.
  *
  * ------------------------------------------------------------------
- * SAVING (Services/salesInvoiceService)
+ * SAVING (Services/Invoice/salesInvoiceService)
  * ------------------------------------------------------------------
  *   1. the whole form is checked; the first step with a problem opens
  *   2. POST invoice/business-documents/        -> document_id
@@ -353,6 +355,14 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
   const documentTypeValue = form.documentType
   const isInvoice = documentTypeValue === DOCUMENT_TYPE_INVOICE
   const profile = documentProfile(form)
+  // A new company (Intelligere, or just fetched from Tally / another ERP) may
+  // have no ledgers or products yet - said up front, read from the lists
+  // already loaded (no request of its own). Refresh reads the missing ones again.
+  const masterData = masterDataReadiness({ ledgers, products, productsRequired: !profile.services })
+  const refreshMasterData = () => {
+    if (masterData.missing.includes('ledgers')) ledgers.retry()
+    if (masterData.missing.includes('products')) products.retry()
+  }
   // A challan (or Inbound Challan): goods only - no GST, no ledgers to check, its own sheet and copies.
   const isChallanDoc = Boolean(profile.challan)
   // Purchase Invoice / Inbound Challan: no PDF made - the user's own file, uploaded when there is one.
@@ -1289,6 +1299,8 @@ export default function SalesInvoiceWorkspace({ company, flow = SALES_FLOW, edit
               <Stepper steps={INVOICE_STEPS} current={stepIndex} onStepClick={goTo} disabled={busy} />
             </CardContent>
           </Card>
+
+          <MasterDataNotice readiness={masterData} onRefresh={refreshMasterData} />
 
           {pendingEdit ? (
             <InlineAlert>Loading {String(pendingEdit.document_no ?? '').trim() || 'the document'} for editing...</InlineAlert>

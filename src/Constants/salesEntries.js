@@ -59,7 +59,7 @@ export const SALES_BUYER_KIND_TEXT = Object.freeze({
 })
 
 /**
- * FETCH FROM GSTR-1 - the sections it reads (api_section, Services/gstReturnService):
+ * FETCH FROM GSTR-1 - the sections it reads (api_section, Services/Gst/gstReturnService):
  * B2B invoices only, as the old screen. Their invoices become the entries here.
  */
 export const GSTR_1_FETCH_SECTIONS = Object.freeze(['b2b'])

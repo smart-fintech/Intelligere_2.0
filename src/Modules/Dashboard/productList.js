@@ -508,7 +508,7 @@ export const hasMaterialReferences = (product) => isProductCategory(product, PRO
  * edit, or Add Existing Product. Without a `variant` it is the product's
  * own values alone, with no SKU, stock, vendor or reference.
  * A product is edited one SKU at a time: each SKU is its own record, named
- * by its `product_id` (see updateProduct in Services/inventoryService).
+ * by its `product_id` (see updateProduct in Services/Inventory/inventoryService).
  *
  * ONE ENTRY OF IT. A SKU can hold several `product_details` entries, each
  * its own record by its `sr_no` (with its own `created_at`). `detail` is the

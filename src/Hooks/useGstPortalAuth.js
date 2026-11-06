@@ -6,7 +6,7 @@ import {
   GST_PORTAL_USERNAME_REQUIRED,
   sendGstPortalOtp,
   verifyGstPortalOtp,
-} from '@/Services/gstReturnService'
+} from '@/Services/Gst/gstReturnService'
 
 /**
  * A READ FROM THE GST PORTAL, and the two steps it may need before the

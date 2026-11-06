@@ -14,7 +14,7 @@ import LedgerSyncModal from '@/Modules/PayableReceivable/LedgerExport/LedgerSync
 import { groupLedgers } from '@/Modules/PayableReceivable/LedgerExport/ledgerExport'
 import { readLastSync } from '@/Modules/PayableReceivable/payableReceivable'
 import useTallySync from '@/Modules/PayableReceivable/useTallySync'
-import { TALLY_LEDGER_EXPORT_MODULE, buildLedgerExportSyncMessage, getLedgerLastSync } from '@/Services/ledgerExportService'
+import { TALLY_LEDGER_EXPORT_MODULE, buildLedgerExportSyncMessage, getLedgerLastSync } from '@/Services/Accounting/ledgerExportService'
 import {
   fetchLedgers,
   selectLedgerError,

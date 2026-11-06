@@ -58,11 +58,8 @@ import useMasterDetails from '@/Hooks/useMasterDetails'
 import useWarehouses from '@/Hooks/useWarehouses'
 import { toast } from '@/Library/toast'
 import { cn } from '@/Library/utils'
-import {
-  deleteWarehouse,
-  getWarehouseId,
-  hasSingleWarehouseLimit,
-} from '@/Services/inventoryService'
+import { hasSingleWarehouseLimit } from '@/Services/Inventory/inventoryService'
+import { deleteWarehouse, getWarehouseId } from '@/Services/Inventory/warehouseService'
 import { selectCompanyStatus } from '@/Store/Slices/companySlice'
 import { orDash } from '@/Utils/display'
 import WarehouseFormModal from './WarehouseFormModal'

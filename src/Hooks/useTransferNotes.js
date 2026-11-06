@@ -20,7 +20,7 @@ import { MASTER_DATA_STALE_MS, QUERY } from '@/Constants/queryKeys'
 import { useActiveCompany } from '@/Hooks/useActiveCompany'
 import { useQuery } from '@/Library/queryCache'
 import { readTransferNotes } from '@/Modules/Dashboard/transferNotes'
-import { getTransferNotes } from '@/Services/inventoryService'
+import { getTransferNotes } from '@/Services/Inventory/transferNoteService'
 
 const NO_NOTES = []
 

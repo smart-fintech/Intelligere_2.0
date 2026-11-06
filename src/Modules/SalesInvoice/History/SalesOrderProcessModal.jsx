@@ -26,7 +26,7 @@ import {
   textColourOn,
   withEqualShare,
 } from '@/Modules/SalesInvoice/History/soProcess'
-import { getProgressReport, saveProgressReport } from '@/Services/salesInvoiceService'
+import { getProgressReport, saveProgressReport } from '@/Services/Invoice/documentHistoryService'
 
 /**
  * A BOOKED SALES ORDER'S PROCESS - Book Process / Show Process in the

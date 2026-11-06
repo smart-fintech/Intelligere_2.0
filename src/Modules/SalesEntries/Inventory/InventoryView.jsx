@@ -35,7 +35,7 @@ import useGuardedSend from '@/Modules/SalesEntries/shared/useGuardedSend'
 import useKeywordMapping from '@/Modules/SalesEntries/shared/useKeywordMapping'
 import { useCompanyLedgers, useSalesLedgerChoice } from '@/Modules/SalesEntries/shared/useLedgerChoices'
 import useTallySendAndMark from '@/Modules/SalesEntries/shared/useTallySendAndMark'
-import { KEYWORD_SOURCE } from '@/Services/keywordMappingService'
+import { KEYWORD_SOURCE } from '@/Services/Accounting/keywordMappingService'
 import {
   INVENTORY_CSV_FORMAT_CONTENT,
   INVENTORY_CSV_FORMAT_FILE,
@@ -44,7 +44,7 @@ import {
   getInventoryEntries,
   markInventoryEntriesSent,
   uploadInventoryEntries,
-} from '@/Services/salesInventoryService'
+} from '@/Services/Accounting/salesInventoryService'
 import { formatIndianCurrency } from '@/Utils/currency'
 import { formatDate } from '@/Utils/date'
 

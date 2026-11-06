@@ -4,7 +4,7 @@ import { AlertCircle, Plus, Save, X } from 'lucide-react'
 import { SacSelector } from '@/Components/Common/SacSelector'
 import { Button } from '@/Components/ui/button'
 import { toast } from '@/Library/toast'
-import { updateLedgerSac } from '@/Services/ledgerService'
+import { updateLedgerSac } from '@/Services/Ledger/ledgerService'
 
 /**
  * Under an Other Charges row whose ledger has no SAC number (`ledger_sac`) -

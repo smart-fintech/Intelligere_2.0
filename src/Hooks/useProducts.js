@@ -12,7 +12,7 @@
  *   error     the message when the request failed
  *   reload()  asks again - Refresh, Retry, and after a save or a sync.
  *
- * ONE CALL FOR EVERYONE: getProducts in Services/inventoryService - POST
+ * ONE CALL FOR EVERYONE: getProducts in Services/Inventory/inventoryService - POST
  * inventory/product/ with the company's name. Tally or Intelligere, MSME or
  * Accounting Professional, with Inventory Management or without, the list
  * is fetched the same way, here, and holds the company's products with SKUs
@@ -38,7 +38,7 @@ import { useActiveCompany } from '@/Hooks/useActiveCompany'
 import { MASTER_DATA_STALE_MS, QUERY } from '@/Constants/queryKeys'
 import { useQuery } from '@/Library/queryCache'
 import { toast } from '@/Library/toast'
-import { getProducts } from '@/Services/inventoryService'
+import { getProducts } from '@/Services/Inventory/inventoryProductService'
 
 /** What a company whose list is not in shows - one array, so memos built on it hold. */
 const NO_ROWS = []

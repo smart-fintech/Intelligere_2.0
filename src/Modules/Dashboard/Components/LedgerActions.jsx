@@ -65,7 +65,7 @@ import {
 import { fetchBankOptions, selectBankNames } from '@/Store/Slices/bankSlice'
 import useInventoryAccess from '@/Hooks/useInventoryAccess'
 import useSectionAccess from '@/Hooks/useSectionAccess'
-import { ACCESS_SECTIONS } from '@/Services/accessService'
+import { ACCESS_SECTIONS } from '@/Services/Auth/accessService'
 import { selectIsTallyErp } from '@/Store/Slices/profileSlice'
 import { fetchLedgerGroups, fetchLedgers, selectLedgerGroups } from '@/Store/Slices/ledgerSlice'
 import LedgerForm from './LedgerForm'

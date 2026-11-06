@@ -8,7 +8,7 @@ import { cn } from '@/Library/utils'
 import InventoryView from '@/Modules/SalesEntries/Inventory/InventoryView'
 import MultiLedgerView from '@/Modules/SalesEntries/MultiLedger/MultiLedgerView'
 import SingleLedgerView from '@/Modules/SalesEntries/SingleLedger/SingleLedgerView'
-import { ACCESS_SECTIONS } from '@/Services/accessService'
+import { ACCESS_SECTIONS } from '@/Services/Auth/accessService'
 import { selectIsTallyErp } from '@/Store/Slices/profileSlice'
 
 /**

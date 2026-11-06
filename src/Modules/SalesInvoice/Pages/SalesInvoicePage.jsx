@@ -9,7 +9,7 @@ import { ROUTES } from '@/Constants/routes'
 import { DOCUMENT_TYPE_INVOICE } from '@/Constants/salesInvoice'
 import { useActiveCompany } from '@/Hooks/useActiveCompany'
 import SalesInvoiceScreen from '@/Modules/SalesInvoice/Components/SalesInvoiceScreen'
-import { hasSalesInvoiceModule } from '@/Services/salesInvoiceService'
+import { hasSalesInvoiceModule } from '@/Services/Invoice/salesInvoiceService'
 import { fetchCompanies, selectCompanyError, selectCompanyStatus } from '@/Store/Slices/companySlice'
 
 /**

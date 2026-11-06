@@ -12,7 +12,7 @@ import {
   defaultTallyRange,
   tallyYearOptions,
 } from '@/Modules/SalesInvoice/History/historyHelpers'
-import { getTallyVoucherTypes } from '@/Services/salesInvoiceService'
+import { getTallyVoucherTypes } from '@/Services/Invoice/tallyVoucherService'
 
 /**
  * FETCH FROM TALLY - the range and the voucher types to bring over.

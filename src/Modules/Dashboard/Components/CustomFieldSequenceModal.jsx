@@ -43,7 +43,7 @@ import { Button } from '@/Components/ui/button'
 import { customFieldTypeLabel } from '@/Constants/inventory'
 import { toast } from '@/Library/toast'
 import { cn } from '@/Library/utils'
-import { saveCustomField } from '@/Services/inventoryService'
+import { saveCustomField } from '@/Services/Inventory/customFieldService'
 
 /** A field's own key: its `sr_no`, or its name for one without. */
 const keyOf = (field) => String(field?.sr_no ?? field?.field_name ?? '')

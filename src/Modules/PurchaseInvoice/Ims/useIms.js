@@ -3,7 +3,7 @@ import { useState } from 'react'
 import useGstPortalAuth from '@/Hooks/useGstPortalAuth'
 import { toast } from '@/Library/toast'
 import { applySavedActions, buildImsSaveSections, changeCount, readImsSections, withChange } from '@/Modules/PurchaseInvoice/Ims/imsModel'
-import { fetchIms, IMS_PREMIUM, saveImsActions } from '@/Services/gstReturnService'
+import { fetchIms, IMS_PREMIUM, saveImsActions } from '@/Services/Gst/gstReturnService'
 
 /**
  * IMS FOR ONE COMPANY - its invoices on the GST portal and the actions taken

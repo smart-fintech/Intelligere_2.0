@@ -1,7 +1,7 @@
 import { cn } from '@/Library/utils'
 import { ComparisonTable, Figure, HealthDot, NoteBox } from '@/Modules/BusinessHealth/Components/ReportCard'
 import { dependencyViews } from '@/Modules/BusinessHealth/Reports/dependency'
-import { hasActiveModule } from '@/Services/accessService'
+import { hasActiveModule } from '@/Services/Auth/accessService'
 
 /**
  * The Purchase & Suppliers tab's reports (old PurchaseSuppliersReports.js) -

@@ -29,7 +29,7 @@ import {
   selectReferralStatus,
 } from '@/Store/Slices/referralSlice'
 import { formatDate } from '@/Utils/date'
-import { api } from '@/Services/authService'
+import { api } from '@/Services/Global/apiService'
 import { downloadFileFromUrl } from '@/Utils/fileDownload'
 
 function ProfileFieldItem({

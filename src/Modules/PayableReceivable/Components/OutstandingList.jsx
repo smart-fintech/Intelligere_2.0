@@ -35,7 +35,7 @@ import {
 } from '@/Modules/PayableReceivable/payableReceivable'
 import { ExpandButton, LineGrid } from '@/Modules/SalesInvoice/History/InventorySalesOrderHistory'
 import { createOutstandingPdf, outstandingPdfName } from '@/Modules/PayableReceivable/outstandingPdf'
-import { deleteEntry, getOutstanding, updateEntry } from '@/Services/payableReceivableService'
+import { deleteEntry, getOutstanding, updateEntry } from '@/Services/Accounting/payableReceivableService'
 import { formatIndianCurrency } from '@/Utils/currency'
 import { formatDate } from '@/Utils/date'
 import { orDash } from '@/Utils/display'

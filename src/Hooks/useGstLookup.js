@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 
 import { toast } from '@/Library/toast'
-import { fetchGstDetails, isValidGstNumber } from '@/Services/gstService'
+import { fetchGstDetails, isValidGstNumber } from '@/Services/Gst/gstService'
 
 /**
  * The "Fill from GSTIN" lookup, as every form in the app runs it.
@@ -39,7 +39,7 @@ import { fetchGstDetails, isValidGstNumber } from '@/Services/gstService'
  * differently, so that mapping is not something to share.
  *
  * The request itself - the base64 decoding, the nested address, the three
- * reply shapes - is Services/gstService, which this calls. Nothing here
+ * reply shapes - is Services/Gst/gstService, which this calls. Nothing here
  * touches the network directly.
  *
  * ------------------------------------------------------------------

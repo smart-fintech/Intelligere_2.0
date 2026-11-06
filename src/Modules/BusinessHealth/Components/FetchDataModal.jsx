@@ -10,8 +10,8 @@ import useTallySync from '@/Modules/PayableReceivable/useTallySync'
 import { MONTH_OPTIONS, tallyYearOptions } from '@/Modules/SalesInvoice/History/historyHelpers'
 import useTallyInvoiceFetch from '@/Modules/SalesInvoice/History/useTallyInvoiceFetch'
 import useVoucherTypes from '@/Modules/SalesInvoice/Voucher/useVoucherTypes'
-import { TALLY_BANK_TRANSACTIONS_MODULE, buildBankTransactionsMessage } from '@/Services/businessHealthService'
-import { TALLY_RECEIVABLE_PAYABLE_MODULE, buildReceivablePayableSyncMessage } from '@/Services/payableReceivableService'
+import { TALLY_BANK_TRANSACTIONS_MODULE, buildBankTransactionsMessage } from '@/Services/Reporting/businessHealthService'
+import { TALLY_RECEIVABLE_PAYABLE_MODULE, buildReceivablePayableSyncMessage } from '@/Services/Accounting/payableReceivableService'
 
 /**
  * FETCH DATA (old FetchEntries) - bring what the reports read over from

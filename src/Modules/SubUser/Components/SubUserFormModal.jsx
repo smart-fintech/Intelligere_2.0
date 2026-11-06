@@ -66,7 +66,7 @@ import { Modal } from '@/Components/Common/Modal'
 import { Button } from '@/Components/ui/button'
 import { useActiveCompany } from '@/Hooks/useActiveCompany'
 import { toast } from '@/Library/toast'
-import { findCompanyById } from '@/Services/companyService'
+import { findCompanyById } from '@/Services/Company/companyService'
 import {
   buildSubUserPayload,
   buildSubUserUpdatePayload,
@@ -75,7 +75,7 @@ import {
   getSubUserEditValues,
   registerSubUser,
   updateSubUser,
-} from '@/Services/subUserService'
+} from '@/Services/User/subUserService'
 import { fetchCompanies, selectCompanyError, selectCompanyStatus } from '@/Store/Slices/companySlice'
 import { selectProfile } from '@/Store/Slices/profileSlice'
 import SubUserCompanyCard from './SubUserCompanyCard'

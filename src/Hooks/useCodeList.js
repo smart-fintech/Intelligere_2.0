@@ -1,5 +1,5 @@
 /**
- * One of the shared code lists (Services/codeList), for the field that
+ * One of the shared code lists (Services/Global/codeList), for the field that
  * offers it - the HSN dropdown on a Product form, the SAC dropdown on the
  * Ledger form:
  *

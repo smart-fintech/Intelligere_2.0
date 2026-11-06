@@ -8,7 +8,7 @@ import { Card, CardContent } from '@/Components/ui/card'
 import { ROUTES } from '@/Constants/routes'
 import { useActiveCompany } from '@/Hooks/useActiveCompany'
 import JournalVoucherScreen from '@/Modules/JournalVoucher/Components/JournalVoucherScreen'
-import { hasJournalVoucherModule } from '@/Services/journalVoucherService'
+import { hasJournalVoucherModule } from '@/Services/Accounting/journalVoucherService'
 import { fetchCompanies, selectCompanyError, selectCompanyStatus } from '@/Store/Slices/companySlice'
 
 /**

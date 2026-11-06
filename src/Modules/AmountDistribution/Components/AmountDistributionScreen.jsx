@@ -21,7 +21,7 @@ import {
   buildAmountDistributionTallyMessage,
   generateAmountDistribution,
   saveAmountDistribution,
-} from '@/Services/amountDistributionService'
+} from '@/Services/Accounting/amountDistributionService'
 import { fetchLedgers, selectLedgerError, selectLedgerStatus, selectLedgers, selectLedgersCompanyId } from '@/Store/Slices/ledgerSlice'
 import { selectIsIntelligereErp, selectIsTallyErp } from '@/Store/Slices/profileSlice'
 

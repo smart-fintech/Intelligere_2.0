@@ -18,7 +18,7 @@
  */
 
 import { toPaise } from '@/Modules/Payment/pricing'
-import { fileUrlOf } from '@/Services/salesInvoiceService'
+import { fileUrlOf } from '@/Services/Global/apiHelpers'
 
 /* ------------------------------------------------------------------ */
 /* Financial years - April to March                                   */

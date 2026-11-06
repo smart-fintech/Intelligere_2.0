@@ -20,7 +20,7 @@
  *   toEwayBillModel(invoiceModel, { documentType, ewaybillNo, ewaybillDate, enteredDate, cancelled })
  */
 
-import { toDocumentDate } from '@/Services/salesInvoiceService'
+import { toDocumentDate } from '@/Services/Invoice/salesInvoiceService'
 
 const textOf = (value) => (value === null || value === undefined ? '' : String(value).trim())
 const round2 = (value) => Math.round((Number(value) || 0) * 100) / 100

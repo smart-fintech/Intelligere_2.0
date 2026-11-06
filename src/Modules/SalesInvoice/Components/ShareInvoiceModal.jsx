@@ -4,7 +4,7 @@ import { Share2 } from 'lucide-react'
 import { Modal } from '@/Components/Common/Modal'
 import { Button } from '@/Components/ui/button'
 import { toast } from '@/Library/toast'
-import { shareInvoice } from '@/Services/invoiceSharingService'
+import { shareInvoice } from '@/Services/Invoice/invoiceSharingService'
 
 /**
  * SHARE WITH THE BUYER'S COMPANY - offered once a document is saved and its

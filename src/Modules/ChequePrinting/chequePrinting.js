@@ -14,7 +14,7 @@
  *   formatTimestamp     an API timestamp -> DD-MM-YYYY HH:MM
  */
 
-import { chequeImageUrl } from '@/Services/chequeService'
+import { chequeImageUrl } from '@/Services/Accounting/chequeService'
 import { formatDate, isValidDate, toInputDate } from '@/Utils/date'
 
 /** The most the backend's cheque_amount column can hold. */

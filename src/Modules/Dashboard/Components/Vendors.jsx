@@ -62,7 +62,7 @@ import { useActiveCompany } from '@/Hooks/useActiveCompany'
 import { useListView } from '@/Hooks/useListView'
 import { toast } from '@/Library/toast'
 import { cn } from '@/Library/utils'
-import { getVendorId, getVendors, vendorCompanyDetails, vendorRating } from '@/Services/inventoryService'
+import { getVendorId, getVendors, vendorCompanyDetails, vendorRating } from '@/Services/Inventory/vendorService'
 import { selectCompanyStatus } from '@/Store/Slices/companySlice'
 import {
   fetchLedgers,

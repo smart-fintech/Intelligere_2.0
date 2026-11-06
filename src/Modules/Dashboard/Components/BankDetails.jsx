@@ -57,9 +57,9 @@ import { useListView } from '@/Hooks/useListView'
 import useSectionAccess from '@/Hooks/useSectionAccess'
 import { toast } from '@/Library/toast'
 import { cn } from '@/Library/utils'
-import { ACCESS_SECTIONS } from '@/Services/accessService'
-import { deleteBank } from '@/Services/bankService'
-import { CSV_SOURCES } from '@/Services/csvService'
+import { ACCESS_SECTIONS } from '@/Services/Auth/accessService'
+import { deleteBank } from '@/Services/Company/bankService'
+import { CSV_SOURCES } from '@/Services/Global/csvService'
 import {
   fetchBankOptions,
   fetchBanks,

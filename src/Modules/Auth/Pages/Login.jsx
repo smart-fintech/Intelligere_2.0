@@ -6,7 +6,7 @@ import { Field, PasswordField } from '@/Components/Common/FormFields'
 import { Button } from '@/Components/ui/button'
 import { ROUTES } from '@/Constants/routes'
 import { toast } from '@/Library/toast'
-import { api } from '@/Services/authService'
+import { api } from '@/Services/Global/apiService'
 import AuthShell from '../Components/AuthShell'
 
 // The values the form starts out with.
@@ -59,7 +59,7 @@ export default function Login() {
 
     try {
       // Just the call. The tokens and user details in the response are
-      // written to localStorage centrally (see Services/authService.js), so
+      // written to localStorage centrally (see Services/Global/apiService.js), so
       // there is nothing to save here.
       const data = await api.post('useraccount/login/', {
         email: form.email.trim().toLowerCase(),
@@ -96,6 +96,10 @@ export default function Login() {
           <Button asChild variant="secondary"  className="mt-1 border-1 border-brand/40">
             <Link to={ROUTES.REGISTER}>Register Here</Link>
           </Button>
+          {/* Procurement's vendors sign in to their own portal. */}
+          <Link to={ROUTES.VENDOR_LOGIN} className="mt-1 text-xs font-medium text-brand underline-offset-4 hover:underline">
+            Vendor? Login to the Vendor Portal
+          </Link>
         </>
       }
     >

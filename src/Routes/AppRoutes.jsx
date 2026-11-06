@@ -61,7 +61,7 @@
  * break: the router only ever sees one.
  */
 
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 
 import AppLayout from '@/Components/Layout/AppLayout'
 import { PRODUCT_MODULES } from '@/Constants/dashboardModules'
@@ -71,6 +71,7 @@ import useIsLoggedIn from '@/Hooks/useIsLoggedIn'
 import ForgotPassword from '@/Modules/Auth/Pages/ForgetPassword'
 import Login from '@/Modules/Auth/Pages/Login'
 import Register from '@/Modules/Auth/Pages/Register'
+import B2BCndnPage from '@/Modules/B2BCNDN/Pages/B2BCndnPage'
 import BankStatementPage from '@/Modules/BankStatement/Pages/BankStatementPage'
 import Dashboard from '@/Modules/Dashboard/Pages/Dashboard'
 import BankDetailsPage from '@/Modules/Dashboard/Pages/BankDetailsPage'
@@ -86,6 +87,7 @@ import PayableReceivablePage from '@/Modules/PayableReceivable/Pages/PayableRece
 import PaymentPage from '@/Modules/Payment/Pages/PaymentPage'
 import PaymentStatusPage from '@/Modules/Payment/Pages/PaymentStatusPage'
 import PremiumRechargePage from '@/Modules/Payment/Pages/PremiumRechargePage'
+import ProcurementPage from '@/Modules/Procurement/Pages/ProcurementPage'
 import Profile from '@/Modules/Profile/Pages/Profile'
 import ComingSoonPage from '@/Modules/Misc/Pages/ComingSoonPage'
 import GstComparePage from '@/Modules/GstCompare/Pages/GstComparePage'
@@ -95,6 +97,8 @@ import SalesInvoicePage from '@/Modules/SalesInvoice/Pages/SalesInvoicePage'
 import CreateSubUser from '@/Modules/SubUser/Pages/CreateSubUser'
 import NotFound from '@/Modules/Misc/Pages/NotFound'
 import ReportIssue from '@/Modules/Support/Pages/ReportIssue'
+import VendorLoginPage from '@/Modules/VendorPortal/Pages/VendorLoginPage'
+import VendorPortalPage from '@/Modules/VendorPortal/Pages/VendorPortalPage'
 
 /**
  * The real page of each product module that has one, by its key in
@@ -109,6 +113,7 @@ const PRODUCT_MODULE_PAGES = {
   'Bank Statement': BankStatementPage,
   'Sales Invoice': SalesInvoicePage,
   'Sales Entries': SalesEntriesPage,
+  'B2B/CNDN': B2BCndnPage,
   'Purchase Invoice': PurchaseInvoicePage,
   'GST Compare': GstComparePage,
   'Payable Receivable': PayableReceivablePage,
@@ -116,7 +121,20 @@ const PRODUCT_MODULE_PAGES = {
   'Cheque Printing': ChequePrintingPage,
   'Business Health Indicators': BusinessHealthPage,
   'Journal Voucher': JournalVoucherPage,
+  'Procurement Automation': ProcurementPage,
   DocuVault: DocuVaultPage,
+}
+
+/**
+ * The bare domain. A vendor's emails link here too: the bid invitation as it
+ * is, and the password reset page with ?email=...&pass=... on the end - that
+ * one is sent on to the vendor login, query and all, which signs it in.
+ */
+function RootRedirect() {
+  const { search } = useLocation()
+  const params = new URLSearchParams(search)
+  if (params.get('email') && params.get('pass')) return <Navigate to={{ pathname: ROUTES.VENDOR_LOGIN, search }} replace />
+  return <Navigate to={ROUTES.LOGIN} replace />
 }
 
 export default function AppRoutes() {
@@ -134,7 +152,7 @@ export default function AppRoutes() {
           Without it, pressing Back would take you to "/", which would
           bounce you forward to /login again - a Back button that does
           nothing. */}
-      <Route path={ROUTES.ROOT} element={<Navigate to={ROUTES.LOGIN} replace />} />
+      <Route path={ROUTES.ROOT} element={<RootRedirect />} />
 
       {/* ---------- Auth pages ----------
           Deliberately OUTSIDE the layout below: there is no sidebar to show
@@ -146,13 +164,19 @@ export default function AppRoutes() {
       <Route path={ROUTES.REGISTER_WITH_REFERRAL} element={<Register />} />
       <Route path={ROUTES.FORGOT_PASSWORD} element={<ForgotPassword />} />
 
+      {/* ---------- The vendor portal ----------
+          Outside the app shell as well: a vendor is not an app user, and its
+          session (Modules/VendorPortal/vendorSession) is not the app's. */}
+      <Route path={ROUTES.VENDOR_LOGIN} element={<VendorLoginPage />} />
+      <Route path={ROUTES.VENDOR_PORTAL} element={<VendorPortalPage />} />
+
       {/* ---------- Pages inside the app shell ----------
           This parent <Route> has no `path` of its own - it exists only to
           wrap its children in <AppLayout>. Each child below is rendered
           into the <Outlet /> inside that layout.
 
           TODO: wrap this parent in a route guard that checks isLoggedIn()
-          from Services/tokenService, so these pages cannot be opened by
+          from Services/Auth/tokenService, so these pages cannot be opened by
           typing the URL while signed out. */}
       <Route element={<AppLayout />}>
         <Route path={ROUTES.DASHBOARD} element={<Dashboard />} />

@@ -1,6 +1,6 @@
 import { CodeSelector } from '@/Components/Common/CodeSelector'
 import useSacList from '@/Hooks/useSacList'
-import { findSac, searchSac } from '@/Services/sacService'
+import { findSac, searchSac } from '@/Services/Ledger/sacService'
 
 /**
  * The SAC Code field of the Ledger form.
@@ -11,7 +11,7 @@ import { findSac, searchSac } from '@/Services/sacService'
  * The same field as the Product form's HSN Code, on the same list behaviour
  * (CodeSelector): the codes alone in the list, each one's description in a
  * tooltip as it is highlighted, searched by the digits it starts with, over
- * a list fetched once for the whole app (Services/sacService).
+ * a list fetched once for the whole app (Services/Ledger/sacService).
  *
  * The value is the code as text - exactly what `ledger_sac` held before and
  * what it still sends, so nothing about the save changes. A ledger saved

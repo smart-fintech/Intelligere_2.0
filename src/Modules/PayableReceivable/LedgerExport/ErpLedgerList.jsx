@@ -25,7 +25,7 @@ import {
 import OpeningBalanceModal from '@/Modules/PayableReceivable/Components/OpeningBalanceModal'
 import { ExpandButton } from '@/Modules/SalesInvoice/History/InventorySalesOrderHistory'
 import { formatAmount } from '@/Modules/SalesInvoice/Document/invoiceFormat'
-import { deleteErpEntry, getErpLedgers } from '@/Services/ledgerExportService'
+import { deleteErpEntry, getErpLedgers } from '@/Services/Accounting/ledgerExportService'
 import { formatIndianCurrency } from '@/Utils/currency'
 import { downloadTextFile } from '@/Utils/fileDownload'
 

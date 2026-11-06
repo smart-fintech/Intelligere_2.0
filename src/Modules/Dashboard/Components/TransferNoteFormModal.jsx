@@ -49,7 +49,7 @@ import {
   transferFormOf,
 } from '@/Modules/Dashboard/transferNotes'
 import { SkuCode } from '@/Modules/SalesInvoice/Components/RequestQuotation'
-import { createTransferNote, updateTransferNote } from '@/Services/inventoryService'
+import { createTransferNote, updateTransferNote } from '@/Services/Inventory/transferNoteService'
 
 /** One block of the form - a heading only where it says something the fields do not. */
 function FormSection({ title, children }) {

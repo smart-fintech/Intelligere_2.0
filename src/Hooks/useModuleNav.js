@@ -3,7 +3,7 @@ import { matchPath, useLocation } from 'react-router-dom'
 
 import { MODULE_NAV } from '@/Constants/dashboardModules'
 import { useAccessScope } from '@/Hooks/useSectionAccess'
-import { getSectionAccess } from '@/Services/accessService'
+import { getSectionAccess } from '@/Services/Auth/accessService'
 
 /**
  * The dashboard Details pages to show in the horizontal ModuleNav bar, worked
@@ -27,7 +27,7 @@ import { getSectionAccess } from '@/Services/accessService'
  * Every page is listed for everybody. A page with an `access` section gets
  * `disabled: true` for a sub user who may not VIEW that section in the
  * company being worked in - its own permission, View, or the company's
- * entitlement missing (Services/accessService) - and also until that is
+ * entitlement missing (Services/Auth/accessService) - and also until that is
  * known, so a link never works for a moment and then stops. The bar draws a
  * disabled page as a link that goes nowhere.
  */

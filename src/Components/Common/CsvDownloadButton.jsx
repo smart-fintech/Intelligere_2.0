@@ -3,7 +3,7 @@ import { Download } from 'lucide-react'
 
 import { Button } from '@/Components/ui/button'
 import { toast } from '@/Library/toast'
-import { generateCsv } from '@/Services/csvService'
+import { generateCsv } from '@/Services/Global/csvService'
 import { downloadFileFromUrl } from '@/Utils/fileDownload'
 
 /**
@@ -16,7 +16,7 @@ import { downloadFileFromUrl } from '@/Utils/fileDownload'
  *   />
  *
  * One click:
- *   1. POST tally/download-csv/ with `payload` (see Services/csvService)
+ *   1. POST tally/download-csv/ with `payload` (see Services/Global/csvService)
  *   2. take `download_url` from the reply - no link is an error, said so
  *   3. hand it to downloadFileFromUrl (Utils/fileDownload), which saves it
  *

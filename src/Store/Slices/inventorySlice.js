@@ -22,7 +22,8 @@
 
 import { createAsyncThunk, createSlice } from '@reduxjs/toolkit'
 
-import { getCustomFields, getMasterDetails } from '@/Services/inventoryService'
+import { getCustomFields } from '@/Services/Inventory/customFieldService'
+import { getMasterDetails } from '@/Services/Inventory/inventoryService'
 
 /** What a record is filed under: the company's name and the user's email. */
 export const masterDetailsKeyOf = (compName, email) => (compName ? `${compName}|${email ?? ''}` : null)

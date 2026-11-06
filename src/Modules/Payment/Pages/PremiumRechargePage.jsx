@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { AlertCircle, ArrowLeft, Building2, Check, History, Layers, Sparkles, Zap } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
-import { RetryButton, StateMessage } from '@/Components/Common/DataList'
+import { InlineAlert, RetryButton, StateMessage } from '@/Components/Common/DataList'
 import { SelectField } from '@/Components/Common/FormFields'
 import { Loader } from '@/Components/Common/Loader'
 import { Modal } from '@/Components/Common/Modal'
@@ -434,6 +434,19 @@ export default function PremiumRechargePage() {
                 Add a company first - premium features are bought for a company.
               </p>
             )}
+            {company && !recharge.eligibility.eligible ? (
+              <div className="mt-3" data-testid="premium-not-eligible">
+                <InlineAlert
+                  action={
+                    <Button asChild variant="outline" size="sm">
+                      <Link to={ROUTES.PAYMENT}>View plans</Link>
+                    </Button>
+                  }
+                >
+                  {recharge.eligibility.reason}
+                </InlineAlert>
+              </div>
+            ) : null}
           </div>
 
           {catalog.recharge.length ? (

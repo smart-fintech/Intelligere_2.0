@@ -8,7 +8,7 @@ import { QUERY } from '@/Constants/queryKeys'
 import { useQuery } from '@/Library/queryCache'
 import { toast } from '@/Library/toast'
 import { cn } from '@/Library/utils'
-import { getAppLedgerProducts, saveAppMapping } from '@/Services/appLedgerProductService'
+import { getAppLedgerProducts, saveAppMapping } from '@/Services/Invoice/appLedgerProductService'
 
 const cell = 'px-2 py-1.5'
 const orDash = (value) => (value ? value : '--')

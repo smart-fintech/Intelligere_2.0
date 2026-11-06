@@ -19,7 +19,7 @@ import {
   supplyTypesOf,
   toDecimalInput,
 } from '@/Modules/SalesInvoice/salesInvoiceForm'
-import { paymentQrOfBank } from '@/Services/salesInvoiceService'
+import { paymentQrOfBank } from '@/Services/Invoice/salesInvoiceService'
 
 /**
  * Step 3 - Document Details.

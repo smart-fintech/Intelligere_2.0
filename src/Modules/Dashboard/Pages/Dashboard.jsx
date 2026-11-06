@@ -13,7 +13,7 @@ import { ROUTES } from '@/Constants/routes'
 import { useActiveCompany } from '@/Hooks/useActiveCompany'
 import ModuleLayout from '@/Modules/Dashboard/Components/ModuleLayout'
 import { cn } from '@/Library/utils'
-import { hasActiveModule } from '@/Services/accessService'
+import { hasActiveModule } from '@/Services/Auth/accessService'
 
 /**
  * Modules & Features - the landing page after signing in, and the first tab

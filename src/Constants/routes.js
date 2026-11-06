@@ -25,6 +25,13 @@ export const ROUTES = {
   REGISTER_WITH_REFERRAL: '/register/:referralBy',
   FORGOT_PASSWORD: '/forgot-password',
 
+  // ---- The vendor portal (Procurement Automation's vendors) ----
+  // A vendor is not an app user: it signs in with the email a bid invited and
+  // its own password (procurement/vendor_login/), and sees only its bids. No
+  // app shell - see Modules/VendorPortal.
+  VENDOR_LOGIN: '/vendor/login',
+  VENDOR_PORTAL: '/vendor',
+
   // ---- After a successful login (these sit inside the app shell:
   //      header + sidebar + footer) ----
 

@@ -7,7 +7,7 @@
  *   auto.creating          Set of the (lower-case) names being created now
  *   auto.retry(rows)       try the ones still missing again - the user asked
  *
- * One bulk_ledger_create message (Services/ledgerService) carries every party
+ * One bulk_ledger_create message (Services/Ledger/ledgerService) carries every party
  * of the batch that is "Not in tally", under Sundry Debtors with its GSTIN
  * and state. The agent creates them, reads the ledgers back into the
  * backend, and answers with a stop_loader; `onDone` then loads the batch
@@ -23,7 +23,7 @@ import { useRef, useState } from 'react'
 import { toast } from '@/Library/toast'
 import useTallyExchange from '@/Modules/GstCompare/useTallyExchange'
 import { text } from '@/Modules/SalesEntries/shared/ledgerLists'
-import { BULK_LEDGER_CREATE_MODULE, buildBulkLedgerMessage } from '@/Services/ledgerService'
+import { BULK_LEDGER_CREATE_MODULE, buildBulkLedgerMessage } from '@/Services/Ledger/ledgerService'
 
 const NOT_IN_TALLY = 'not in tally'
 const NONE = new Set()

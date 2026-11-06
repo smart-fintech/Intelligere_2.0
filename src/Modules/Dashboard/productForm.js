@@ -661,7 +661,7 @@ export const checkProductStep = (step, { steps, values, skuSets, allocations }, 
  * field has no value and is not sent at all.
  *
  * This says nothing about the shape of the request - that is
- * buildProductPayload in Services/inventoryService, the only place it is
+ * buildProductPayload in Services/Inventory/inventoryService, the only place it is
  * built.
  */
 export const collectProductValues = (steps, { values, skuSets, allocations }, { vendorOptions = [] } = {}) => {
@@ -839,7 +839,7 @@ export const prefillProductForm = (steps, saved) => {
  * added with OK in ProductReferencePicker: one SKU of one of the
  * company's products, how much of it goes in, and how much is wasted.
  * The form keeps each reference exactly as the request carries it
- * (buildProductReference in Services/inventoryService), so nothing has to
+ * (buildProductReference in Services/Inventory/inventoryService), so nothing has to
  * be worked out again when the product is saved.
  *
  * What is being chosen, before OK, is a draft:
@@ -919,7 +919,7 @@ export const emptyAllocation = (id) => ({
 
 /**
  * THE LINES, ALL IN ONE WAREHOUSE - for a company whose plan allows only
- * one (see hasSingleWarehouseLimit in Services/inventoryService).
+ * one (see hasSingleWarehouseLimit in Services/Inventory/inventoryService).
  *
  * `warehouse` is that warehouse's identifier as text, or '' while it is
  * not known (the list is still loading, failed, or is empty). Every line

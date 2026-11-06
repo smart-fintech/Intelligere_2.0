@@ -8,7 +8,7 @@ import { Card, CardContent } from '@/Components/ui/card'
 import { ROUTES } from '@/Constants/routes'
 import { useActiveCompany } from '@/Hooks/useActiveCompany'
 import AmountDistributionScreen from '@/Modules/AmountDistribution/Components/AmountDistributionScreen'
-import { hasAmountDistributionModule } from '@/Services/amountDistributionService'
+import { hasAmountDistributionModule } from '@/Services/Accounting/amountDistributionService'
 import { fetchCompanies, selectCompanyError, selectCompanyStatus } from '@/Store/Slices/companySlice'
 
 /**

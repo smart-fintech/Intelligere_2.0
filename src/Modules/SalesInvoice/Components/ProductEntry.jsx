@@ -133,8 +133,6 @@ export default function ProductEntry({
             label="SKU Code"
             required
             skuVariants={product.variants.map((variant) => variant.source)}
-            // Always passed: SkuSelector's own default for `valueOf` never
-            // applies, as every props object already has Object.prototype.valueOf.
             valueOf={skuOptionValue}
             value={entry.skuValue}
             error={errorOf('skuValue')}

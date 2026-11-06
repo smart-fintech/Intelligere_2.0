@@ -153,6 +153,22 @@ export const invalidateQueries = (resource, { whose, refetchActive = false } = {
   })
 }
 
+/**
+ * Changes a cached answer in place - for a server push that says what changed
+ * (a live bid), so the screen updates without asking again. `update(data)`
+ * gets the answer held now and returns the new one, or null to leave it. Only
+ * an entry that holds an answer is changed; a request still on its way wins
+ * when it lands, as it is the newer word. Returns the new answer, or null.
+ */
+export const updateQueryData = (key, update) => {
+  const entry = entries.get(keyText(key))
+  if (!entry?.hasData) return null
+  const data = update(entry.snapshot.data)
+  if (data === null || data === undefined) return null
+  publish(entry, { data })
+  return data
+}
+
 /** Empties the cache - on logout, so nothing of one session reaches the next. */
 export const clearQueryCache = () => {
   entries.forEach((entry) => {

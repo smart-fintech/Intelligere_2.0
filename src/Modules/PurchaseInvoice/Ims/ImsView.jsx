@@ -16,8 +16,8 @@ import { useListView } from '@/Hooks/useListView'
 import { cn } from '@/Library/utils'
 import { ACTION_FIELD, actionOf, changeCount, IMS_ACTIONS, IMS_SECTIONS, imsColumns, STATUS_FIELD } from '@/Modules/PurchaseInvoice/Ims/imsModel'
 import useIms, { imsRowKey } from '@/Modules/PurchaseInvoice/Ims/useIms'
-import { listsModule } from '@/Services/accessService'
-import { IMS_PREMIUM } from '@/Services/gstReturnService'
+import { listsModule } from '@/Services/Auth/accessService'
+import { IMS_PREMIUM } from '@/Services/Gst/gstReturnService'
 
 /**
  * IMS - Purchase Invoice's view of the GST portal's Invoice Management System

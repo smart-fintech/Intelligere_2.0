@@ -1,7 +1,7 @@
 /**
  * IMS - THE GST PORTAL'S INVOICE MANAGEMENT SYSTEM, as data: what
  * gst_portal_integration/ims/ answers and what saving the actions sends
- * (Services/gstReturnService fetchIms / saveImsActions). Plain functions: no
+ * (Services/Gst/gstReturnService fetchIms / saveImsActions). Plain functions: no
  * React, no requests.
  *
  *   readImsSections(reply)          -> [{ key, label, rows }] - the eight sections, in the

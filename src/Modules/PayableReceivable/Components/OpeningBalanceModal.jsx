@@ -6,7 +6,7 @@ import { Modal } from '@/Components/Common/Modal'
 import { Button } from '@/Components/ui/button'
 import { toast } from '@/Library/toast'
 import { checkOpeningBalance } from '@/Modules/PayableReceivable/payableReceivable'
-import { saveOpeningBalance } from '@/Services/payableReceivableService'
+import { saveOpeningBalance } from '@/Services/Accounting/payableReceivableService'
 import { fetchLedgers, selectLedgerStatus, selectLedgers, selectLedgersCompanyId } from '@/Store/Slices/ledgerSlice'
 import { toInputDate } from '@/Utils/date'
 

@@ -17,7 +17,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { readHistoryRow, uniqueHistoryRows } from '@/Modules/SalesInvoice/History/historyHelpers'
-import { getDocumentHistory } from '@/Services/salesInvoiceService'
+import { getDocumentHistory } from '@/Services/Invoice/documentHistoryService'
 
 const NONE = []
 

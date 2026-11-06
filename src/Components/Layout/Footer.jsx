@@ -17,7 +17,7 @@ import {
   resolveGoldTallyConnection,
   resolveTallyConnection,
   tallySocket,
-} from '@/Services/tallyConnectionService'
+} from '@/Services/Tally/tallyConnectionService'
 import { useActiveCompany } from '@/Hooks/useActiveCompany'
 import { useSelector } from 'react-redux'
 import { selectIsGoldTally, selectIsTallyErp } from '@/Store/Slices/profileSlice'

@@ -4,7 +4,7 @@ import { GstPortalAuthDialogs } from '@/Components/Common/GstPortalAuthDialogs'
 import { Button } from '@/Components/ui/button'
 import useGstPortalAuth from '@/Hooks/useGstPortalAuth'
 import { toast } from '@/Library/toast'
-import { fetchGstr2b, GSTR_2B_PREMIUM } from '@/Services/gstCompareService'
+import { fetchGstr2b, GSTR_2B_PREMIUM } from '@/Services/Gst/gstCompareService'
 
 /**
  * FETCH DATA FROM THE GST PORTAL - the Fetch button for GSTR-2B. Signing in

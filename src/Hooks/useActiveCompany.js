@@ -16,7 +16,7 @@ import { useEffect } from 'react'
 import { useSelector } from 'react-redux'
 
 import { ENV } from '@/Config/env'
-import { ACTIVE_COMPANY_RULE, rememberSelectedCompany } from '@/Services/companyService'
+import { ACTIVE_COMPANY_RULE, rememberSelectedCompany } from '@/Services/Company/companyService'
 import {
   selectActiveCompanyInfo,
   selectCompanyDebugInfo,

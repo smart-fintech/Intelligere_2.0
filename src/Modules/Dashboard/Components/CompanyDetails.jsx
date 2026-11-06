@@ -50,8 +50,8 @@ import { useListView } from '@/Hooks/useListView'
 import { toast } from '@/Library/toast'
 import { cn } from '@/Library/utils'
 import { getEmail } from '@/Library/secureStorage'
-import { deleteCompany, getCompanyStatus } from '@/Services/companyService'
-import { CSV_SOURCES } from '@/Services/csvService'
+import { deleteCompany, getCompanyStatus } from '@/Services/Company/companyService'
+import { CSV_SOURCES } from '@/Services/Global/csvService'
 import {
   fetchCompanies,
   removeCompany,

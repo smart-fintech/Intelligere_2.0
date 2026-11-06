@@ -19,7 +19,7 @@ import { MASTER_DATA_STALE_MS, QUERY } from '@/Constants/queryKeys'
 import { useActiveCompany } from '@/Hooks/useActiveCompany'
 import { useQuery } from '@/Library/queryCache'
 import { readAdjustments } from '@/Modules/Dashboard/inventoryAdjustments'
-import { getInventoryAdjustments } from '@/Services/inventoryService'
+import { getInventoryAdjustments } from '@/Services/Inventory/inventoryAdjustmentService'
 
 const NO_ADJUSTMENTS = []
 

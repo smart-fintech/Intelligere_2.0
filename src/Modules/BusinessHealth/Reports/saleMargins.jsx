@@ -1,6 +1,6 @@
 import { cn } from '@/Library/utils'
 import { ComparisonTable, EntryBoxes, Figure, HealthDot, NoteBox } from '@/Modules/BusinessHealth/Components/ReportCard'
-import { hasActiveModule } from '@/Services/accessService'
+import { hasActiveModule } from '@/Services/Auth/accessService'
 
 /**
  * The Sale & Margins tab's reports (old SaleMarginReports.js) - each in the

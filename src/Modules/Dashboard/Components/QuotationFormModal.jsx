@@ -43,7 +43,7 @@ import {
   dateTextOf,
   quoteFormOf,
 } from '@/Modules/Dashboard/quotationRequests'
-import { saveQuotationForm } from '@/Services/procurementService'
+import { saveQuotationForm } from '@/Services/Procurement/procurementService'
 import { formatIndianCurrency } from '@/Utils/currency'
 
 /** One titled block of the form - the cards of the earlier form, in this app's style. */

@@ -10,13 +10,13 @@
  *   retry()   asks again - nothing retries on its own
  *
  * The request itself is made, and its answer kept, by getSampleInvoices in
- * Services/inventoryService - so any number of screens using this hook, and
+ * Services/Inventory/inventoryService - so any number of screens using this hook, and
  * any number of remounts, share ONE request per visit.
  */
 
 import { useEffect, useMemo, useState } from 'react'
 
-import { getSampleInvoices, toInvoiceFormats } from '@/Services/inventoryService'
+import { getSampleInvoices, toInvoiceFormats } from '@/Services/Invoice/sampleInvoiceService'
 
 const LOADING = { status: 'loading', data: null, error: null }
 

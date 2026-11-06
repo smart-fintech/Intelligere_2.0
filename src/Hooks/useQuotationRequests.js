@@ -22,7 +22,7 @@ import { QUERY } from '@/Constants/queryKeys'
 import { useActiveCompany } from '@/Hooks/useActiveCompany'
 import { useQuery } from '@/Library/queryCache'
 import { readQuotationRequests } from '@/Modules/Dashboard/quotationRequests'
-import { getQuotationRequests } from '@/Services/procurementService'
+import { getQuotationRequests } from '@/Services/Procurement/procurementService'
 
 const NO_REQUESTS = []
 

@@ -33,7 +33,7 @@ import { useMemo } from 'react'
 import { useActiveCompany } from '@/Hooks/useActiveCompany'
 import { MASTER_DATA_STALE_MS, QUERY } from '@/Constants/queryKeys'
 import { invalidateQueries, useQuery } from '@/Library/queryCache'
-import { getProductGroups } from '@/Services/productService'
+import { getProductGroups } from '@/Services/Product/productService'
 
 const NO_GROUPS = []
 

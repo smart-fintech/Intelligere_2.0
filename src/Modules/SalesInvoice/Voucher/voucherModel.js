@@ -35,8 +35,10 @@
  */
 
 import { isSkuManaged, skuValueOf } from '@/Modules/SalesInvoice/salesInvoiceForm'
-import { getLedgerSac } from '@/Services/ledgerService'
-import { OTHER_CHARGES_SOURCE, SERVICE_PRODUCT_TYPE, TALLY_VOUCHER_MODULE, fileUrlOf, toDocumentDate } from '@/Services/salesInvoiceService'
+import { getLedgerSac } from '@/Services/Ledger/ledgerService'
+import { fileUrlOf } from '@/Services/Global/apiHelpers'
+import { OTHER_CHARGES_SOURCE, SERVICE_PRODUCT_TYPE, toDocumentDate } from '@/Services/Invoice/salesInvoiceService'
+import { TALLY_VOUCHER_MODULE } from '@/Services/Invoice/tallyVoucherService'
 
 /* ------------------------------------------------------------------ */
 /* Reading what the server sent                                       */

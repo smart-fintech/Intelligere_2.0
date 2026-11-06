@@ -18,7 +18,7 @@ import { useDispatch, useSelector } from 'react-redux'
 
 import { MASTER_DATA_STALE_MS, QUERY } from '@/Constants/queryKeys'
 import { useQuery } from '@/Library/queryCache'
-import { getSalesLedgers } from '@/Services/salesEntriesService'
+import { getSalesLedgers } from '@/Services/Accounting/salesEntriesService'
 import { fetchLedgers, selectLedgerError, selectLedgerStatus, selectLedgers, selectLedgersCompanyId } from '@/Store/Slices/ledgerSlice'
 
 const NONE = Object.freeze([])

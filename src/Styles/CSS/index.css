@@ -220,3 +220,27 @@
     opacity: 0;
   }
 }
+
+/* ------------------------------------------------------------------ */
+/* Cancelled watermark                                                */
+/* ------------------------------------------------------------------ */
+
+/* A cancelled Bid / Pre Bid card stamped CANCELLED from its bottom-left corner
+   to its top-right (CancelledWatermark). The layer covers the card and is a
+   size container, so the stamp's angle and size follow the card's own
+   diagonal as it grows (a product's vendors opened under it); the first
+   rotate and font-size are for a browser without atan2() / hypot(). */
+.cancelled-watermark {
+  container-type: size;
+}
+
+.cancelled-watermark > span {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  translate: -50% -50%;
+  rotate: -18deg;
+  rotate: atan2(-100cqh, 100cqw);
+  font-size: clamp(1.5rem, min(8cqw, 36cqh), 9rem);
+  font-size: clamp(1.5rem, min(calc(hypot(100cqw, 100cqh) * 0.08), 36cqh), 9rem);
+}

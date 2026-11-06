@@ -2,3 +2,73 @@ The Services directory manages API calls and external interactions, keeping code
 
 Encapsulates logic for interacting with APIs and external resources.
 Ensures separation of concerns and cleaner code structure.
+
+LAYOUT - one folder per area, one file per backend resource
+------------------------------------------------------------
+Every file is imported by its full path, e.g.
+
+  import { api } from '@/Services/Global/apiService'
+  import { getLedgers } from '@/Services/Ledger/ledgerService'
+
+There is no index / barrel file on purpose: a barrel would load every
+service with the first import (no code splitting per module), would make
+same-named exports clash (getLastSync, updateEntry ...), and invites
+import cycles. A file only imports what it uses, by path.
+
+Global/        shared by everything - no module knowledge
+  apiService           the one axios instance and api.get/post/put/patch/delete
+  apiHelpers           MULTIPART, toList, text, sharedRequest, fileUrlOf
+  socketService        the app's Tally WebSocket (createSocket, appSocket)
+  codeList             loader behind the HSN and SAC lists
+  csvService           CSV downloads
+  locationService      countries, states, cities
+
+Auth/          the session and what the user may do
+  tokenService         tokens, sign-in/out, inactivity logout
+  accessService        module and section permissions (sub users)
+  roleService          company roles (departments)
+
+User/          subUserService - sub users and what a company's plan allows them
+Support/       supportService - Report an Issue tickets
+
+Company/
+  companyService       the user's companies, the active company, plan status
+  companySyncService   Tally side of a company: recent Tally companies, Refresh
+  bankService          a company's bank accounts
+
+Tally/         tallyConnectionService - the footer's Tally connection check
+
+Ledger/        ledgerService (ledgers, groups, Tally ledger messages), sacService
+Product/       productService (basic products), productCache, hsnService
+
+Inventory/     inventoryService (Master Details + plan checks), warehouseService,
+               vendorService, customFieldService, inventoryProductService,
+               transferNoteService, inventoryAdjustmentService, forecastService,
+               inventoryBookingService
+
+Invoice/       Sales Invoice and Purchase Invoice (one document engine)
+  salesInvoiceService     access, the document payload, save, PDF, numbering
+  purchaseInvoiceService  Purchase Invoice access
+  documentMappingService  GST ledger mappings
+  documentHistoryService  History: saved documents, delete, regenerate, export
+  tallyVoucherService     Voucher: Tally vouchers, voucher types, Fetch from Tally
+  sampleInvoiceService    the invoice formats
+  documentPrefillService, orderProductService, appLedgerProductService,
+  invoiceSharingService, aiInvoiceService,
+  gstPortalService        E-Invoice / E-Way Bill
+
+Accounting/    the accounting-automation modules
+  salesEntriesService, salesInventoryService, b2bCndnService,
+  journalVoucherService, amountDistributionService, payableReceivableService,
+  ledgerExportService, bankStatementService, chequeService,
+  keywordMappingService
+
+Gst/           gstService (GSTIN lookup), gstCompareService, gstReturnService
+Procurement/   procurementService, procurementAutomationService, vendorPortalService
+Payment/       paymentService, cashfreeService, subscriptionService (premium eligibility)
+Reporting/     businessHealthService (MIS)
+DocuVault/     docuVaultService
+
+Adding a service: put it in the folder of the area it serves; a new area gets
+a new folder. Import the HTTP client from Global/apiService and the shared
+helpers from Global/apiHelpers - never copy them.

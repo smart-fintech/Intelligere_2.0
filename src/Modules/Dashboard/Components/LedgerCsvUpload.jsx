@@ -65,7 +65,7 @@ import {
   LEDGER_CSV_FORMAT_FILE,
   buildBulkLedgerMessage,
   importLedgerCsv,
-} from '@/Services/ledgerService'
+} from '@/Services/Ledger/ledgerService'
 import { selectIsErpKnown } from '@/Store/Slices/profileSlice'
 import { downloadTextFile } from '@/Utils/fileDownload'
 

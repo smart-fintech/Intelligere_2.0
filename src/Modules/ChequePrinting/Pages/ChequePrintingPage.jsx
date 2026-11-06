@@ -8,7 +8,7 @@ import { Card, CardContent } from '@/Components/ui/card'
 import { ROUTES } from '@/Constants/routes'
 import { useActiveCompany } from '@/Hooks/useActiveCompany'
 import ChequePrintingScreen from '@/Modules/ChequePrinting/Components/ChequePrintingScreen'
-import { hasChequePrintingModule } from '@/Services/chequeService'
+import { hasChequePrintingModule } from '@/Services/Accounting/chequeService'
 import { fetchCompanies, selectCompanyError, selectCompanyStatus } from '@/Store/Slices/companySlice'
 
 /**

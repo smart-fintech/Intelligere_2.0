@@ -8,7 +8,7 @@
  *                   shown a button that is then taken away
  *   access.view / create / edit / delete / any
  *
- * The rules are Services/accessService's (getSectionAccess). Who the user is
+ * The rules are Services/Auth/accessService's (getSectionAccess). Who the user is
  * is the role saved at sign-in (Secure Storage); what they were given is the
  * ACTIVE company's own record in the store - so a move to another company
  * answers again from that company, and nothing of the last one carries over.
@@ -23,7 +23,7 @@ import { useState } from 'react'
 import { useSelector } from 'react-redux'
 
 import { getRole } from '@/Library/secureStorage'
-import { FULL_ACCESS, NO_ACCESS, getSectionAccess, isSubUserRole } from '@/Services/accessService'
+import { FULL_ACCESS, NO_ACCESS, getSectionAccess, isSubUserRole } from '@/Services/Auth/accessService'
 import { selectActiveCompany, selectCompanyStatus } from '@/Store/Slices/companySlice'
 
 /** { known, subUser, company } - what getSectionAccess is asked with. */

@@ -12,7 +12,7 @@
 import { createAsyncThunk, createSlice } from '@reduxjs/toolkit'
 
 import { getUuid } from '@/Library/secureStorage'
-import { api } from '@/Services/authService'
+import { api } from '@/Services/Global/apiService'
 
 /* ------------------------------------------------------------------ */
 /* 1. The API call                                                    */

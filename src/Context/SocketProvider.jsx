@@ -3,7 +3,7 @@
  *
  * It sits above the routes in App.jsx, so moving between pages never drops the
  * connection. There is deliberately no React context value here: the socket is
- * a single shared connection in Services/socketService.js, and components
+ * a single shared connection in Services/Global/socketService.js, and components
  * reach it with useWebSocket() from anywhere in the tree. This component owns
  * only the LIFECYCLE:
  *
@@ -17,14 +17,14 @@
  * that was not even asking for live data.
  *
  * It opens by itself the first time a screen actually needs it: a send(), or a
- * module that asks for it with `connectOnMount`. See Services/socketService.js.
+ * module that asks for it with `connectOnMount`. See Services/Global/socketService.js.
  */
 
 import { useEffect } from 'react'
 
-import { appSocket } from '@/Services/socketService'
-import { tallySocket } from '@/Services/tallyConnectionService'
-import { isLoggedIn, onTokensChanged } from '@/Services/tokenService'
+import { appSocket } from '@/Services/Global/socketService'
+import { tallySocket } from '@/Services/Tally/tallyConnectionService'
+import { isLoggedIn, onTokensChanged } from '@/Services/Auth/tokenService'
 
 // Every connection whose lifecycle follows the session: the shared one, and
 // the footer's dedicated Tally-check one. Each still opens only when used.

@@ -58,7 +58,7 @@ import {
   vendorParts,
   withDefaultAllocations,
 } from '@/Modules/SalesInvoice/procurement'
-import { getOrderRequirement, requestQuotation } from '@/Services/procurementService'
+import { getOrderRequirement, requestQuotation } from '@/Services/Procurement/procurementService'
 
 const NONE = []
 

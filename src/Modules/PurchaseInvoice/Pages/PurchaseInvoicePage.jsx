@@ -12,7 +12,7 @@ import { useActiveCompany } from '@/Hooks/useActiveCompany'
 import { PURCHASE_FLOW } from '@/Modules/PurchaseInvoice/purchaseFlow'
 import { purchaseOrderFromQuotation } from '@/Modules/PurchaseInvoice/quotationPurchaseOrder'
 import SalesInvoiceScreen from '@/Modules/SalesInvoice/Components/SalesInvoiceScreen'
-import { getPurchaseDocumentTypeAccess, hasPurchaseInvoiceModule } from '@/Services/purchaseInvoiceService'
+import { getPurchaseDocumentTypeAccess, hasPurchaseInvoiceModule } from '@/Services/Invoice/purchaseInvoiceService'
 import { fetchCompanies, selectCompanyError, selectCompanyStatus } from '@/Store/Slices/companySlice'
 
 /**

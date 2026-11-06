@@ -1,6 +1,6 @@
 import { ComparisonTable, EntryBoxes, Figure, HealthDot, NoteBox } from '@/Modules/BusinessHealth/Components/ReportCard'
-import { hasActiveModule } from '@/Services/accessService'
-import { hasInventoryManagement } from '@/Services/inventoryService'
+import { hasActiveModule } from '@/Services/Auth/accessService'
+import { hasInventoryManagement } from '@/Services/Inventory/inventoryService'
 
 /**
  * The Inventory & Working Capital tab's reports (old InventoryCapitalReports.js)

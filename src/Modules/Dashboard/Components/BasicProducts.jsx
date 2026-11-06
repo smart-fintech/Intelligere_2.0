@@ -81,13 +81,13 @@ import useVendorOptions from '@/Hooks/useVendorOptions'
 import { useWebSocket } from '@/Hooks/useWebSocket'
 import { toast } from '@/Library/toast'
 import { cn } from '@/Library/utils'
-import { CSV_SOURCES } from '@/Services/csvService'
+import { CSV_SOURCES } from '@/Services/Global/csvService'
 import {
   BASIC_PRODUCT_ERP,
   TALLY_PRODUCT_FETCH_MODULE,
   buildFetchProductsMessage,
   toBasicProduct,
-} from '@/Services/productService'
+} from '@/Services/Product/productService'
 import { selectCompanyStatus } from '@/Store/Slices/companySlice'
 import { selectIsTallyErp } from '@/Store/Slices/profileSlice'
 import BasicProductForm from './BasicProductForm'

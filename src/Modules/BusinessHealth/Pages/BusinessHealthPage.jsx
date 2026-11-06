@@ -9,7 +9,7 @@ import { BUSINESS_HEALTH_MODULE } from '@/Constants/businessHealth'
 import { ROUTES } from '@/Constants/routes'
 import { useActiveCompany } from '@/Hooks/useActiveCompany'
 import BusinessHealthScreen from '@/Modules/BusinessHealth/Components/BusinessHealthScreen'
-import { hasActiveModule } from '@/Services/accessService'
+import { hasActiveModule } from '@/Services/Auth/accessService'
 import { fetchCompanies, selectCompanyError, selectCompanyStatus } from '@/Store/Slices/companySlice'
 
 /**

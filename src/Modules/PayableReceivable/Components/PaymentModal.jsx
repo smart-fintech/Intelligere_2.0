@@ -6,7 +6,7 @@ import { ViewSwitch } from '@/Components/Common/ViewSwitch'
 import { Button } from '@/Components/ui/button'
 import { toast } from '@/Library/toast'
 import { checkPayment } from '@/Modules/PayableReceivable/payableReceivable'
-import { updateEntry } from '@/Services/payableReceivableService'
+import { updateEntry } from '@/Services/Accounting/payableReceivableService'
 import { formatIndianCurrency } from '@/Utils/currency'
 import { formatDate, toInputDate } from '@/Utils/date'
 

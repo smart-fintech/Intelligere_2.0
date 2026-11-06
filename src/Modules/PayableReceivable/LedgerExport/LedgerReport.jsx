@@ -19,7 +19,7 @@ import {
   toLedgerDate,
 } from '@/Modules/PayableReceivable/LedgerExport/ledgerExport'
 import { formatAmount } from '@/Modules/SalesInvoice/Document/invoiceFormat'
-import { getGeneralLedger, getPartyWiseLedger } from '@/Services/ledgerExportService'
+import { getGeneralLedger, getPartyWiseLedger } from '@/Services/Accounting/ledgerExportService'
 import { createPdf, downloadPdf, safeFileName } from '@/Utils/pdf'
 
 /**

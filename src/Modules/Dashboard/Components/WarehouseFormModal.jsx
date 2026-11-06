@@ -62,7 +62,7 @@ import {
   getWarehouseId,
   hasManufacturingPlantSetting,
   updateWarehouse,
-} from '@/Services/inventoryService'
+} from '@/Services/Inventory/warehouseService'
 
 const FORM_ID = 'warehouse-form'
 

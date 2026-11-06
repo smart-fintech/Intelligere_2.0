@@ -8,7 +8,7 @@ import { Card, CardContent } from '@/Components/ui/card'
 import { ROUTES } from '@/Constants/routes'
 import { useActiveCompany } from '@/Hooks/useActiveCompany'
 import SalesEntriesScreen from '@/Modules/SalesEntries/Components/SalesEntriesScreen'
-import { hasSalesEntriesModule } from '@/Services/salesEntriesService'
+import { hasSalesEntriesModule } from '@/Services/Accounting/salesEntriesService'
 import { fetchCompanies, selectCompanyError, selectCompanyStatus } from '@/Store/Slices/companySlice'
 
 /**

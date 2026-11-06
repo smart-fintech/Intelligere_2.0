@@ -47,10 +47,10 @@ import {
   deleteBusinessDocument,
   documentTypeOfRecord,
   exportDocumentsExcel,
-  getDocumentTypeAccess,
   regenerateVoucher,
-} from '@/Services/salesInvoiceService'
-import { readEinvoiceDetails } from '@/Services/gstPortalService'
+} from '@/Services/Invoice/documentHistoryService'
+import { getDocumentTypeAccess } from '@/Services/Invoice/salesInvoiceService'
+import { readEinvoiceDetails } from '@/Services/Invoice/gstPortalService'
 import { downloadFileFromUrl } from '@/Utils/fileDownload'
 import { formatIndianCurrency } from '@/Utils/currency'
 import { formatDate } from '@/Utils/date'

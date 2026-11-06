@@ -58,15 +58,15 @@ import useSectionAccess from '@/Hooks/useSectionAccess'
 import { useWebSocket } from '@/Hooks/useWebSocket'
 import { toast } from '@/Library/toast'
 import { cn } from '@/Library/utils'
-import { ACCESS_SECTIONS } from '@/Services/accessService'
-import { CSV_SOURCES } from '@/Services/csvService'
+import { ACCESS_SECTIONS } from '@/Services/Auth/accessService'
+import { CSV_SOURCES } from '@/Services/Global/csvService'
 import {
   LEDGER_SOCKET_MODULE,
   buildFetchLedgerMessage,
   deleteLedger,
   getLedgerId,
   deleteAllLedgers,
-} from '@/Services/ledgerService'
+} from '@/Services/Ledger/ledgerService'
 import { fetchBankOptions, selectBankNames } from '@/Store/Slices/bankSlice'
 import {
   fetchCompanies,

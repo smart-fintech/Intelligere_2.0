@@ -8,8 +8,8 @@ import { applicableForm, createInvoiceForm, documentProfile, gstByRate, invoiceF
 import useDocumentMappings from '@/Modules/SalesInvoice/useDocumentMappings'
 import useInvoiceReferenceData from '@/Modules/SalesInvoice/useInvoiceReferenceData'
 import HistoryPdfJob from '@/Modules/SalesInvoice/History/HistoryPdfJob'
-import { getCountries, getStates } from '@/Services/locationService'
-import { MAPPING_DOCUMENT_TYPE } from '@/Services/salesInvoiceService'
+import { getCountries, getStates } from '@/Services/Global/locationService'
+import { MAPPING_DOCUMENT_TYPE } from '@/Services/Invoice/documentMappingService'
 import { resolveGstLedgers } from '@/Utils/gstLedgers'
 import '@/Modules/SalesInvoice/Document/invoiceSheet.css'
 

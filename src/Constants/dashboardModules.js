@@ -38,7 +38,7 @@ import {
 } from 'lucide-react'
 
 import { ROUTES } from '@/Constants/routes'
-import { ACCESS_SECTIONS } from '@/Services/accessService'
+import { ACCESS_SECTIONS } from '@/Services/Auth/accessService'
 
 /* ------------------------------------------------------------------ */
 /* 1. The pages in the top navigation                                 */
@@ -174,7 +174,7 @@ export const PRODUCT_MODULES = [
     key: 'B2B/CNDN',
     name: 'B2B/CNDN',
     icon: FileText,
-    status: MODULE_STATUS.COMING_SOON,
+    status: MODULE_STATUS.AVAILABLE,
     description: 'Manage B2B invoices, credit and debit notes',
   },
   {
@@ -223,8 +223,8 @@ export const PRODUCT_MODULES = [
     key: 'Procurement Automation',
     name: 'Procurement Automation',
     icon: Workflow,
-    status: MODULE_STATUS.COMING_SOON,
-    description: 'Automate purchase requests and orders',
+    status: MODULE_STATUS.AVAILABLE,
+    description: 'Run bids and pre bids with your vendors',
   },
   {
     key: 'Journal Voucher',

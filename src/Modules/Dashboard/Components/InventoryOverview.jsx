@@ -21,7 +21,7 @@ import { useState } from 'react'
 
 import { ViewSwitch } from '@/Components/Common/ViewSwitch'
 import useSectionAccess from '@/Hooks/useSectionAccess'
-import { ACCESS_SECTIONS } from '@/Services/accessService'
+import { ACCESS_SECTIONS } from '@/Services/Auth/accessService'
 import CustomReport from './CustomReport'
 import ExpiredProducts from './ExpiredProducts'
 import Products from './Products'

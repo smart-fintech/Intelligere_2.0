@@ -39,7 +39,7 @@
  * second.
  */
 
-import { buildVoucherSocketMessage } from '@/Services/salesInvoiceService'
+import { buildVoucherSocketMessage } from '@/Services/Invoice/tallyVoucherService'
 
 let sending = null
 

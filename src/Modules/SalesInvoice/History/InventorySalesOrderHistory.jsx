@@ -14,7 +14,7 @@ import HistoryPdfModal from '@/Modules/SalesInvoice/History/HistoryPdfModal'
 import SalesOrderProcessModal from '@/Modules/SalesInvoice/History/SalesOrderProcessModal'
 import { statusText } from '@/Modules/SalesInvoice/History/inventorySalesOrders'
 import useInventorySalesOrders from '@/Modules/SalesInvoice/History/useInventorySalesOrders'
-import { getWarehouseId } from '@/Services/inventoryService'
+import { getWarehouseId } from '@/Services/Inventory/warehouseService'
 import { formatIndianCurrency } from '@/Utils/currency'
 import { formatDate } from '@/Utils/date'
 

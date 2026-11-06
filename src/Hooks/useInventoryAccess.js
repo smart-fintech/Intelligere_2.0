@@ -34,7 +34,7 @@
 
 import { useSelector } from 'react-redux'
 
-import { hasInventoryManagement } from '@/Services/inventoryService'
+import { hasInventoryManagement } from '@/Services/Inventory/inventoryService'
 import { selectActiveCompany, selectCompanyStatus } from '@/Store/Slices/companySlice'
 import { selectIsMsme, selectProfile, selectProfileStatus } from '@/Store/Slices/profileSlice'
 

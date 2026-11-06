@@ -10,7 +10,7 @@ import { TICKET_DESCRIPTION_MAX } from '@/Constants/support'
 import { useActiveCompany } from '@/Hooks/useActiveCompany'
 import { toast } from '@/Library/toast'
 import { ATTACHMENT_ACCEPT, attachmentProblem, moduleOptionsOf, refreshTickets } from '@/Modules/Support/support'
-import { createTicket } from '@/Services/supportService'
+import { createTicket } from '@/Services/Support/supportService'
 import { fetchCompanies, selectCompanyError, selectCompanyStatus } from '@/Store/Slices/companySlice'
 import { isValidEmail } from '@/Utils/validation'
 

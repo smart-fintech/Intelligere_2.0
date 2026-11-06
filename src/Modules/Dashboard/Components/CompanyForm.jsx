@@ -45,8 +45,8 @@ import { Panel } from '@/Components/Common/Panel'
 import { Button } from '@/Components/ui/button'
 import { INDIAN_STATES } from '@/Constants/indianStates'
 import { toast } from '@/Library/toast'
-import { updateCompany } from '@/Services/companyService'
-import { isValidGstNumber } from '@/Services/gstService'
+import { updateCompany } from '@/Services/Company/companyService'
+import { isValidGstNumber } from '@/Services/Gst/gstService'
 
 /*
  * The fields the user may change, named exactly as the company API names

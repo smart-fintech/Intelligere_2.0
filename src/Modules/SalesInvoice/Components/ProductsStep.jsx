@@ -16,8 +16,8 @@ import { entryFromOrderRow } from '@/Modules/SalesInvoice/orderProducts'
 import ProductEntry from '@/Modules/SalesInvoice/Components/ProductEntry'
 import { AddedProducts, BuyerProducts } from '@/Modules/SalesInvoice/Components/ProductLists'
 import { toast } from '@/Library/toast'
-import { getLedgerSac } from '@/Services/ledgerService'
-import { MAPPING_DOCUMENT_TYPE } from '@/Services/salesInvoiceService'
+import { getLedgerSac } from '@/Services/Ledger/ledgerService'
+import { MAPPING_DOCUMENT_TYPE } from '@/Services/Invoice/documentMappingService'
 import { gstChargesByLedger } from '@/Utils/gstLedgers'
 import {
   LINE_KIND,

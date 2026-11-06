@@ -22,7 +22,7 @@ import { useMemo } from 'react'
 
 import { QUERY } from '@/Constants/queryKeys'
 import { useQuery } from '@/Library/queryCache'
-import { getTallyVouchers, voucherGroupsOf } from '@/Services/salesInvoiceService'
+import { getTallyVouchers, voucherGroupsOf } from '@/Services/Invoice/tallyVoucherService'
 
 const NONE = Object.freeze({})
 

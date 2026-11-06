@@ -40,7 +40,7 @@ import {
   getActiveCompanyInfo,
   getUserCompanies,
   rememberSelectedCompany,
-} from '@/Services/companyService'
+} from '@/Services/Company/companyService'
 import {
   selectErp,
   selectIsGoldTally,

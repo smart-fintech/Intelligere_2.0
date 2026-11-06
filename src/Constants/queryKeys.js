@@ -58,6 +58,15 @@
  *                       source's keyword -> ledger mapping, read again after a change (useKeywordMapping)
  *   SUPPORT_TICKETS     POST notifications/get_user_tickets/ [SUPPORT_TICKETS, email] - the user's
  *                       tickets, for every company; read again after one is raised (TicketHistory)
+ *   PROCUREMENT_EVENTS  POST procurement/auction_create/, pre_bid_create/ [PROCUREMENT_EVENTS, companyId,
+ *                       kind] - the bids or pre bids, read again after a create, edit or cancel
+ *   PROCUREMENT_VENDORS POST inventory/vendor_create/     [PROCUREMENT_VENDORS, companyId] - the vendor
+ *                       master, as the Bid form offers it (useCompanyVendors)
+ *   PRE_BID_CHAT        POST procurement/pre_bid_chat/   [PRE_BID_CHAT, companyId, preBidId] - every
+ *                       conversation of one pre bid, read again after a send (usePreBidChat); a
+ *                       vendor's own is [PRE_BID_CHAT, 'vendor:<email>', preBidId]
+ *   VENDOR_EVENTS       POST procurement/vendor_auction_list/, vendor_pre_bid_list/ [VENDOR_EVENTS,
+ *                       email, kind] - the vendor portal's bids or pre bids (Modules/VendorPortal)
  *
  * How long an answer is used before it is asked for again, even with no
  * change seen here: what another user, another tab or Tally may have
@@ -93,6 +102,11 @@ export const QUERY = Object.freeze({
   SALES_LEDGERS: 'salesLedgers',
   KEYWORD_MAPPING: 'keywordMapping',
   SUPPORT_TICKETS: 'supportTickets',
+  PROCUREMENT_EVENTS: 'procurementEvents',
+  PROCUREMENT_VENDORS: 'procurementVendors',
+  PRE_BID_CHAT: 'preBidChat',
+  VENDOR_EVENTS: 'vendorEvents',
+
 })
 
 export const MASTER_DATA_STALE_MS = 5 * 60 * 1000

@@ -46,7 +46,7 @@ import {
   TALLY_STOCK_GROUP_CREATE_MODULE,
   buildTallyStockGroupCreateMessage,
   createProductGroup,
-} from '@/Services/productService'
+} from '@/Services/Product/productService'
 
 /** Safety net: the longest Submit waits for Tally's stop_loader - as for a ledger group. */
 const TALLY_SAVE_TIMEOUT_MS = 2 * 60 * 1000

@@ -12,14 +12,14 @@ import { ROUTES } from '@/Constants/routes'
 // import { STORAGE_KEYS, getItem } from '@/Library/secureStorage'
 import { toast } from '@/Library/toast'
 import { cn } from '@/Library/utils'
-import { logout } from '@/Services/tokenService'
+import { logout } from '@/Services/Auth/tokenService'
 import {
   COMPANY_SOCKET_MODULE,
   buildActiveCompanyMessage,
   buildDeleteRecentCompaniesPayload,
   deleteRecentCompanies,
   getRecentCompanies,
-} from '@/Services/companyService'
+} from '@/Services/Company/companySyncService'
 import { useWebSocket } from '@/Hooks/useWebSocket'
 import Bars from '../ui/CustomIcons/Bars'
 import { useDispatch, useSelector } from 'react-redux'
@@ -145,7 +145,7 @@ export default function Header({ onToggleSidebar }) {
   /**
    * The app's one WebSocket. There is no `new WebSocket` here, and no
    * connection is created when this component renders: the header only says
-   * WHAT to send and WHAT to do with the answer. See Services/socketService.js.
+   * WHAT to send and WHAT to do with the answer. See Services/Global/socketService.js.
    *
    * `module` means "only company replies, please" - a ledger screen asks for
    * its own module and the two never hear each other. Messages the backend

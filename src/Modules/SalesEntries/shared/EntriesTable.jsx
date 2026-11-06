@@ -4,6 +4,7 @@ import { ChevronDown, ChevronRight } from 'lucide-react'
 import { DataTable, PlainHead } from '@/Components/Common/TableTools'
 import { Checkbox } from '@/Components/ui/checkbox'
 import { TableCell, TableRow } from '@/Components/ui/table'
+import { cn } from '@/Library/utils'
 
 /**
  * One page of a batch, the same frame in every view:
@@ -22,8 +23,10 @@ import { TableCell, TableRow } from '@/Components/ui/table'
  *   locked         Set of keys that cannot be ticked now
  *   disabled       everything read-only (a send is running, or not a Tally account)
  *   describe(entry)  how a tick box names its entry: "invoice KPC-2/26-27"
+ *   rowClassName(entry)  optional - a class for the entry's row (B2B / CNDN tint one
+ *                  being put right)
  */
-export default function EntriesTable({ rows, offset, pick, locked, disabled, columns, details, describe }) {
+export default function EntriesTable({ rows, offset, pick, locked, disabled, columns, details, describe, rowClassName }) {
   const [open, setOpen] = useState(() => new Set())
 
   const toggleOpen = (key) =>
@@ -55,7 +58,7 @@ export default function EntriesTable({ rows, offset, pick, locked, disabled, col
         const name = describe(entry)
         return (
           <Fragment key={entry.key}>
-            <TableRow data-state={pick.selected.has(entry.key) ? 'selected' : undefined} className="align-top">
+            <TableRow data-state={pick.selected.has(entry.key) ? 'selected' : undefined} className={cn('align-top', rowClassName?.(entry))}>
               <TableCell>
                 <Checkbox
                   aria-label={`Select ${name}`}

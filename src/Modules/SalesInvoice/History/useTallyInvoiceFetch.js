@@ -24,8 +24,8 @@ import { useEffect, useRef, useState } from 'react'
 
 import { useWebSocket } from '@/Hooks/useWebSocket'
 import { toast } from '@/Library/toast'
-import { markProductsChanged } from '@/Services/productCache'
-import { TALLY_INVOICE_FETCH_MODULE, buildTallyInvoiceFetchMessage } from '@/Services/salesInvoiceService'
+import { markProductsChanged } from '@/Services/Product/productCache'
+import { TALLY_INVOICE_FETCH_MODULE, buildTallyInvoiceFetchMessage } from '@/Services/Invoice/tallyVoucherService'
 
 /** The longest a fetch waits for Tally's stop_loader - the same allowance as Ledger and Product Sync. */
 const FETCH_TIMEOUT_MS = 5 * 60 * 1000

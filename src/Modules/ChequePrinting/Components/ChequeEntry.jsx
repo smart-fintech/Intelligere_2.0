@@ -22,7 +22,7 @@ import {
   CHEQUE_CSV_FORMAT_FILE,
   printCheque,
   printChequesFromCsv,
-} from '@/Services/chequeService'
+} from '@/Services/Accounting/chequeService'
 import { downloadTextFile } from '@/Utils/fileDownload'
 
 /**

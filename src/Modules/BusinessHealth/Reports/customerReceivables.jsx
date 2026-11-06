@@ -1,6 +1,6 @@
 import { ComparisonTable, EntryBoxes, Figure, HealthDot, NoteBox } from '@/Modules/BusinessHealth/Components/ReportCard'
 import { dependencyViews } from '@/Modules/BusinessHealth/Reports/dependency'
-import { hasActiveModule } from '@/Services/accessService'
+import { hasActiveModule } from '@/Services/Auth/accessService'
 
 /**
  * The Customer & Receivables tab's reports (old CustomerReceivablesReports.js)

@@ -66,8 +66,8 @@ import { GST_RATES, GST_REGISTRATION_TYPES } from '@/Constants/gst'
 import { useGstLookup } from '@/Hooks/useGstLookup'
 import { useWebSocket } from '@/Hooks/useWebSocket'
 import { toast } from '@/Library/toast'
-import { isValidGstNumber } from '@/Services/gstService'
-import { DEFAULT_COUNTRY, getCities, getCountries, getStates } from '@/Services/locationService'
+import { isValidGstNumber } from '@/Services/Gst/gstService'
+import { DEFAULT_COUNTRY, getCities, getCountries, getStates } from '@/Services/Global/locationService'
 import {
   TALLY_LEDGER_ALTER_MODULE,
   TALLY_LEDGER_CREATE_MODULE,
@@ -75,7 +75,7 @@ import {
   createLedger,
   getLedgerId,
   updateLedger,
-} from '@/Services/ledgerService'
+} from '@/Services/Ledger/ledgerService'
 import {
   fetchCountries,
   selectCountryData,

@@ -34,7 +34,7 @@
  *    `reply` the upload's answer (a Sales Order's carries its `stock`).
  */
 
-import { documentIdOf } from '@/Services/salesInvoiceService'
+import { documentIdOf } from '@/Services/Invoice/salesInvoiceService'
 
 export const SAVE_OUTCOME = Object.freeze({
   DONE: 'done',

@@ -1,6 +1,6 @@
 import { CodeSelector } from '@/Components/Common/CodeSelector'
 import useHsnList from '@/Hooks/useHsnList'
-import { findHsn, searchHsn } from '@/Services/hsnService'
+import { findHsn, searchHsn } from '@/Services/Product/hsnService'
 
 /**
  * The HSN Code field of a Product form.
@@ -8,7 +8,7 @@ import { findHsn, searchHsn } from '@/Services/hsnService'
  *   <HsnSelector id="hsn" label="HSN Code" value={form.hsn} onChange={(code) => ...} />
  *
  * A dropdown whose search box finds a code among the whole HSN list
- * (Services/hsnService, fetched once for the app), listing the codes alone
+ * (Services/Product/hsnService, fetched once for the app), listing the codes alone
  * and showing what each describes in a tooltip as it is highlighted.
  *
  * All of that behaviour is CodeSelector's, which the Ledger form's SAC field

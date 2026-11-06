@@ -15,7 +15,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 
-import { getCompanyRoles } from '@/Services/roleService'
+import { getCompanyRoles } from '@/Services/Auth/roleService'
 
 const NO_ROLES = []
 

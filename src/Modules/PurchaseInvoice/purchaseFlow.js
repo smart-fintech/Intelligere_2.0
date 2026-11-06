@@ -14,7 +14,7 @@
 import PurchaseBuyerStep from '@/Modules/PurchaseInvoice/Components/PurchaseBuyerStep'
 import PurchaseSellerStep from '@/Modules/PurchaseInvoice/Components/PurchaseSellerStep'
 import { createPurchaseForm, validatePurchase } from '@/Modules/PurchaseInvoice/purchaseInvoiceForm'
-import { getPurchaseDocumentTypeAccess } from '@/Services/purchaseInvoiceService'
+import { getPurchaseDocumentTypeAccess } from '@/Services/Invoice/purchaseInvoiceService'
 
 export const PURCHASE_FLOW = Object.freeze({
   createForm: createPurchaseForm,

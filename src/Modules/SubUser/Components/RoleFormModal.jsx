@@ -28,7 +28,7 @@ import { Button } from '@/Components/ui/button'
 import { Checkbox } from '@/Components/ui/checkbox'
 import { Label } from '@/Components/ui/label'
 import { toast } from '@/Library/toast'
-import { ROLE_GROUPS, createCompanyRole, updateCompanyRole } from '@/Services/roleService'
+import { ROLE_GROUPS, createCompanyRole, updateCompanyRole } from '@/Services/Auth/roleService'
 
 const FORM_ID = 'role-form'
 

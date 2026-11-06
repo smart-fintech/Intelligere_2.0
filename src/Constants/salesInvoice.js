@@ -28,7 +28,7 @@
  *                 spaces or punctuation (see hasPremiumModule).
 
  * Every type is saved the same way, through invoice/business-documents/ with
- * its value as `document_type` (Services/salesInvoiceService).
+ * its value as `document_type` (Services/Invoice/salesInvoiceService).
  */
 export const DOCUMENT_TYPE_INVOICE = 'Sales Invoice'
 

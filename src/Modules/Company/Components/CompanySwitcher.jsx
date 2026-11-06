@@ -38,7 +38,7 @@
  *               list is then reloaded so the picker and every other module
  *               see the same thing
  *
- * Both calls go through Services/companyService - no URL is written here.
+ * Both calls go through Services/Company/companyService - no URL is written here.
  */
 
 import { useState } from 'react'
@@ -63,7 +63,7 @@ import {
   selectStoredCompany,
 } from '@/Store/Slices/companySlice'
 import { useActiveCompany } from '@/Hooks/useActiveCompany'
-import { selectIntelligereCompany } from '@/Services/companyService'
+import { selectIntelligereCompany } from '@/Services/Company/companyService'
 import AddCompanyModal from './AddCompanyModal'
 
 export default function CompanySwitcher() {

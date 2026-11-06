@@ -109,7 +109,7 @@ import {
 } from '@/Constants/inventory'
 import { toast } from '@/Library/toast'
 import { cn } from '@/Library/utils'
-import { isValidGstNumber } from '@/Services/gstService'
+import { isValidGstNumber } from '@/Services/Gst/gstService'
 import {
   createVendor,
   searchVendor,
@@ -117,9 +117,9 @@ import {
   vendorCompanyDetails,
   vendorIdentifier,
   vendorRating,
-} from '@/Services/inventoryService'
-import { getLedgerId } from '@/Services/ledgerService'
-import { DEFAULT_COUNTRY, getCities, getCountries, getStates } from '@/Services/locationService'
+} from '@/Services/Inventory/vendorService'
+import { getLedgerId } from '@/Services/Ledger/ledgerService'
+import { DEFAULT_COUNTRY, getCities, getCountries, getStates } from '@/Services/Global/locationService'
 import { fetchCountries, selectCountryData, selectCountryStatus } from '@/Store/Slices/locationSlice'
 import { orDash } from '@/Utils/display'
 

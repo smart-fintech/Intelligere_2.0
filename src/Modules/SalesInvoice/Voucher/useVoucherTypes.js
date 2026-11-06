@@ -14,12 +14,12 @@
  * once when a Voucher view first needs it, again for another company (a
  * new key), on reload(), or after MASTER_DATA_STALE_MS. Which type a
  * voucher starts with, and which it may use, is defaultVoucherTypeFor's and
- * voucherTypesOfGroup's to say (Services/salesInvoiceService), from this one list.
+ * voucherTypesOfGroup's to say (Services/Invoice/salesInvoiceService), from this one list.
  */
 
 import { MASTER_DATA_STALE_MS, QUERY } from '@/Constants/queryKeys'
 import { useQuery } from '@/Library/queryCache'
-import { getVoucherTypeList } from '@/Services/salesInvoiceService'
+import { getVoucherTypeList } from '@/Services/Invoice/tallyVoucherService'
 
 const NONE = Object.freeze([])
 

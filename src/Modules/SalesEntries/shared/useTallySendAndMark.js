@@ -10,6 +10,9 @@
  *
  *   buildMessage(companyName, rows)    the view's message (Services)
  *   markSent(invoiceNumbers)           the view's PUT ... Invoice_no
+ *   labels                             optional { done, failed, busy } - the texts shown when
+ *                                      Tally's reply has none, and for a second click. Default:
+ *                                      sales entries (B2B / CNDN pass their own)
  *
  * The invoices are marked sent ONLY when Tally answers status "success" -
  * Tally created every one of them. On "error" nothing is marked and they
@@ -32,11 +35,12 @@ import useTallySync from '@/Modules/PayableReceivable/useTallySync'
 const SEND_MESSAGES = Object.freeze({
   done: 'Sales entries sent to Tally.',
   failed: 'Tally could not take the sales entries.',
+  busy: 'Sales entries are still being sent to Tally. Please wait for it to finish.',
 })
 
 const NOTHING = Object.freeze([])
 
-export default function useTallySendAndMark({ moduleName, companyName, buildMessage, markSent, onSettled }) {
+export default function useTallySendAndMark({ moduleName, companyName, buildMessage, markSent, onSettled, labels = SEND_MESSAGES }) {
   const [inFlight, setInFlight] = useState(NOTHING)
   const [unmarked, setUnmarked] = useState(NOTHING)
   const [marking, setMarking] = useState(false)
@@ -76,7 +80,7 @@ export default function useTallySendAndMark({ moduleName, companyName, buildMess
     moduleName,
     companyName,
     buildMessage,
-    messages: SEND_MESSAGES,
+    messages: labels,
     onSuccess: async () => {
       const numbers = pendingRef.current ?? []
       if (numbers.length > 0) await mark(numbers)
@@ -87,7 +91,7 @@ export default function useTallySendAndMark({ moduleName, companyName, buildMess
 
   const send = async (items) => {
     if (pendingRef.current || marking) {
-      toast.error('Sales entries are still being sent to Tally. Please wait for it to finish.')
+      toast.error(labels.busy ?? SEND_MESSAGES.busy)
       return false
     }
     if (items.length === 0) return false

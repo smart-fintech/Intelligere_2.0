@@ -8,7 +8,7 @@ import { Card, CardContent } from '@/Components/ui/card'
 import { ROUTES } from '@/Constants/routes'
 import { useActiveCompany } from '@/Hooks/useActiveCompany'
 import PayableReceivableScreen from '@/Modules/PayableReceivable/Components/PayableReceivableScreen'
-import { hasPayableReceivableModule } from '@/Services/payableReceivableService'
+import { hasPayableReceivableModule } from '@/Services/Accounting/payableReceivableService'
 import { fetchCompanies, selectCompanyError, selectCompanyStatus } from '@/Store/Slices/companySlice'
 
 /**

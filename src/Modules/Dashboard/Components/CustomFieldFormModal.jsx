@@ -61,7 +61,7 @@ import {
   toOptions,
 } from '@/Constants/inventory'
 import { toast } from '@/Library/toast'
-import { saveCustomField } from '@/Services/inventoryService'
+import { saveCustomField } from '@/Services/Inventory/customFieldService'
 
 const FORM_ID = 'custom-field-form'
 

@@ -11,11 +11,11 @@ import {
   GSTR_1_FILING_UNKNOWN,
   GSTR_1_PREMIUM,
   prepareGstr1Filing,
-} from '@/Services/gstReturnService'
+} from '@/Services/Gst/gstReturnService'
 
 /**
  * FILING GSTR-1 FROM HISTORY - the Sales Invoices ticked (one company, one
- * month), in the backend's three steps (Services/gstReturnService), always
+ * month), in the backend's three steps (Services/Gst/gstReturnService), always
  * with the same document ids:
  *
  *   1. check-gstr1-data/    ready and signed in? Signing in when the portal

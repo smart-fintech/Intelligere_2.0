@@ -1,11 +1,12 @@
 /**
- * ONE SOURCE'S KEYWORD MAPPING (Services/keywordMappingService):
+ * ONE SOURCE'S KEYWORD MAPPING (Services/Accounting/keywordMappingService):
  *
  *   const mapping = useKeywordMapping(companyId, KEYWORD_SOURCE.WITH_INVENTORY)
  *
  *   mapping        { keyword: ledger } - NO_MAPPING until it is in
  *   status, error, reload
  *   add(keyword, ledger)   PUT - the reply is the source's whole mapping, kept as it is
+ *   addMany({ keyword: ledger })   the same, several keys in one PUT (B2B's "Both")
  *   remove(keyword)        DELETE, then read again
  *   saving                 true while either runs
  *
@@ -19,7 +20,7 @@ import { MASTER_DATA_STALE_MS, QUERY } from '@/Constants/queryKeys'
 import { useQuery } from '@/Library/queryCache'
 import { toast } from '@/Library/toast'
 import { NO_MAPPING, readMapping } from '@/Modules/SalesEntries/shared/keywordMapping'
-import { deleteKeywordMapping, getKeywordMapping, saveKeywordMapping } from '@/Services/keywordMappingService'
+import { deleteKeywordMapping, getKeywordMapping, saveKeywordMapping } from '@/Services/Accounting/keywordMappingService'
 
 export default function useKeywordMapping(companyId, source) {
   const query = useQuery({
@@ -51,6 +52,7 @@ export default function useKeywordMapping(companyId, source) {
     reload: query.reload,
     saving,
     add: (keyword, ledger) => run(() => saveKeywordMapping(companyId, source, { [keyword]: ledger }), 'Mapping saved.'),
+    addMany: (mapping) => run(() => saveKeywordMapping(companyId, source, mapping), 'Mapping saved.'),
     remove: (keyword) => run(() => deleteKeywordMapping(companyId, source, [keyword]), 'Mapping removed.'),
   }
 }

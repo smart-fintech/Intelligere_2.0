@@ -19,7 +19,7 @@ import { INDIAN_STATES } from '@/Constants/indianStates'
 import { ROUTES } from '@/Constants/routes'
 import { TermsAndConditions } from '@/Info/TermsAndConditions'
 import { toast } from '@/Library/toast'
-import { api } from '@/Services/authService'
+import { api } from '@/Services/Global/apiService'
 import SystemRequirements from '@/Info/SystemRequirements'
 import AuthShell from '../Components/AuthShell'
 

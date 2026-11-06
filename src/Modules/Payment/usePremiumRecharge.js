@@ -20,12 +20,19 @@
  *                                     package already covers] } - shown
  *                                     ticked, never charged again
  *   recharge.addOnKeys, toggleAddOn, optionChoices, chooseOption
+ *   recharge.eligibility              { eligible, reason, plan } - whether
+ *                                     premium features may be bought for
+ *                                     the company (Services/Payment/
+ *                                     subscriptionService): not on a free
+ *                                     trial, nor without a paid, current
+ *                                     main plan. A reason is also the
+ *                                     quote's first issue, so Pay stays off.
  *   recharge.quote                    the live price
  *   recharge.checkout()               product_type 'premium_feature' -> Cashfree
  *
  * After Cashfree, the status page confirms the order through
  * payment/PremiumPaymentConfirm/ - the product_type sent here is what picks
- * that endpoint (see checkout.js and Services/paymentService).
+ * that endpoint (see checkout.js and Services/Payment/paymentService).
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -33,7 +40,8 @@ import { useDispatch } from 'react-redux'
 
 import { useActiveCompany } from '@/Hooks/useActiveCompany'
 import { toast } from '@/Library/toast'
-import { PRODUCT_TYPE, getPriceList } from '@/Services/paymentService'
+import { PRODUCT_TYPE, getPriceList } from '@/Services/Payment/paymentService'
+import { getPremiumEligibility } from '@/Services/Payment/subscriptionService'
 import { fetchCompanies } from '@/Store/Slices/companySlice'
 
 import { startCheckout } from './checkout'
@@ -96,6 +104,8 @@ export function usePremiumRecharge() {
   // The company picked here, else the one the user is working in.
   const companyId = companyChoice ?? activeCompanyId
   const company = allCompanies.find((entry) => entry.company_id === companyId) ?? null
+  // Read from the company record in the store - re-read whenever it changes.
+  const eligibility = useMemo(() => getPremiumEligibility(company), [company])
 
   const quote = useMemo(() => {
     if (!catalog) return null
@@ -108,11 +118,11 @@ export function usePremiumRecharge() {
       optionChoices,
       gstPercent,
     })
-    // No payload is ever built without a company - its name is the payload key.
-    return company?.comp_name
-      ? base
-      : { ...base, issues: ['Select the company to recharge.', ...base.issues] }
-  }, [catalog, counts, groupKeys, packageChoices, addOnKeys, optionChoices, gstPercent, company])
+    // No payload is ever built without a company - its name is the payload
+    // key - nor for a company premium features cannot be bought for.
+    if (!company?.comp_name) return { ...base, issues: ['Select the company to recharge.', ...base.issues] }
+    return eligibility.eligible ? base : { ...base, issues: [eligibility.reason, ...base.issues] }
+  }, [catalog, counts, groupKeys, packageChoices, addOnKeys, optionChoices, gstPercent, company, eligibility])
 
   // What the chosen package already covers (Basic: Challan; Standard: all
   // nine). The price uses the same function, so screen and price agree.
@@ -165,7 +175,7 @@ export function usePremiumRecharge() {
 
   /** `paying` stays on after success: the page is on its way to Cashfree. */
   const checkout = useCallback(async () => {
-    if (!quote || quote.issues.length || paying || !company?.comp_name) return
+    if (!quote || quote.issues.length || paying || !company?.comp_name || !eligibility.eligible) return
     setPaying(true)
     try {
       await startCheckout(
@@ -185,7 +195,7 @@ export function usePremiumRecharge() {
       toast.error(error.message || 'The payment could not be started.')
       setPaying(false)
     }
-  }, [quote, paying, company, counts, catalog, groupKeys, packageChoices, addOnKeys, optionChoices])
+  }, [quote, paying, company, eligibility, counts, catalog, groupKeys, packageChoices, addOnKeys, optionChoices])
 
   const retry = useCallback(() => {
     setLoad({ status: 'loading', response: null, error: null })
@@ -200,6 +210,7 @@ export function usePremiumRecharge() {
     companies: allCompanies,
     company,
     setCompanyId,
+    eligibility,
     counts,
     setCount,
     groupKeys,

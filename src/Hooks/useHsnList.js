@@ -13,7 +13,7 @@
  */
 
 import { useCodeList } from '@/Hooks/useCodeList'
-import { cachedHsnList, loadHsnList } from '@/Services/hsnService'
+import { cachedHsnList, loadHsnList } from '@/Services/Product/hsnService'
 
 export default function useHsnList() {
   return useCodeList(cachedHsnList, loadHsnList)

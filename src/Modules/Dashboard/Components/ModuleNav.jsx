@@ -4,7 +4,7 @@ import { ChevronDown, ChevronUp } from 'lucide-react'
 import { Tooltip } from '@/Components/ui/tooltip'
 import useModuleNav from '@/Hooks/useModuleNav'
 import { cn } from '@/Library/utils'
-import { NO_VIEW_MESSAGE } from '@/Services/accessService'
+import { NO_VIEW_MESSAGE } from '@/Services/Auth/accessService'
 
 /**
  * The one horizontal bar across the top of every dashboard page:

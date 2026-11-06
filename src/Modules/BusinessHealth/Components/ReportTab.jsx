@@ -9,7 +9,7 @@ import { toast } from '@/Library/toast'
 import { benchmarkFor, buildReportPayload, readReport, requestOf, validateReport } from '@/Modules/BusinessHealth/businessHealth'
 import ReportFilters from '@/Modules/BusinessHealth/Components/ReportFilters'
 import { ReportCard } from '@/Modules/BusinessHealth/Components/ReportCard'
-import { getMisReport } from '@/Services/businessHealthService'
+import { getMisReport } from '@/Services/Reporting/businessHealthService'
 
 /**
  * One report category: the filters, then the generated report.

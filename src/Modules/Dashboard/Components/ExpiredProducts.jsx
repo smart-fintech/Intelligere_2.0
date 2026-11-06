@@ -26,7 +26,7 @@ import { Button } from '@/Components/ui/button'
 import { useActiveCompany } from '@/Hooks/useActiveCompany'
 import useCompanyReport from '@/Hooks/useCompanyReport'
 import { cn } from '@/Library/utils'
-import { getExpiredProducts } from '@/Services/inventoryService'
+import { getExpiredProducts } from '@/Services/Inventory/inventoryProductService'
 import ProductTable from './ProductTable'
 
 export default function ExpiredProducts({ enabled = true }) {

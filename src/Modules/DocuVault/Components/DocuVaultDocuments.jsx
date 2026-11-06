@@ -15,7 +15,7 @@ import { toast } from '@/Library/toast'
 import { cn } from '@/Library/utils'
 import DocumentUploadModal from '@/Modules/DocuVault/Components/DocumentUploadModal'
 import { documentsKey, isStorageFull, readDocumentsReply, refreshDocuVault, sameEmail, showMb } from '@/Modules/DocuVault/docuVault'
-import { deleteDocument, getDocuVaultDocuments, markDocumentDownloaded } from '@/Services/docuVaultService'
+import { deleteDocument, getDocuVaultDocuments, markDocumentDownloaded } from '@/Services/DocuVault/docuVaultService'
 import { orDash } from '@/Utils/display'
 import { downloadFileFromUrl } from '@/Utils/fileDownload'
 

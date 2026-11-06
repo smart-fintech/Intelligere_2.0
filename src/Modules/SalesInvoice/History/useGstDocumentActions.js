@@ -2,7 +2,7 @@ import { useCallback, useRef, useState } from 'react'
 
 import { toast } from '@/Library/toast'
 import useGstr1Filing from '@/Modules/SalesInvoice/History/useGstr1Filing'
-import { documentPdfFileName, saveDocumentPdf, saveEwayBillPdf } from '@/Services/salesInvoiceService'
+import { documentPdfFileName, saveDocumentPdf, saveEwayBillPdf } from '@/Services/Invoice/salesInvoiceService'
 import {
   cancelEinvoiceIrn,
   cancelEwayBill,
@@ -10,7 +10,7 @@ import {
   generateEinvoiceIrn,
   generateEwayBill,
   readEinvoiceDetails,
-} from '@/Services/gstPortalService'
+} from '@/Services/Invoice/gstPortalService'
 
 /**
  * E-INVOICE AND E-WAY BILL IN HISTORY - Sales Invoice, Credit Note and Debit

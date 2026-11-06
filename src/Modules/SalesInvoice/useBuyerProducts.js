@@ -15,7 +15,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 
-import { getUniqueProducts } from '@/Services/salesInvoiceService'
+import { getUniqueProducts } from '@/Services/Invoice/salesInvoiceService'
 
 const NONE = []
 

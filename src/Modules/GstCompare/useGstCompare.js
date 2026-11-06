@@ -59,7 +59,7 @@ import {
   moveToMatch,
   saveEditedEntries,
   setEntryStatus,
-} from '@/Services/gstCompareService'
+} from '@/Services/Gst/gstCompareService'
 import { downloadFileFromUrl } from '@/Utils/fileDownload'
 
 export const LEDGER_SOURCE = Object.freeze({ UPLOAD: 'upload', TALLY: 'tally', INTELLIGERE: 'intelligere', PAST: 'past' })

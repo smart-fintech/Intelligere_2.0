@@ -19,7 +19,7 @@
 
 import { createAsyncThunk, createSlice } from '@reduxjs/toolkit'
 
-import { LEDGER_GROUP_SOURCE, getLedgerGroups, getLedgers } from '@/Services/ledgerService'
+import { LEDGER_GROUP_SOURCE, getLedgerGroups, getLedgers } from '@/Services/Ledger/ledgerService'
 import { selectIsIntelligereErp, selectIsTallyErp } from '@/Store/Slices/profileSlice'
 import { selectActiveCompanyId } from '@/Store/Slices/companySlice'
 

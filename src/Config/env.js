@@ -86,7 +86,7 @@ export const ENV = {
     readNumber(import.meta.env.VITE_IDLE_LOGOUT_MINUTES, 1440) * 60 * 1000,
 
   /* ---- Looking a company up by its GST number ----
-     Used by Services/gstService.
+     Used by Services/Gst/gstService.
 
      Alankit's server sends no CORS headers, so the browser cannot call it
      directly. In development this points at /gst-api, which the Vite dev
@@ -118,7 +118,7 @@ export const ENV = {
 
      Cashfree's v2 SDK has one script per environment - the script itself
      decides where checkout goes - so the environment is simply which URL
-     below is loaded (by Services/cashfreeService, only when a payment
+     below is loaded (by Services/Payment/cashfreeService, only when a payment
      starts). Only an explicit "production" goes live; anything else,
      including a missing value, stays on sandbox. The backend's Cashfree keys
      must be for the same environment. */

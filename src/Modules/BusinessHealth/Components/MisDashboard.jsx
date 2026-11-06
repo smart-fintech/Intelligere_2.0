@@ -21,7 +21,7 @@ import {
   findDashboardReport,
   toSavedReport,
 } from '@/Modules/BusinessHealth/Reports/dashboard'
-import { getDashboardReports, getMisReport, saveDashboardReports } from '@/Services/businessHealthService'
+import { getDashboardReports, getMisReport, saveDashboardReports } from '@/Services/Reporting/businessHealthService'
 import { selectIsTallyErp } from '@/Store/Slices/profileSlice'
 
 /**

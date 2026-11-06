@@ -33,7 +33,7 @@ import { Panel } from '@/Components/Common/Panel'
 import { Button } from '@/Components/ui/button'
 import { useActiveCompany } from '@/Hooks/useActiveCompany'
 import { toast } from '@/Library/toast'
-import { getOpeningStockTemplate, uploadOpeningStock } from '@/Services/inventoryService'
+import { getOpeningStockTemplate, uploadOpeningStock } from '@/Services/Inventory/inventoryProductService'
 import { downloadFileFromUrl } from '@/Utils/fileDownload'
 
 const EXCEL = '.xlsx'

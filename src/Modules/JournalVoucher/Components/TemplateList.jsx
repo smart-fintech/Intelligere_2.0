@@ -9,7 +9,7 @@ import { QUERY } from '@/Constants/queryKeys'
 import { invalidateQueries } from '@/Library/queryCache'
 import { toast } from '@/Library/toast'
 import { cn } from '@/Library/utils'
-import { deleteJvTemplates } from '@/Services/journalVoucherService'
+import { deleteJvTemplates } from '@/Services/Accounting/journalVoucherService'
 
 /**
  * The left of the Journal Entries view: the way to the bank entries and the

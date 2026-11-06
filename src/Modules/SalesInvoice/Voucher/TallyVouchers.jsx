@@ -34,7 +34,7 @@ import {
   editVoucherDocument,
   voucherTypesOfGroup,
   vouchersOfType,
-} from '@/Services/salesInvoiceService'
+} from '@/Services/Invoice/tallyVoucherService'
 import { selectIsErpKnown, selectIsTallyErp } from '@/Store/Slices/profileSlice'
 
 /**

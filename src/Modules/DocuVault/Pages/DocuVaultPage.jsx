@@ -9,7 +9,7 @@ import { ROUTES } from '@/Constants/routes'
 import { useActiveCompany } from '@/Hooks/useActiveCompany'
 import { useAccessScope } from '@/Hooks/useSectionAccess'
 import DocuVaultScreen from '@/Modules/DocuVault/Components/DocuVaultScreen'
-import { hasDocuVaultModule } from '@/Services/docuVaultService'
+import { hasDocuVaultModule } from '@/Services/DocuVault/docuVaultService'
 import { fetchCompanies, selectCompanyError, selectCompanyStatus } from '@/Store/Slices/companySlice'
 
 /**

@@ -13,7 +13,7 @@ import {
   textOf,
   withCurrentOption,
 } from '@/Modules/SalesInvoice/salesInvoiceForm'
-import { DEFAULT_COUNTRY, getCountries, getStates } from '@/Services/locationService'
+import { DEFAULT_COUNTRY, getCountries, getStates } from '@/Services/Global/locationService'
 
 /**
  * Purchase Step 1 - Seller Details (the SUPPLIER), and Dispatched From under it.

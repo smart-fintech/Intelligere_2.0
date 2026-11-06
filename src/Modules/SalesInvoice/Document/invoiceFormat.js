@@ -16,7 +16,7 @@
  * so a value can be bold inside a line without the template building strings.
  */
 
-import { toDocumentDate } from '@/Services/salesInvoiceService'
+import { toDocumentDate } from '@/Services/Invoice/salesInvoiceService'
 
 /* ------------------------------------------------------------------ */
 /* Values                                                             */

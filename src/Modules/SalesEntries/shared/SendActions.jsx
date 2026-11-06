@@ -10,17 +10,29 @@ import { plural } from '@/Modules/SalesEntries/shared/ledgerLists'
  *
  *   isTally   Send is for a Tally account only; Mapping is for everyone
  *   tally     useTallySendAndMark;  guard  useGuardedSend
+ *   onMapping      optional - no mapping button without it (B2B / CNDN put theirs in the card's header)
+ *   mappingLabel   optional - the mapping button's text (default Keyword Mapping)
+ *   blocked        optional - why nothing may be sent now (B2B / CNDN's GST ledger
+ *                  check): Send is disabled and the reason shown beside it
  */
-export default function SendActions({ isTally, count, tally, guard, busy, onMapping }) {
+export default function SendActions({ isTally, count, tally, guard, busy, onMapping, mappingLabel = 'Keyword Mapping', blocked }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <Button type="button" variant="outline" size="sm" icon={Waypoints} disabled={busy} onClick={onMapping}>
-        Keyword Mapping
-      </Button>
+      {onMapping ? (
+        <Button type="button" variant="outline" size="sm" icon={Waypoints} disabled={busy} onClick={onMapping}>
+          {mappingLabel}
+        </Button>
+      ) : null}
       {isTally ? (
         <>
-          <span className="text-xs text-muted-foreground">{plural(count, 'entry', 'entries')} selected</span>
-          <Button type="button" size="sm" icon={Send} loading={tally.busy} disabled={count === 0 || busy} onClick={guard.send}>
+          {blocked ? (
+            <span role="status" className="text-xs font-medium text-destructive">
+              {blocked}
+            </span>
+          ) : (
+            <span className="text-xs text-muted-foreground">{plural(count, 'entry', 'entries')} selected</span>
+          )}
+          <Button type="button" size="sm" icon={Send} loading={tally.busy} disabled={count === 0 || busy || Boolean(blocked)} onClick={guard.send}>
             {tally.marking ? 'Marking as sent...' : tally.busy ? 'Sending...' : `Send ${count || ''} to Tally`}
           </Button>
         </>

@@ -21,7 +21,7 @@ import { QUERY } from '@/Constants/queryKeys'
 import { useActiveCompany } from '@/Hooks/useActiveCompany'
 import { useQuery } from '@/Library/queryCache'
 import { readForecastRules } from '@/Modules/Dashboard/forecasting'
-import { getForecastRules } from '@/Services/inventoryService'
+import { getForecastRules } from '@/Services/Inventory/forecastService'
 
 export default function useForecastRules(enabled = true) {
   const { activeCompanyName: companyName } = useActiveCompany()

@@ -29,7 +29,7 @@ import { useDispatch, useSelector } from 'react-redux'
 import { ENV } from '@/Config/env'
 import { getEmail } from '@/Library/secureStorage'
 import { toast } from '@/Library/toast'
-import { PRODUCT_TYPE, applyOffer, checkOffer, getPriceList, getSubscription } from '@/Services/paymentService'
+import { PRODUCT_TYPE, applyOffer, checkOffer, getPriceList, getSubscription } from '@/Services/Payment/paymentService'
 import {
   fetchProfile,
   selectProfile,

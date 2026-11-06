@@ -25,7 +25,7 @@ import { useMemo } from 'react'
 import { useActiveCompany } from '@/Hooks/useActiveCompany'
 import { MASTER_DATA_STALE_MS, QUERY } from '@/Constants/queryKeys'
 import { useQuery } from '@/Library/queryCache'
-import { getProductUnits } from '@/Services/productService'
+import { getProductUnits } from '@/Services/Product/productService'
 
 const NO_UNITS = []
 

@@ -6,7 +6,7 @@ import {
   isLoggedIn,
   startInactivityWatch,
   stopInactivityWatch,
-} from '@/Services/tokenService';
+} from '@/Services/Auth/tokenService';
 
 const App = () => {
   // Runs once when the app starts.

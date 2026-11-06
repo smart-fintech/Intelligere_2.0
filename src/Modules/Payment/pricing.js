@@ -1862,7 +1862,7 @@ export const packageTypeFor = (mode) =>
  *
  * Premium sends every module of the plan; Custom only the ticked ones.
  * A module priced by option carries the option chosen, in either.
- * `productType` is the caller's (PRODUCT_TYPE.MAIN in Services/paymentService).
+ * `productType` is the caller's (PRODUCT_TYPE.MAIN in Services/Payment/paymentService).
  */
 export const buildPaymentPayload = ({
   catalog,

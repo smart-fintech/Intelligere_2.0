@@ -14,7 +14,7 @@
  *   const countries = useMemo(() => getCountries(countryData), [countryData])
  *
  * The digging into the response's `state_city` is NOT done here - it is in
- * Services/locationService, so the same three questions (which countries,
+ * Services/Global/locationService, so the same three questions (which countries,
  * which states, which cities) are answered the same way wherever they are
  * asked. This slice only holds the answer to the request; see the note above
  * the selectors for why it does not slice it up as well.
@@ -22,7 +22,7 @@
 
 import { createAsyncThunk, createSlice } from '@reduxjs/toolkit'
 
-import { getCountryList } from '@/Services/locationService'
+import { getCountryList } from '@/Services/Global/locationService'
 
 /* ------------------------------------------------------------------ */
 /* Loading                                                            */
@@ -110,7 +110,7 @@ export default locationSlice.reducer
  * would then re-render on every change to any part of the store (the hazard
  * written up at the foot of profileSlice). A screen reads the raw list with
  * the selector below and works the three lists out from it with useMemo,
- * using getCountries / getStates / getCities from Services/locationService -
+ * using getCountries / getStates / getCities from Services/Global/locationService -
  * see the Ledger Form.
  */
 export const selectCountryData = (state) => state.location.items
